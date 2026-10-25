@@ -1,0 +1,145 @@
+export type Vec = { x: number; y: number };
+export type PlayerId = 0 | 1;
+export type Stance = 'normal' | 'charge' | 'evade';
+export type Hand = 'right' | 'left';
+export type RangeBand = 0 | 1 | 2 | 3;
+export type GrappleChoice = 'slash' | 'parry' | 'grab' | 'push' | 'disengage';
+export type DamageMode = 'focused' | 'scattered';
+export type BodyPartId = 'torso' | 'rarm' | 'larm' | 'pack' | 'legs' | 'head';
+
+// ---- 靜態資料 ----
+
+export interface EquipDef {
+  id: string;
+  name: string;
+  kind: 'ranged' | 'melee' | 'shield' | 'tank';
+  weight: number; // 命中部位權重
+  durability: number;
+  damage?: number;
+  shots?: number;
+  mode?: DamageMode;
+  /** 各距離帶的命中修正；沒有列出的距離帶不能射擊。Range 0 一律可用（零距離射擊）。 */
+  ranges?: Partial<Record<1 | 2 | 3, number>>;
+  fuel?: number;
+}
+
+export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hover';
+
+export interface ChassisDef {
+  id: string;
+  name: string;
+  weightClass: number;
+  propellant: number;
+  power: number;
+  aim: number;
+  evasion: number;
+  parts: Record<BodyPartId, { weight: number; durability: number }>;
+  dial: string[]; // 機動 id
+}
+
+export interface PilotDef {
+  id: string;
+  name: string;
+  skill: number;
+  maxStress: number;
+  recovery: number;
+  abilities: 'quick_draw'[];
+}
+
+// ---- 動態狀態 ----
+
+export interface PartState {
+  id: string;
+  name: string;
+  kind: 'body' | 'equip';
+  weight: number;
+  durability: number;
+  damage: number;
+  destroyed: boolean;
+}
+
+export interface EquipState {
+  id: string; // 同時是部位 id
+  defId: string;
+  location: Hand | 'stowed' | 'mount';
+}
+
+export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';
+
+export interface UnitState {
+  id: string;
+  owner: PlayerId;
+  label: string;
+  chassisId: string;
+  pilotId: string;
+  pos: Vec;
+  facing: number; // 弧度；0 = +x，正值為順時針（畫面 y 向下）
+  propellant: number;
+  maxPropellant: number;
+  stress: number;
+  maxStress: number;
+  parts: Record<string, PartState>;
+  equipment: EquipState[];
+  lockOn: string | null;
+  status: UnitStatus;
+  blackout: boolean;
+}
+
+export interface GrappleState {
+  a: string;
+  b: string;
+  advantage: string | null;
+}
+
+export interface GameState {
+  turn: number;
+  units: UnitState[];
+  grapples: GrappleState[];
+  rngState: number;
+  winner: PlayerId | 'draw' | null;
+}
+
+// ---- 指令 ----
+
+export type Action =
+  | { type: 'none' }
+  | { type: 'shoot'; weapon: string; target: string }
+  | { type: 'lock'; target: string };
+
+export interface UnitPlan {
+  maneuver: string;
+  stance: Stance;
+  facingOffset: number;
+  limiter: boolean;
+  /** 接觸時花 1 壓力把結果降一檔 */
+  soften: boolean;
+  swap?: { hand: Hand; equip: string | null };
+  action: Action;
+  grapple?: GrappleChoice;
+}
+
+export type PlayerPlans = Record<string, UnitPlan>;
+
+// ---- 事件 ----
+
+export type ContactResult = 'none' | 'bump' | 'clinch' | 'hitrun' | 'ram';
+
+export type GameEvent =
+  | { type: 'turnStart'; turn: number }
+  | { type: 'move'; unit: string; samples: [number, number, number][] }
+  | { type: 'contact'; t: number; a: string; b: string; vc: number; result: ContactResult }
+  | { type: 'strike'; t: number; attacker: string; defender: string; weapon: string; outcome: 'hit' | 'parried' | 'blocked'; angle: 'front' | 'side' | 'back'; chance?: number }
+  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number }
+  | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
+  | { type: 'knockback'; unit: string; to: Vec; facing: number }
+  | { type: 'stress'; unit: string; amount: number; total: number; reason: string }
+  | { type: 'propellant'; unit: string; amount: number; total: number }
+  | { type: 'pilot'; unit: string; state: 'blackout' | 'injured' | 'unconscious' | 'sluggish' }
+  | { type: 'status'; unit: string; status: 'destroyed' | 'withdrawn' | 'disabled' }
+  | { type: 'grapple'; a: string; b: string; choiceA: GrappleChoice; choiceB: GrappleChoice; summary: string; advantage: string | null; ended: boolean }
+  | { type: 'reposition'; unit: string; to: Vec }
+  | { type: 'swap'; unit: string; hand: Hand; equip: string | null }
+  | { type: 'lock'; unit: string; target: string }
+  | { type: 'actionFail'; unit: string; reason: string }
+  | { type: 'fuelFire'; unit: string }
+  | { type: 'gameOver'; winner: PlayerId | 'draw' };

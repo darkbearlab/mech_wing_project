@@ -1,0 +1,8 @@
+{
+  "name": "@mech/client",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite --port 5173 --strictPort" },
+  "dependencies": { "@mech/rules": "*" },
+  "devDependencies": { "vite": "^6.1.0" }
+}

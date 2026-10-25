@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>機器人戰術對戰 原型</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <strong>機器人戰術對戰 · 原型</strong>
+      <span id="status"></span>
+      <span class="spacer"></span>
+      <span id="seatLinks"></span>
+      <button id="resetBtn" title="重開這個房間">重開</button>
+    </header>
+    <main>
+      <div class="board">
+        <canvas id="map" width="672" height="672"></canvas>
+        <div id="legend">藍：A 方　紅：B 方　虛線：本回合預覽軌跡　淡圈：所選機體的 Range 1／中／遠距離</div>
+      </div>
+      <aside>
+        <div id="units"></div>
+        <div id="editor"></div>
+        <div id="submitArea"></div>
+      </aside>
+      <section id="log"></section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
