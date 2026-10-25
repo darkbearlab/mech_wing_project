@@ -4,8 +4,22 @@
     {
       "name": "mech-wing",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "mech-wing-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "-w",
+        "@mech/client"
+      ],
+      "port": 4173
     }
   ]
 }

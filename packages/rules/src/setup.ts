@@ -48,5 +48,5 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
       units.push(createUnit(entry, owner as PlayerId, i, { x, y }, facing));
     });
   });
-  return { turn: 1, units, grapples: [], rngState: seed >>> 0, winner: null };
+  return { turn: 1, phase: 'move', turnInfo: null, units, grapples: [], rngState: seed >>> 0, winner: null };
 }

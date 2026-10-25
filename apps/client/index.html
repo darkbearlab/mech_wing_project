@@ -12,6 +12,7 @@
       <span id="status"></span>
       <span class="spacer"></span>
       <span id="seatLinks"></span>
+      <button id="helpBtn">玩法說明</button>
       <button id="resetBtn" title="重開這個房間">重開</button>
     </header>
     <main>
@@ -20,6 +21,7 @@
         <div id="legend">藍：A 方　紅：B 方　虛線：本回合預覽軌跡　淡圈：所選機體的 Range 1／中／遠距離</div>
       </div>
       <aside>
+        <div id="phaseHint" class="hint"></div>
         <div id="units"></div>
         <div id="editor"></div>
         <div id="submitArea"></div>
@@ -27,6 +29,23 @@
       <section id="log"></section>
     </main>
     <div id="cover" hidden></div>
+    <div id="help" hidden>
+      <div class="helpBox">
+        <h2>玩法說明</h2>
+        <p><b>目標</b>：讓對方所有機體失去戰鬥能力（擊毀、駕駛昏迷或飛出地圖）。12 回合內沒分出勝負，就比剩下的機體數。</p>
+        <p><b>每回合兩步</b></p>
+        <ol>
+          <li><b>移動</b>：替每台機體選機動（地圖上的虛線是預計路徑）和姿態，按「送出移動」。雙方都送出後同時移動。</li>
+          <li><b>動作</b>：看到移動後的實際位置，再替每台機體選射擊、鎖定或換武器，按「送出動作」。駕駛技能高的先結算。</li>
+        </ol>
+        <p><b>射擊</b>：地圖上所選機體周圍的淡圈是射程（由內而外：近／中／遠距離），超過最外圈打不到。開場雙方相距很遠，要先靠近幾回合才打得到。選目標時會顯示估計命中率。</p>
+        <p><b>近戰</b>：手上拿光劍或熱能斧、姿態選「突進」，移動時撞上敵機就會出手。相對速度低會纏在一起（纏鬥）、中等是砍一刀就走（一擊脫離）、太快則是兩邊都受傷的撞擊。換武器要在動作步驟做。</p>
+        <p><b>資源</b>：推進劑是整場的預算，用完只能慢慢飛。壓力是駕駛的負荷，超過上限會黑視、受傷，甚至昏迷。高速和急轉都會加壓力。</p>
+        <p><b>隱藏資訊</b>：對手看得到你的機體和受損部位，看不到你的駕駛、壓力和推進劑。本機模式下換人時畫面會先蓋住。</p>
+        <p class="muted">點地圖上的機體或右上方的機體按鈕可以切換查看。</p>
+        <div class="row"><button class="primary" id="helpClose">開始</button></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

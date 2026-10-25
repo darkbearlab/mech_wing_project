@@ -91,8 +91,21 @@ export interface GrappleState {
   advantage: string | null;
 }
 
+export type TurnPhase = 'move' | 'action';
+
+/** 移動結算後、動作結算前要保留的本回合資訊 */
+export interface TurnInfoState {
+  stance: Record<string, Stance>;
+  hovered: string[];
+  /** 擦撞的機體本回合不能執行動作 */
+  bumped: string[];
+}
+
 export interface GameState {
   turn: number;
+  /** 每回合分兩步：先移動，看到結果後再選動作 */
+  phase: TurnPhase;
+  turnInfo: TurnInfoState | null;
   units: UnitState[];
   grapples: GrappleState[];
   rngState: number;
@@ -106,19 +119,25 @@ export type Action =
   | { type: 'shoot'; weapon: string; target: string }
   | { type: 'lock'; target: string };
 
-export interface UnitPlan {
+/** 第一步：移動（纏鬥中的機體改選纏鬥選項） */
+export interface MovePlan {
   maneuver: string;
   stance: Stance;
   facingOffset: number;
   limiter: boolean;
   /** 接觸時花 1 壓力把結果降一檔 */
   soften: boolean;
-  swap?: { hand: Hand; equip: string | null };
-  action: Action;
   grapple?: GrappleChoice;
 }
 
-export type PlayerPlans = Record<string, UnitPlan>;
+/** 第二步：移動結算後選的動作 */
+export interface ActionPlan {
+  swap?: { hand: Hand; equip: string | null };
+  action: Action;
+}
+
+export type PlayerMoves = Record<string, MovePlan>;
+export type PlayerActions = Record<string, ActionPlan>;
 
 // ---- 事件 ----
 

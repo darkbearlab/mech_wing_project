@@ -25,6 +25,8 @@ export interface UnitView {
 
 export interface StateView {
   turn: number;
+  /** 本回合擦撞、不能執行動作的機體（動作階段才有） */
+  bumped: string[];
   units: UnitView[];
   grapples: GrappleState[];
   winner: GameState['winner'];
@@ -48,7 +50,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
 }
 
 export function viewState(s: GameState, viewer: PlayerId): StateView {
-  return { turn: s.turn, units: s.units.map((u) => viewUnit(u, viewer)), grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, bumped: s.turnInfo?.bumped ?? [], units: s.units.map((u) => viewUnit(u, viewer)), grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 export function filterEvents(events: GameEvent[], state: GameState, viewer: PlayerId): GameEvent[] {

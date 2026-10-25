@@ -1,6 +1,6 @@
-import type { GameEvent, PlayerPlans, PlayerView } from './index';
+import type { GameEvent, PlayerActions, PlayerMoves, PlayerView } from './index';
 
-export type ClientMessage = { t: 'plans'; plans: PlayerPlans } | { t: 'reset' };
+export type ClientMessage = { t: 'moves'; moves: PlayerMoves } | { t: 'actions'; actions: PlayerActions } | { t: 'reset' };
 
 export type ServerMessage =
   | { t: 'state'; view: PlayerView; connected: [boolean, boolean]; deadline: number | null }

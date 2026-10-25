@@ -16,12 +16,13 @@ import {
   type GameEvent,
   type GrappleChoice,
   type Hand,
+  type ActionPlan,
   type ClientMessage,
+  type MovePlan,
   type PlayerId,
   type PlayerView,
   type ServerMessage,
   type Stance,
-  type UnitPlan,
   type UnitState,
   type UnitView,
   type Vec,
@@ -92,13 +93,16 @@ function switchSeat(next: PlayerId) {
 
 // ---------- 用戶端狀態 ----------
 
-let drafts: Record<string, UnitPlan> = {};
+let moveDrafts: Record<string, MovePlan> = {};
+let actionDrafts: Record<string, ActionPlan> = {};
 let draftKey = '';
 let selected: string | null = null;
 let pendingView: PlayerView | null = null;
-let playback: { events: GameEvent[]; start: number; prevUnits: UnitView[] } | null = null;
+let playback: { events: GameEvent[]; start: number; duration: number; prevUnits: UnitView[] } | null = null;
 const logs: [{ text: string; cls: string }[], { text: string; cls: string }[]] = [[], []];
 const PLAYBACK_MS = 2600;
+/** 只有射擊等動作、沒有移動時的播放時間 */
+const ACTION_PLAYBACK_MS = 900;
 
 function onMessage(msg: ServerMessage) {
   if (msg.t === 'state') {
@@ -109,7 +113,8 @@ function onMessage(msg: ServerMessage) {
   } else if (msg.t === 'resolved') {
     errors = [];
     appendLog(msg.events);
-    playback = { events: msg.events, start: performance.now(), prevUnits: view?.state.units ?? [] };
+    const duration = msg.events.some((e) => e.type === 'move') ? PLAYBACK_MS : ACTION_PLAYBACK_MS;
+    playback = { events: msg.events, start: performance.now(), duration, prevUnits: view?.state.units ?? [] };
     // 用計時器結束播放：分頁在背景時 requestAnimationFrame 不會跑，不能靠它套用新狀態
     const current = playback;
     setTimeout(() => {
@@ -117,7 +122,7 @@ function onMessage(msg: ServerMessage) {
       playback = null;
       if (pendingView) applyView(pendingView);
       pendingView = null;
-    }, PLAYBACK_MS + 400);
+    }, duration + 400);
   } else if (msg.t === 'error') {
     errors = msg.errors;
     renderPanel();
@@ -127,10 +132,15 @@ function onMessage(msg: ServerMessage) {
 function applyView(v: PlayerView) {
   view = v;
   const key = `${v.state.turn}:${v.phase}`;
-  if (v.phase === 'planning' && key !== draftKey) {
+  if (key !== draftKey) {
     draftKey = key;
-    drafts = {};
-    for (const u of ownUnits()) if (u.status === 'active') drafts[u.id] = initialPlan(u);
+    moveDrafts = {};
+    actionDrafts = {};
+    for (const u of ownUnits()) {
+      if (u.status !== 'active') continue;
+      if (v.phase === 'move') moveDrafts[u.id] = initialMove(u);
+      if (v.phase === 'action') actionDrafts[u.id] = { action: { type: 'none' } };
+    }
   }
   if (!selected || !v.state.units.some((u) => u.id === selected)) selected = ownUnits().find((u) => u.status === 'active')?.id ?? null;
   renderAll();
@@ -146,14 +156,14 @@ const equipName = (u: UnitView | undefined, eqId: string | null) => {
   return e ? EQUIPMENT[e.defId].name : eqId;
 };
 
-function initialPlan(u: UnitView): UnitPlan {
+function initialMove(u: UnitView): MovePlan {
   const opts = availableManeuvers(u);
   const pick = opts.find((m) => m.id === 'straight-S-2') ?? opts.find((m) => m.propellant === 0) ?? opts[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, soften: false, action: { type: 'none' }, grapple: 'push' };
+  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, soften: false, grapple: 'push' };
 }
 
 /** 套用規劃中的換武器後，手上會拿著什麼 */
-function equipmentAfterSwap(u: UnitView, plan: UnitPlan | undefined): EquipState[] {
+function equipmentAfterSwap(u: UnitView, plan: ActionPlan | undefined): EquipState[] {
   const eq = structuredClone(u.equipment);
   if (!plan?.swap) return eq;
   const { hand, equip } = plan.swap;
@@ -163,7 +173,7 @@ function equipmentAfterSwap(u: UnitView, plan: UnitPlan | undefined): EquipState
   return eq;
 }
 
-function heldAfter(u: UnitView, plan: UnitPlan | undefined, hand: Hand): EquipState | null {
+function heldAfter(u: UnitView, plan: ActionPlan | undefined, hand: Hand): EquipState | null {
   const arm = hand === 'right' ? 'rarm' : 'larm';
   if (u.parts[arm].destroyed) return null;
   return equipmentAfterSwap(u, plan).find((e) => e.location === hand && !u.parts[e.id].destroyed) ?? null;
@@ -196,7 +206,7 @@ function drawFrame(now: number) {
 
   let progress = 1;
   // rAF 的時間戳可能比 playback.start 還早，要夾在 0..1
-  if (playback) progress = Math.max(0, Math.min(1, (now - playback.start) / PLAYBACK_MS));
+  if (playback) progress = Math.max(0, Math.min(1, (now - playback.start) / playback.duration));
 
   if (!playback) {
     drawRanges();
@@ -324,10 +334,25 @@ function drawPath(u: UnitView, maneuver: string, limiter: boolean, style: string
 }
 
 function drawPreviews() {
-  if (view?.phase !== 'planning') return;
-  for (const [id, plan] of Object.entries(drafts)) {
-    const u = unitView(id);
-    if (u && !inGrapple(id)) drawPath(u, plan.maneuver, plan.limiter, color(u.owner, id === selected ? 0.9 : 0.45));
+  if (view?.phase === 'move') {
+    for (const [id, plan] of Object.entries(moveDrafts)) {
+      const u = unitView(id);
+      if (u && !inGrapple(id)) drawPath(u, plan.maneuver, plan.limiter, color(u.owner, id === selected ? 0.9 : 0.45));
+    }
+  } else if (view?.phase === 'action') {
+    // 已選的射擊／鎖定目標
+    for (const [id, plan] of Object.entries(actionDrafts)) {
+      const a = unitView(id);
+      const t = plan.action.type !== 'none' ? unitView(plan.action.target) : null;
+      if (!a || !t) continue;
+      g.strokeStyle = plan.action.type === 'shoot' ? 'rgba(255,207,74,0.8)' : 'rgba(120,220,255,0.7)';
+      g.setLineDash([6, 4]);
+      g.beginPath();
+      g.moveTo(a.pos.x * S, a.pos.y * S);
+      g.lineTo(t.pos.x * S, t.pos.y * S);
+      g.stroke();
+      g.setLineDash([]);
+    }
   }
 }
 
@@ -365,7 +390,7 @@ function renderStatus() {
     $('status').textContent = '連線中…';
     return;
   }
-  const phase = { planning: '規劃', over: '結束' }[view.phase];
+  const phase = { move: '步驟 1／2：移動', action: '步驟 2／2：動作', over: '對戰結束' }[view.phase];
   const opp = connected[seat === 0 ? 1 : 0] ? '' : '（對手未連線）';
   const timer = deadline ? `　剩 ${Math.max(0, Math.round((deadline - Date.now()) / 1000))} 秒` : '';
   $('status').textContent = `第 ${view.state.turn} 回合 · ${phase}${opp}${timer}`;
@@ -397,6 +422,12 @@ function partsHtml(u: UnitView): string {
   return `<div class="parts">${rows.join('')}</div>`;
 }
 
+const PHASE_HINT = {
+  move: '<b>步驟 1／2：移動</b>　替每台機體選機動和姿態（地圖上的虛線是預計路徑），全部選好後按「送出移動」。雙方同時移動。',
+  action: '<b>步驟 2／2：動作</b>　移動已結算，現在看得到實際距離。替每台機體選射擊、鎖定或換武器，再按「送出動作」。駕駛技能高的先結算。',
+  over: '',
+};
+
 function renderPanel() {
   const ed = $('editor');
   const sub = $('submitArea');
@@ -405,6 +436,7 @@ function renderPanel() {
     sub.innerHTML = '';
     return;
   }
+  $('phaseHint').innerHTML = PHASE_HINT[view.phase];
   const u = selected ? unitView(selected) : null;
   ed.innerHTML = u ? unitPanel(u) : '';
   bindEditor(u);
@@ -416,17 +448,33 @@ function renderPanel() {
     return;
   }
   const done = view.submitted[view.you];
-  sub.innerHTML = `<hr>${costSummary()}<div class="row"><button class="primary" id="submitBtn" ${done ? 'disabled' : ''}>${done ? '已送出，等待對手…' : '送出指令'}</button></div>`;
-  $('submitBtn').onclick = () => sendMsg({ t: 'plans', plans: drafts });
+  const isMove = view.phase === 'move';
+  const label = done ? '已送出，等待對手…' : isMove ? '送出移動' : '送出動作';
+  sub.innerHTML = `<hr>${isMove ? moveSummary() : actionSummary()}<div class="row"><button class="primary" id="submitBtn" ${done ? 'disabled' : ''}>${label}</button></div>`;
+  $('submitBtn').onclick = () => sendMsg(isMove ? { t: 'moves', moves: moveDrafts } : { t: 'actions', actions: actionDrafts });
   if (errors.length) sub.innerHTML += `<div class="err">${errors.map(esc).join('<br>')}</div>`;
 }
 
-function costSummary(): string {
-  const lines = Object.entries(drafts).map(([id, plan]) => {
+function moveSummary(): string {
+  const lines = Object.entries(moveDrafts).map(([id, plan]) => {
     const u = unitView(id)!;
     if (inGrapple(id)) return `${esc(u.label)}：纏鬥「${GRAPPLE_NAMES[plan.grapple ?? 'push']}」`;
     const c = planCost(plan);
     return `${esc(u.label)}：${parseManeuver(plan.maneuver).name}，推進劑 −${c.propellant}，壓力 +${c.stress}`;
+  });
+  return `<div class="muted" style="font-size:12px">${lines.join('<br>')}</div>`;
+}
+
+function actionSummary(): string {
+  const lines = Object.entries(actionDrafts).map(([id, plan]) => {
+    const u = unitView(id)!;
+    if (view!.state.bumped.includes(id)) return `${esc(u.label)}：擦撞，本回合不能行動`;
+    const a = plan.action;
+    const parts = [];
+    if (plan.swap) parts.push(`換上${equipName(u, plan.swap.equip)}`);
+    if (a.type === 'shoot') parts.push(`射擊 ${esc(labelOf(a.target))}`);
+    if (a.type === 'lock') parts.push(`鎖定 ${esc(labelOf(a.target))}`);
+    return `${esc(u.label)}：${parts.join('，') || '不行動'}`;
   });
   return `<div class="muted" style="font-size:12px">${lines.join('<br>')}</div>`;
 }
@@ -445,34 +493,39 @@ function unitPanel(u: UnitView): string {
   }
   html += `<div>${hands}</div>${partsHtml(u)}`;
   if (u.status !== 'active') return html + `<div class="err">${{ destroyed: '已擊毀', withdrawn: '已脫離戰場', unconscious: '駕駛昏迷', disabled: '停止動作' }[u.status]}</div>`;
-  if (!mine || view!.phase !== 'planning' || view!.submitted[view!.you]) return html;
-
-  const plan = drafts[u.id];
+  if (!mine || view!.phase === 'over' || view!.submitted[view!.you]) return html;
   html += '<hr>';
+  return html + (view!.phase === 'move' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]));
+}
+
+function moveControls(u: UnitView, plan: MovePlan): string {
   if (inGrapple(u.id)) {
     const opts = grappleOptions(u as unknown as UnitState);
-    html += `<div class="warn">纏鬥中：本回合不移動</div><div class="row"><label>纏鬥</label><select data-f="grapple">${opts.map((o) => `<option value="${o}" ${plan.grapple === o ? 'selected' : ''}>${GRAPPLE_NAMES[o]}</option>`).join('')}</select></div>`;
-  } else {
-    const prop = (u.propellant ?? 0) - (plan.facingOffset ? config.FACING_OFFSET_COST : 0);
-    const opts = availableManeuvers({ ...u, propellant: prop });
-    if (!opts.some((m) => m.id === plan.maneuver) && opts[0]) plan.maneuver = opts[0].id;
-    html += `<div class="row"><label>機動</label><select data-f="maneuver">${opts.map((m) => `<option value="${m.id}" ${m.id === plan.maneuver ? 'selected' : ''}>${m.name}（推 ${m.propellant}／壓 ${m.stress}）</option>`).join('')}</select></div>`;
-    html += `<div class="row"><label>姿態</label>${(['normal', 'charge', 'evade'] as Stance[]).map((s) => `<label><input type="radio" name="stance" value="${s}" ${plan.stance === s ? 'checked' : ''}> ${{ normal: '一般', charge: '突進', evade: '迴避' }[s]}</label>`).join('')}</div>`;
-    html += `<div class="row"><label>轉身</label><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
-    html += `<div class="row"><label></label><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（速度 +1，壓力 +${config.LIMITER_STRESS}）</label></div>`;
-    html += `<div class="row"><label></label><label><input type="checkbox" data-f="soften" ${plan.soften ? 'checked' : ''}> 收刀（接觸時花 1 壓力降一檔）</label></div>`;
+    return `<div class="warn">纏鬥中：本回合不移動，改選纏鬥動作</div><div class="row"><label>纏鬥</label><select data-f="grapple">${opts.map((o) => `<option value="${o}" ${plan.grapple === o ? 'selected' : ''}>${GRAPPLE_NAMES[o]}</option>`).join('')}</select></div>`;
   }
-  // 換武器
+  const prop = (u.propellant ?? 0) - (plan.facingOffset ? config.FACING_OFFSET_COST : 0);
+  const opts = availableManeuvers({ ...u, propellant: prop });
+  if (!opts.some((m) => m.id === plan.maneuver) && opts[0]) plan.maneuver = opts[0].id;
+  let html = `<div class="row"><label>機動</label><select data-f="maneuver">${opts.map((m) => `<option value="${m.id}" ${m.id === plan.maneuver ? 'selected' : ''}>${m.name}（推 ${m.propellant}／壓 ${m.stress}）</option>`).join('')}</select></div>`;
+  html += `<div class="row"><label>姿態</label>${(['normal', 'charge', 'evade'] as Stance[]).map((s) => `<label><input type="radio" name="stance" value="${s}" ${plan.stance === s ? 'checked' : ''}> ${{ normal: '一般', charge: '突進', evade: '迴避' }[s]}</label>`).join('')}</div>`;
+  html += `<div class="muted" style="font-size:12px">${{ normal: '撞到別人只算碰撞。', charge: '撞到敵機時發動近戰（手上要有光劍或熱能斧才砍得到）。', evade: '比較不容易被撞到、被射中。' }[plan.stance]}</div>`;
+  html += `<div class="row"><label>轉身</label><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
+  html += `<div class="row"><label></label><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（速度 +1，壓力 +${config.LIMITER_STRESS}）</label></div>`;
+  html += `<div class="row"><label></label><label><input type="checkbox" data-f="soften" ${plan.soften ? 'checked' : ''}> 收刀（接觸時花 1 壓力降一檔）</label></div>`;
+  return html;
+}
+
+function actionControls(u: UnitView, plan: ActionPlan): string {
+  if (view!.state.bumped.includes(u.id)) return '<div class="warn">這台機體在移動時擦撞，本回合不能行動。</div>';
   const swappable = u.equipment.filter((e) => e.location !== 'mount' && !u.parts[e.id].destroyed);
   const swapHand = plan.swap?.hand ?? 'right';
-  html += `<div class="row"><label>換武器</label><select data-f="swapHand"><option value="">不換</option>${(['right', 'left'] as Hand[]).map((h) => `<option value="${h}" ${plan.swap && swapHand === h ? 'selected' : ''}>${h === 'right' ? '右手' : '左手'}</option>`).join('')}</select>`;
+  let html = `<div class="row"><label>換武器</label><select data-f="swapHand"><option value="">不換</option>${(['right', 'left'] as Hand[]).map((h) => `<option value="${h}" ${plan.swap && swapHand === h ? 'selected' : ''}>${h === 'right' ? '右手' : '左手'}</option>`).join('')}</select>`;
   if (plan.swap) html += `<select data-f="swapEquip"><option value="">空手</option>${swappable.map((e) => `<option value="${e.id}" ${plan.swap!.equip === e.id ? 'selected' : ''}>${EQUIPMENT[e.defId].name}</option>`).join('')}</select>`;
   html += '</div>';
-  // 動作
   const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active');
   const ranged = (['right', 'left'] as Hand[]).map((h) => heldAfter(u, plan, h)).filter((e): e is EquipState => !!e && EQUIPMENT[e.defId].kind === 'ranged');
   const act = plan.action;
-  html += `<div class="row"><label>動作</label><select data-f="actionType"><option value="none">無</option><option value="shoot" ${act.type === 'shoot' ? 'selected' : ''}>射擊</option><option value="lock" ${act.type === 'lock' ? 'selected' : ''}>鎖定</option></select>`;
+  html += `<div class="row"><label>動作</label><select data-f="actionType"><option value="none">不行動</option><option value="shoot" ${act.type === 'shoot' ? 'selected' : ''}>射擊</option><option value="lock" ${act.type === 'lock' ? 'selected' : ''}>鎖定（下次射擊 +${config.LOCK_BONUS}%）</option></select>`;
   if (act.type === 'shoot') html += `<select data-f="weapon">${ranged.map((e) => `<option value="${e.id}" ${act.weapon === e.id ? 'selected' : ''}>${EQUIPMENT[e.defId].name}</option>`).join('') || '<option value="">（手上沒有射擊武器）</option>'}</select>`;
   if (act.type !== 'none') {
     html += `<select data-f="target">${enemies
@@ -481,42 +534,43 @@ function unitPanel(u: UnitView): string {
         if (act.type === 'shoot') {
           const w = ranged.find((e) => e.id === act.weapon);
           const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, targetStance: null, targetHovered: false }) : null;
-          est = h ? `　${bandName(h.band)} 預估 ${h.chance}%` : '　射程外';
+          est = h ? `　${bandName(h.band)}・約 ${h.chance}%` : '　射程外';
         }
         return `<option value="${t.id}" ${act.target === t.id ? 'selected' : ''}>${esc(t.label)}${est}</option>`;
       })
       .join('')}</select>`;
   }
   html += '</div>';
-  if (act.type === 'shoot') html += '<div class="muted" style="font-size:12px">預估命中率以目前位置計算（移動前），且不含對手駕駛與姿態。</div>';
+  if (act.type === 'shoot') html += '<div class="muted" style="font-size:12px">命中率是估計值：看不到對手的駕駛技能與姿態，實際通常會再低一些。</div>';
   if (plan.swap && !PILOTS[u.pilotId!].abilities.includes('quick_draw') && act.type !== 'none') html += '<div class="warn">換武器會用掉這回合的動作。</div>';
   return html;
 }
 
 function bindEditor(u: UnitView | null | undefined) {
-  if (!u || !drafts[u.id]) return;
-  const plan = drafts[u.id];
+  if (!u) return;
+  const move = moveDrafts[u.id];
+  const plan = actionDrafts[u.id];
   const ed = $('editor');
   const rerender = () => renderPanel();
-  ed.querySelectorAll<HTMLInputElement>('input[name=stance]').forEach((r) => (r.onchange = () => ((plan.stance = r.value as Stance), rerender())));
+  ed.querySelectorAll<HTMLInputElement>('input[name=stance]').forEach((r) => (r.onchange = () => ((move.stance = r.value as Stance), rerender())));
   ed.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-f]').forEach((el) => {
     el.onchange = () => {
       const v = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
       switch (el.dataset.f) {
         case 'maneuver':
-          plan.maneuver = v as string;
+          move.maneuver = v as string;
           break;
         case 'grapple':
-          plan.grapple = v as GrappleChoice;
+          move.grapple = v as GrappleChoice;
           break;
         case 'facingOffset':
-          plan.facingOffset = Number(v);
+          move.facingOffset = Number(v);
           break;
         case 'limiter':
-          plan.limiter = v as boolean;
+          move.limiter = v as boolean;
           break;
         case 'soften':
-          plan.soften = v as boolean;
+          move.soften = v as boolean;
           break;
         case 'swapHand':
           plan.swap = v ? { hand: v as Hand, equip: heldAfter(u, undefined, v as Hand)?.id ?? null } : undefined;
@@ -626,6 +680,24 @@ $('resetBtn').onclick = () => {
     sendMsg({ t: 'reset' });
   }
 };
+
+// 玩法說明：第一次開啟時自動顯示
+const HELP_KEY = 'mech-wing-help-seen';
+function setHelp(open: boolean) {
+  $('help').hidden = !open;
+  if (!open) {
+    try {
+      localStorage.setItem(HELP_KEY, '1');
+    } catch {}
+  }
+}
+$('helpBtn').onclick = () => setHelp(true);
+$('helpClose').onclick = () => setHelp(false);
+try {
+  if (!localStorage.getItem(HELP_KEY)) setHelp(true);
+} catch {
+  setHelp(true);
+}
 
 if (mode === 'local') {
   local = new LocalGame(onMessage);

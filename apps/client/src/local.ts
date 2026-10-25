@@ -26,7 +26,7 @@ export class LocalGame {
     }
     const before = this.match.resolvedCount;
     const views = [this.match.viewFor(0), this.match.viewFor(1)];
-    const errors = this.match.submitPlans(seat, msg.plans);
+    const errors = msg.t === 'moves' ? this.match.submitMoves(seat, msg.moves) : this.match.submitActions(seat, msg.actions);
     if (errors.length) {
       this.deliver({ t: 'error', errors });
       return null;

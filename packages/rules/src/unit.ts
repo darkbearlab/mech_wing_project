@@ -1,7 +1,7 @@
 import { FACING_OFFSETS, FACING_OFFSET_COST, LIMITER_STRESS } from './config';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
-import type { ChassisDef, EquipDef, EquipState, Hand, PartState, PilotDef, UnitPlan, UnitState } from './types';
+import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
 
 export const chassisOf = (u: { chassisId: string }): ChassisDef => CHASSIS[u.chassisId];
 export const pilotOf = (u: { pilotId: string }): PilotDef => PILOTS[u.pilotId];
@@ -56,7 +56,7 @@ export function availableManeuvers(u: ManeuverLimits): ManeuverSpec[] {
     .filter((m) => u.propellant === undefined || m.propellant <= u.propellant);
 }
 
-export function planCost(plan: UnitPlan): { propellant: number; stress: number } {
+export function planCost(plan: MovePlan): { propellant: number; stress: number } {
   const m = parseManeuver(plan.maneuver);
   return {
     propellant: m.propellant + (plan.facingOffset !== 0 ? FACING_OFFSET_COST : 0),
@@ -64,7 +64,7 @@ export function planCost(plan: UnitPlan): { propellant: number; stress: number }
   };
 }
 
-export function validatePlan(u: UnitState, plan: UnitPlan, grappled: boolean): string[] {
+export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): string[] {
   const errors: string[] = [];
   if (!grappled) {
     if (!availableManeuvers({ ...u, propellant: undefined }).some((m) => m.id === plan.maneuver)) errors.push(`${u.label}：無法使用機動 ${plan.maneuver}`);
@@ -72,6 +72,11 @@ export function validatePlan(u: UnitState, plan: UnitPlan, grappled: boolean): s
   }
   if (!['normal', 'charge', 'evade'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
+  return errors;
+}
+
+export function validateAction(u: UnitState, plan: ActionPlan): string[] {
+  const errors: string[] = [];
   if (plan.swap) {
     const target = plan.swap.equip;
     if (target !== null && !u.equipment.some((e) => e.id === target && e.location !== 'mount')) errors.push(`${u.label}：沒有這件裝備`);
@@ -79,8 +84,10 @@ export function validatePlan(u: UnitState, plan: UnitPlan, grappled: boolean): s
   return errors;
 }
 
-export function defaultPlan(u: UnitState): UnitPlan {
+export function defaultMove(u: UnitState): MovePlan {
   const options = availableManeuvers(u);
   const pick = options.find((m) => m.propellant === 0) ?? options[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, soften: false, action: { type: 'none' }, grapple: 'push' };
+  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, soften: false, grapple: 'push' };
 }
+
+export const defaultAction = (): ActionPlan => ({ action: { type: 'none' } });

@@ -5,8 +5,8 @@ import { resolveGrapple } from './grapple';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
 import { Rng } from './rng';
-import type { GameEvent, GameState, PlayerId, PlayerPlans, Stance, UnitPlan, UnitState } from './types';
-import { defaultPlan, equipDef, heldItem, partAlive, pilotOf, planCost } from './unit';
+import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, Stance, UnitState } from './types';
+import { defaultAction, defaultMove, equipDef, heldItem, partAlive, pilotOf, planCost } from './unit';
 
 export interface TurnResult {
   state: GameState;
@@ -15,31 +15,31 @@ export interface TurnResult {
 
 export const inGrapple = (state: GameState, id: string): boolean => state.grapples.some((g) => g.a === id || g.b === id);
 
-export function resolveTurn(input: GameState, plansByPlayer: [PlayerPlans, PlayerPlans]): TurnResult {
+/** 第一步：纏鬥、同時移動。結算後進入動作階段。 */
+export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, PlayerMoves]): TurnResult {
   const state: GameState = structuredClone(input);
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [{ type: 'turnStart', turn: state.turn }] };
 
-  const plans: Record<string, UnitPlan> = {};
+  const plans: Record<string, MovePlan> = {};
   for (const u of state.units) {
     if (u.status !== 'active') continue;
-    plans[u.id] = plansByPlayer[u.owner][u.id] ?? defaultPlan(u);
+    plans[u.id] = movesByPlayer[u.owner][u.id] ?? defaultMove(u);
   }
 
   const frozen = new Set(state.grapples.flatMap((g) => [g.a, g.b]));
   const stance: Record<string, Stance> = {};
-  const hovered = new Set<string>();
+  const hovered: string[] = [];
   for (const u of state.units) {
     const plan = plans[u.id];
     if (!plan) continue;
     stance[u.id] = frozen.has(u.id) ? 'normal' : plan.stance;
     if (frozen.has(u.id)) continue;
-    if (parseManeuver(plan.maneuver).kind === 'hover') hovered.add(u.id);
+    if (parseManeuver(plan.maneuver).kind === 'hover') hovered.push(u.id);
     const cost = planCost(plan);
     spendPropellant(ctx, u, Math.min(cost.propellant, u.propellant));
     addStress(ctx, u, cost.stress, plan.limiter ? '機動負荷（限制器解除）' : '機動負荷');
   }
-  const turn: TurnInfo = { stance, hovered };
 
   // 1. 纏鬥
   for (const g of [...state.grapples]) {
@@ -61,7 +61,22 @@ export function resolveTurn(input: GameState, plansByPlayer: [PlayerPlans, Playe
     }
   }
 
-  // 3. 動作：技能高者先，同等級由亂數決定
+  state.phase = 'action';
+  state.turnInfo = { stance, hovered, bumped: [...bumped] };
+  checkWinner(ctx, false);
+  state.rngState = rng.state;
+  return { state, events: ctx.events };
+}
+
+/** 第二步：看到移動結果後選的動作，技能高者先結算；接著回合結束。 */
+export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions, PlayerActions]): TurnResult {
+  const state: GameState = structuredClone(input);
+  const rng = new Rng(state.rngState);
+  const ctx: Ctx = { state, rng, events: [] };
+  const info = state.turnInfo ?? { stance: {}, hovered: [], bumped: [] };
+  const turn: TurnInfo = { stance: info.stance, hovered: new Set(info.hovered) };
+  const bumped = new Set(info.bumped);
+
   const order = state.units
     .filter((u) => u.status === 'active')
     .map((u) => ({ u, skill: pilotOf(u).skill, tie: rng.next() }))
@@ -69,7 +84,7 @@ export function resolveTurn(input: GameState, plansByPlayer: [PlayerPlans, Playe
     .map((x) => x.u);
   for (const u of order) {
     if (u.status !== 'active') continue;
-    const plan = plans[u.id];
+    const plan = actionsByPlayer[u.owner][u.id] ?? defaultAction();
     if (bumped.has(u.id)) {
       if (plan.action.type !== 'none' || plan.swap) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
       continue;
@@ -87,7 +102,7 @@ export function resolveTurn(input: GameState, plansByPlayer: [PlayerPlans, Playe
     doAction(ctx, turn, u, plan);
   }
 
-  // 4. 回合結束：壓力分級、恢復
+  // 回合結束：壓力分級、恢復
   for (const u of state.units) {
     if (u.status !== 'active') continue;
     const over = u.stress - u.maxStress;
@@ -108,16 +123,29 @@ export function resolveTurn(input: GameState, plansByPlayer: [PlayerPlans, Playe
   }
   state.grapples = state.grapples.filter((g) => unitById(ctx, g.a).status === 'active' && unitById(ctx, g.b).status === 'active');
 
-  // 5. 勝負
-  const alive = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status === 'active').length);
-  if (alive[0] === 0 || alive[1] === 0 || state.turn >= C.TURN_LIMIT) {
-    state.winner = alive[0] === alive[1] ? 'draw' : ((alive[0] > alive[1] ? 0 : 1) as PlayerId);
-    ctx.events.push({ type: 'gameOver', winner: state.winner });
-  } else {
-    state.turn++;
-  }
+  state.phase = 'move';
+  state.turnInfo = null;
+  if (!checkWinner(ctx, true)) state.turn++;
   state.rngState = rng.state;
   return { state, events: ctx.events };
+}
+
+/** 一方全滅就結束；回合結束時另外檢查回合上限 */
+function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
+  const { state } = ctx;
+  const alive = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status === 'active').length);
+  if (alive[0] > 0 && alive[1] > 0 && !(endOfTurn && state.turn >= C.TURN_LIMIT)) return false;
+  state.winner = alive[0] === alive[1] ? 'draw' : ((alive[0] > alive[1] ? 0 : 1) as PlayerId);
+  ctx.events.push({ type: 'gameOver', winner: state.winner });
+  return true;
+}
+
+/** 整回合（移動＋動作），測試與批次模擬用 */
+export function resolveTurn(input: GameState, moves: [PlayerMoves, PlayerMoves], actions: [PlayerActions, PlayerActions] = [{}, {}]): TurnResult {
+  const m = resolveMovement(input, moves);
+  if (m.state.winner !== null) return m;
+  const a = resolveActions(m.state, actions);
+  return { state: a.state, events: [...m.events, ...a.events] };
 }
 
 function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string | null) {
@@ -135,7 +163,7 @@ function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string 
   ctx.events.push({ type: 'swap', unit: u.id, hand, equip: next?.id ?? null });
 }
 
-function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: UnitPlan) {
+function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan) {
   const action = plan.action;
   if (action.type === 'none') return;
   const target = ctx.state.units.find((x) => x.id === action.target);

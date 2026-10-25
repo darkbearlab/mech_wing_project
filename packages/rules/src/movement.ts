@@ -3,13 +3,13 @@ import { strike } from './combat';
 import { addStress, damageUnit, type Ctx } from './damage';
 import { DEG, add, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
-import type { ContactResult, Stance, UnitPlan, UnitState, Vec } from './types';
+import type { ContactResult, MovePlan, Stance, UnitState, Vec } from './types';
 import { chassisOf, heldOfKind, pilotOf } from './unit';
 
 interface Mover {
   unit: UnitState;
   path: PathParams | null; // null = 本回合不動（纏鬥中）
-  plan: UnitPlan | null;
+  plan: MovePlan | null;
   moving: boolean;
   /** 被撞開時朝向已隨機改變，不再套用轉身 */
   knocked: boolean;
@@ -22,7 +22,7 @@ export interface MoveResult {
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
-export function buildPath(u: { pos: Vec; facing: number }, plan: Pick<UnitPlan, 'maneuver' | 'limiter'>): PathParams {
+export function buildPath(u: { pos: Vec; facing: number }, plan: Pick<MovePlan, 'maneuver' | 'limiter'>): PathParams {
   const spec = parseManeuver(plan.maneuver);
   return { spec, start: { ...u.pos }, startFacing: u.facing, length: pathLength(spec, plan.limiter) };
 }
@@ -37,7 +37,7 @@ export function contactRadius(stance: Stance | undefined): number {
  */
 export function simulateMovement(
   ctx: Ctx,
-  plans: Record<string, UnitPlan>,
+  plans: Record<string, MovePlan>,
   stance: Record<string, Stance>,
   frozen: Set<string>,
 ): MoveResult {

@@ -5,16 +5,18 @@ import { Match } from '../src/match';
 import { resolveTurn } from '../src/resolve';
 import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
-import type { GameEvent, GameState, PlayerPlans, UnitPlan } from '../src/types';
-import { availableManeuvers, defaultPlan, heldItem } from '../src/unit';
-import { makeState, plan, rifleX00, saberX00 } from './helpers';
+import type { GameEvent, GameState } from '../src/types';
+import { availableManeuvers, defaultMove, heldItem } from '../src/unit';
+import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
+
+type Plans = Record<string, UnitPlan>;
 
 const of = <T extends GameEvent['type']>(events: GameEvent[], type: T) => events.filter((e): e is Extract<GameEvent, { type: T }> => e.type === type);
 
 function duel(a: UnitPlan, b: UnitPlan, state: GameState) {
   const [ua, ub] = state.units;
-  const plans: [PlayerPlans, PlayerPlans] = [{ [ua.id]: a }, { [ub.id]: b }];
-  return resolveTurn(state, plans);
+  const plans: [Plans, Plans] = [{ [ua.id]: a }, { [ub.id]: b }];
+  return resolveTurn(state, plans, plans);
 }
 
 describe('機動模板', () => {
@@ -99,11 +101,11 @@ describe('同時移動與接觸', () => {
 
   it('移動結果與機體在陣列中的順序無關', () => {
     const st = createGame(7);
-    const plans: [PlayerPlans, PlayerPlans] = [{}, {}];
+    const plans: [Plans, Plans] = [{}, {}];
     for (const u of st.units) plans[u.owner][u.id] = plan({ maneuver: 'straight-S-2', facingOffset: 0 });
-    const r1 = resolveTurn(st, plans);
+    const r1 = resolveTurn(st, plans, plans);
     const reversed = { ...structuredClone(st), units: [...structuredClone(st.units)].reverse() };
-    const r2 = resolveTurn(reversed, plans);
+    const r2 = resolveTurn(reversed, plans, plans);
     for (const u of r1.state.units) {
       const v = r2.state.units.find((x) => x.id === u.id)!;
       expect(v.pos.x).toBeCloseTo(u.pos.x);
@@ -177,6 +179,9 @@ describe('纏鬥', () => {
   });
 });
 
+const moves = (m: Match, p: 0 | 1, patch: Partial<UnitPlan> = {}) =>
+  Object.fromEntries(m.state.units.filter((u) => u.owner === p && u.status === 'active').map((u) => [u.id, { ...defaultMove(u), ...patch }]));
+
 describe('資訊不對稱', () => {
   it('對手看不到駕駛、壓力與推進劑', () => {
     const m = new Match(5);
@@ -190,30 +195,62 @@ describe('資訊不對稱', () => {
 
   it('事件紀錄濾掉對手的壓力、推進劑與命中率', () => {
     const m = new Match(5);
-    const plans = (p: 0 | 1) => Object.fromEntries(m.state.units.filter((u) => u.owner === p).map((u) => [u.id, { ...defaultPlan(u), maneuver: 'straight-S-3', limiter: true }]));
-    expect(m.submitPlans(0, plans(0))).toEqual([]);
-    expect(m.submitPlans(1, plans(1))).toEqual([]);
+    expect(m.submitMoves(0, moves(m, 0, { maneuver: 'straight-S-3', limiter: true }))).toEqual([]);
+    expect(m.submitMoves(1, moves(m, 1, { maneuver: 'straight-S-3', limiter: true }))).toEqual([]);
     const ev = m.eventsFor(0);
     const enemyIds = new Set(m.state.units.filter((u) => u.owner === 1).map((u) => u.id));
     expect(ev.some((e) => (e.type === 'stress' || e.type === 'propellant') && enemyIds.has(e.unit))).toBe(false);
     expect(ev.some((e) => e.type === 'stress')).toBe(true);
   });
+});
 
-  it('雙方送出後立即結算，有沒有王牌都一樣（不會從等待洩漏）', () => {
+describe('回合分兩步', () => {
+  it('雙方送出移動後先結算移動，再等雙方送出動作', () => {
     const m = new Match(5);
-    m.submitPlans(0, Object.fromEntries(m.state.units.filter((u) => u.owner === 0).map((u) => [u.id, defaultPlan(u)])));
+    m.submitMoves(0, moves(m, 0));
     expect(m.viewFor(1).submitted).toEqual([true, false]);
     expect(m.resolvedCount).toBe(0);
-    m.submitPlans(1, Object.fromEntries(m.state.units.filter((u) => u.owner === 1).map((u) => [u.id, defaultPlan(u)])));
-    expect(m.resolvedCount).toBe(1);
-    expect(m.phase).toBe('planning');
+    m.submitMoves(1, moves(m, 1));
+    expect(m.phase).toBe('action');
+    expect(m.state.turn).toBe(1);
+    expect(m.eventsFor(0).some((e) => e.type === 'move')).toBe(true);
+    m.submitActions(0, {});
+    m.submitActions(1, {});
+    expect(m.phase).toBe('move');
     expect(m.state.turn).toBe(2);
+    expect(m.resolvedCount).toBe(2);
+  });
+
+  it('動作在移動之後決定：拉近距離後才能射到', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 19, y: 10, facingDeg: 180 },
+    ]);
+    const m = new Match(1, st);
+    const [a, b] = st.units;
+    expect(m.submitMoves(0, { [a.id]: plan({ maneuver: 'straight-S-4' }) })).toEqual([]);
+    expect(m.submitMoves(1, { [b.id]: plan({ maneuver: 'hover-S-0' }) })).toEqual([]);
+    m.submitActions(0, { [a.id]: { action: { type: 'shoot', weapon: a.equipment[0].id, target: b.id } } });
+    m.submitActions(1, {});
+    const shot = m.eventsFor(0).find((e) => e.type === 'shot');
+    expect(shot).toBeDefined();
+  });
+
+  it('擦撞的機體會列在 bumped，動作階段不能行動', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
+    ]);
+    const m = new Match(1, st);
+    m.submitMoves(0, { [st.units[0].id]: plan({ maneuver: 'straight-S-3', stance: 'charge' }) });
+    m.submitMoves(1, { [st.units[1].id]: plan({ maneuver: 'hover-S-0' }) });
+    expect(m.viewFor(1).state.bumped).toContain(st.units[0].id);
   });
 });
 
 describe('整場模擬', () => {
-  function randomPlans(st: GameState, rng: Rng): [PlayerPlans, PlayerPlans] {
-    const out: [PlayerPlans, PlayerPlans] = [{}, {}];
+  function randomPlans(st: GameState, rng: Rng): [Plans, Plans] {
+    const out: [Plans, Plans] = [{}, {}];
     const stances = ['normal', 'charge', 'evade'] as const;
     for (const u of st.units) {
       if (u.status !== 'active') continue;
@@ -238,8 +275,8 @@ describe('整場模擬', () => {
       const log: string[] = [];
       while (st.winner === null) {
         const plans = randomPlans(st, rng);
-        const r = resolveTurn(st, plans);
-        const again = resolveTurn(st, plans);
+        const r = resolveTurn(st, plans, plans);
+        const again = resolveTurn(st, plans, plans);
         expect(JSON.stringify(again.events)).toBe(JSON.stringify(r.events));
         log.push(JSON.stringify(r.events.length));
         st = r.state;
