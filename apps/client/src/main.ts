@@ -12,12 +12,14 @@ import {
   parseManeuver,
   planCost,
   samplePath,
+  worldPose,
   type EquipState,
   type GameEvent,
   type GrappleChoice,
   type Hand,
   type ActionPlan,
   type ClientMessage,
+  type ManeuverSpec,
   type MovePlan,
   type PlayerId,
   type PlayerView,
@@ -28,6 +30,7 @@ import {
   type Vec,
 } from '@mech/rules';
 import { LocalGame } from './local';
+import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
 
 // ---------- 連線 ----------
 
@@ -84,7 +87,7 @@ function switchSeat(next: PlayerId) {
   view = null;
   draftKey = '';
   selected = null;
-  playback = null;
+  stopShow();
   pendingView = null;
   errors = [];
   renderLog();
@@ -98,35 +101,92 @@ let actionDrafts: Record<string, ActionPlan> = {};
 let draftKey = '';
 let selected: string | null = null;
 let pendingView: PlayerView | null = null;
-let playback: { events: GameEvent[]; start: number; duration: number; prevUnits: UnitView[] } | null = null;
+/** 演出中各機體在地圖上的位置與狀態（一拍結束才定格） */
+interface Disp {
+  x: number;
+  y: number;
+  f: number;
+  status: UnitView['status'];
+}
+interface Show {
+  beats: Beat[];
+  index: number;
+  beatStart: number;
+  prevUnits: UnitView[];
+  display: Map<string, Disp>;
+  timer: number;
+}
+let show: Show | null = null;
+/** 滑鼠停在機動按鈕上時預覽的軌跡 */
+let hoverManeuver: { unit: string; maneuver: string } | null = null;
 const logs: [{ text: string; cls: string }[], { text: string; cls: string }[]] = [[], []];
-const PLAYBACK_MS = 2600;
-/** 只有射擊等動作、沒有移動時的播放時間 */
-const ACTION_PLAYBACK_MS = 900;
 
 function onMessage(msg: ServerMessage) {
   if (msg.t === 'state') {
     connected = msg.connected;
     deadline = msg.deadline;
-    if (playback) pendingView = msg.view;
+    if (show) pendingView = msg.view;
     else applyView(msg.view);
   } else if (msg.t === 'resolved') {
     errors = [];
-    appendLog(msg.events);
-    const duration = msg.events.some((e) => e.type === 'move') ? PLAYBACK_MS : ACTION_PLAYBACK_MS;
-    playback = { events: msg.events, start: performance.now(), duration, prevUnits: view?.state.units ?? [] };
-    // 用計時器結束播放：分頁在背景時 requestAnimationFrame 不會跑，不能靠它套用新狀態
-    const current = playback;
-    setTimeout(() => {
-      if (playback !== current) return;
-      playback = null;
-      if (pendingView) applyView(pendingView);
-      pendingView = null;
-    }, duration + 400);
+    startShow(msg.events);
   } else if (msg.t === 'error') {
     errors = msg.errors;
     renderPanel();
   }
+}
+
+// ---------- 結算演出：一拍一拍播放 ----------
+
+function startShow(events: GameEvent[]) {
+  stopShow();
+  const prevUnits = view?.state.units ?? [];
+  const display = new Map(prevUnits.map((u) => [u.id, { x: u.pos.x, y: u.pos.y, f: u.facing, status: u.status }]));
+  show = { beats: buildBeats(events), index: -1, beatStart: 0, prevUnits, display, timer: 0 };
+  renderPanel();
+  nextBeat();
+}
+
+function nextBeat() {
+  const s = show;
+  if (!s) return;
+  if (s.index >= 0) settleBeat(s, s.beats[s.index]);
+  s.index++;
+  if (s.index >= s.beats.length) return finishShow();
+  const beat = s.beats[s.index];
+  appendLog(beat.events);
+  s.beatStart = performance.now();
+  // 用計時器推進：分頁在背景時 requestAnimationFrame 不會跑，不能靠它
+  s.timer = window.setTimeout(nextBeat, beat.duration);
+}
+
+/** 一拍結束：把位置與狀態定格 */
+function settleBeat(s: Show, b: Beat) {
+  for (const e of b.events) {
+    const d = 'unit' in e ? s.display.get(e.unit) : undefined;
+    if (!d) continue;
+    if (e.type === 'move') [d.x, d.y, d.f] = e.samples[e.samples.length - 1];
+    else if (e.type === 'reposition' || e.type === 'knockback') Object.assign(d, e.to);
+    else if (e.type === 'status') d.status = e.status;
+  }
+}
+
+function stopShow() {
+  if (show) clearTimeout(show.timer);
+  show = null;
+}
+
+function finishShow() {
+  stopShow();
+  if (pendingView) applyView(pendingView);
+  pendingView = null;
+  renderPanel();
+}
+
+function skipShow() {
+  if (!show) return;
+  for (let i = show.index + 1; i < show.beats.length; i++) appendLog(show.beats[i].events);
+  finishShow();
 }
 
 function applyView(v: PlayerView) {
@@ -148,7 +208,7 @@ function applyView(v: PlayerView) {
 
 const ownUnits = () => (view ? view.state.units.filter((u) => u.owner === view!.you) : []);
 const unitView = (id: string) => view?.state.units.find((u) => u.id === id);
-const labelOf = (id: string) => unitView(id)?.label ?? playback?.prevUnits.find((u) => u.id === id)?.label ?? id;
+const labelOf = (id: string) => unitView(id)?.label ?? show?.prevUnits.find((u) => u.id === id)?.label ?? id;
 const inGrapple = (id: string) => !!view?.state.grapples.some((g) => g.a === id || g.b === id);
 const equipName = (u: UnitView | undefined, eqId: string | null) => {
   if (!eqId) return '空手';
@@ -203,42 +263,263 @@ function drawFrame(now: number) {
   g.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid();
   if (!view) return;
-
-  let progress = 1;
-  // rAF 的時間戳可能比 playback.start 還早，要夾在 0..1
-  if (playback) progress = Math.max(0, Math.min(1, (now - playback.start) / playback.duration));
-
-  if (!playback) {
+  if (!show) {
     drawRanges();
     drawPreviews();
     for (const u of view.state.units) drawUnit(u, u.pos, u.facing);
-  } else {
-    const moves = new Map<string, [number, number, number][]>();
-    for (const e of playback.events) if (e.type === 'move') moves.set(e.unit, e.samples);
-    for (const [, samples] of moves) {
-      g.strokeStyle = 'rgba(255,255,255,0.12)';
+    return;
+  }
+  const beat = show.beats[show.index];
+  const elapsed = Math.max(0, now - show.beatStart);
+  const over = new Map<string, Disp>();
+  if (beat?.kind === 'move') {
+    const mp = moveProgress(beat, elapsed);
+    for (const e of beat.events) {
+      if (e.type !== 'move') continue;
+      const p = sampleAt(e.samples, mp.t);
+      if (p) over.set(e.unit, { ...show.display.get(e.unit)!, x: p.x, y: p.y, f: p.f });
+      g.strokeStyle = 'rgba(255,255,255,0.10)';
       g.beginPath();
-      samples.forEach(([x, y], i) => (i ? g.lineTo(x * S, y * S) : g.moveTo(x * S, y * S)));
+      e.samples.forEach(([x, y], i) => (i ? g.lineTo(x * S, y * S) : g.moveTo(x * S, y * S)));
       g.stroke();
     }
-    for (const e of playback.events) {
-      if (e.type === 'contact' && e.t <= progress && e.result !== 'none') {
-        const a = sampleAt(moves.get(e.a), e.t);
-        const b = sampleAt(moves.get(e.b), e.t);
-        if (a && b) {
-          g.fillStyle = e.result === 'ram' ? '#ff8a3d' : e.result === 'hitrun' ? '#ffcf4a' : '#c0c0ff';
+    drawShowUnits(over);
+    if (mp.pause !== null) drawContact(beat, mp.pause, mp.pauseP, over);
+    else drawBanner('同時移動中…');
+    return;
+  }
+  if (beat?.kind === 'grapple') {
+    const k = Math.min(1, elapsed / 700);
+    for (const e of beat.events) {
+      if (e.type !== 'reposition') continue;
+      const d = show.display.get(e.unit)!;
+      over.set(e.unit, { ...d, x: d.x + (e.to.x - d.x) * k, y: d.y + (e.to.y - d.y) * k });
+    }
+  }
+  drawShowUnits(over);
+  if (beat) drawBeatEffect(beat, elapsed, over);
+}
+
+const posOf = (id: string, over: Map<string, Disp>): Disp | undefined => over.get(id) ?? show?.display.get(id);
+
+function drawShowUnits(over: Map<string, Disp>) {
+  for (const u of show!.prevUnits) {
+    const d = posOf(u.id, over)!;
+    drawUnit({ ...u, status: d.status }, d, d.f);
+  }
+}
+
+function drawBanner(text: string) {
+  g.font = 'bold 15px sans-serif';
+  const w = Math.min(canvas.width - 20, g.measureText(text).width + 28);
+  g.fillStyle = 'rgba(10,14,18,0.85)';
+  g.fillRect((canvas.width - w) / 2, 10, w, 30);
+  g.fillStyle = '#ffe9a8';
+  g.textAlign = 'center';
+  g.fillText(text, canvas.width / 2, 31, w - 16);
+}
+
+/** 浮在機體上方的文字（傷害數字等），p 為 0..1 的進度 */
+function drawFloat(at: Vec, text: string, colour: string, p: number, line = 0) {
+  if (p < 0 || p > 1) return;
+  g.globalAlpha = p < 0.8 ? 1 : (1 - p) / 0.2;
+  g.font = 'bold 14px sans-serif';
+  g.textAlign = 'center';
+  g.lineWidth = 3;
+  g.strokeStyle = 'rgba(0,0,0,0.8)';
+  const y = at.y * S - 22 - p * 18 - line * 16;
+  g.strokeText(text, at.x * S, y);
+  g.fillStyle = colour;
+  g.fillText(text, at.x * S, y);
+  g.globalAlpha = 1;
+  g.lineWidth = 1;
+}
+
+function damageText(e: Extract<GameEvent, { type: 'damage' }>): [string, string] {
+  const part = partName(e.unit, e.part);
+  if (!e.amount) return [`${part} 失效`, '#ff8080'];
+  return [`-${e.amount} ${part}${e.destroyed ? ' 破壞！' : ''}`, e.destroyed ? '#ff5d5d' : '#ffb347'];
+}
+
+function drawDamageFloats(events: GameEvent[], from: number, elapsed: number, over: Map<string, Disp>) {
+  const lines = new Map<string, number>();
+  events.forEach((e) => {
+    if (e.type !== 'damage' && e.type !== 'status') return;
+    const at = posOf(e.unit, over);
+    if (!at) return;
+    const line = lines.get(e.unit) ?? 0;
+    lines.set(e.unit, line + 1);
+    const p = (elapsed - from - line * 120) / 1000;
+    if (e.type === 'damage') {
+      const [text, colour] = damageText(e);
+      drawFloat(at, text, colour, p, line);
+    } else {
+      drawFloat(at, { destroyed: '擊毀！', withdrawn: '脫離戰場', disabled: '停止動作' }[e.status], '#ff5d5d', p, line);
+    }
+  });
+}
+
+/** 移動中停在某次接觸：斬擊、撞擊、纏鬥、擦撞的效果 */
+function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Disp>) {
+  // 這次接觸之後、下一次接觸之前的事件都屬於它
+  const related: GameEvent[] = [];
+  let current = -1;
+  for (const e of beat.events) {
+    if (e.type === 'contact') current = e.t;
+    else if (current === pause) related.push(e);
+  }
+  const contacts = beat.events.filter((e): e is Extract<GameEvent, { type: 'contact' }> => e.type === 'contact' && e.t === pause && e.result !== 'none');
+  const elapsed = p * 900;
+  for (const c of contacts) {
+    const a = posOf(c.a, over)!;
+    const b = posOf(c.b, over)!;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (c.result === 'hitrun') {
+      for (const st of related) if (st.type === 'strike') drawSlash(posOf(st.defender, over)!, posOf(st.attacker, over)!, p, st.outcome);
+    } else {
+      const colour = { ram: '255,138,61', clinch: '190,150,255', bump: '200,200,200', hitrun: '', none: '' }[c.result];
+      const r = (0.4 + p * (c.result === 'ram' ? 1.4 : 0.8)) * S;
+      g.strokeStyle = `rgba(${colour},${1 - p})`;
+      g.lineWidth = c.result === 'ram' ? 5 : 3;
+      g.beginPath();
+      g.arc(mid.x * S, mid.y * S, r, 0, Math.PI * 2);
+      g.stroke();
+      g.lineWidth = 1;
+    }
+    const title = { ram: '撞擊！', clinch: '纏鬥！', bump: '擦撞', hitrun: '一擊脫離！', none: '' }[c.result];
+    drawBanner(`${labelOf(c.a)} × ${labelOf(c.b)}（相對速度 ${c.vc}）：${title}`);
+  }
+  drawDamageFloats(related, 250, elapsed, over);
+}
+
+function drawSlash(def: Vec, att: Vec, p: number, outcome: 'hit' | 'parried' | 'blocked') {
+  const base = Math.atan2(att.y - def.y, att.x - def.x);
+  const sweep = Math.min(1, p * 2.5);
+  g.strokeStyle = `rgba(255,255,255,${p < 0.6 ? 1 : (1 - p) / 0.4})`;
+  g.lineWidth = 4;
+  g.beginPath();
+  g.arc(def.x * S, def.y * S, 0.9 * S, base - 1.3, base - 1.3 + 2.6 * sweep);
+  g.stroke();
+  g.lineWidth = 1;
+  if (outcome !== 'hit' && p > 0.3) {
+    g.fillStyle = `rgba(150,220,255,${1 - p})`;
+    g.beginPath();
+    g.arc(((def.x + att.x) / 2) * S, ((def.y + att.y) / 2) * S, 8 + p * 10, 0, Math.PI * 2);
+    g.fill();
+  }
+  drawFloat(def, { hit: '斬！', parried: '架開', blocked: '盾擋' }[outcome], outcome === 'hit' ? '#ffffff' : '#9fe0ff', p * 0.9, 2);
+}
+
+const WEAPON_STYLE: Record<string, { colour: string; size: number; beam: boolean }> = {
+  beam_rifle: { colour: '#7fe9ff', size: 3, beam: true },
+  sniper: { colour: '#ffffff', size: 2, beam: true },
+  machine_gun: { colour: '#ffd34a', size: 2.5, beam: false },
+  bazooka: { colour: '#ff8a3d', size: 6, beam: false },
+};
+
+function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
+  const head = beat.events[0];
+  const text = describe(head);
+  if (text && beat.kind !== 'note') drawBanner(text);
+  if (head.type === 'shot') {
+    const a = posOf(head.attacker, over)!;
+    const t = posOf(head.target, over)!;
+    const style = WEAPON_STYLE[head.weapon] ?? WEAPON_STYLE.beam_rifle;
+    const dx = t.x - a.x;
+    const dy = t.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    for (let i = 0; i < head.shots; i++) {
+      const local = (elapsed - SHOT_DELAY - i * SHOT_GAP) / SHOT_FLIGHT;
+      if (local < 0) continue;
+      const outcome = i < head.blocked ? 'block' : i < head.hits ? 'hit' : 'miss';
+      const side = i % 2 ? 1 : -1;
+      const end =
+        outcome === 'hit' ? t : outcome === 'block' ? { x: t.x - ux * 0.5, y: t.y - uy * 0.5 } : { x: t.x + ux * 1.6 - uy * 0.8 * side, y: t.y + uy * 1.6 + ux * 0.8 * side };
+      if (local < 1) {
+        const px = a.x + (end.x - a.x) * local;
+        const py = a.y + (end.y - a.y) * local;
+        g.strokeStyle = style.colour;
+        g.fillStyle = style.colour;
+        if (style.beam) {
+          const back = Math.max(0, local - 0.25);
+          g.lineWidth = style.size;
           g.beginPath();
-          g.arc(((a.x + b.x) / 2) * S, ((a.y + b.y) / 2) * S, 6, 0, Math.PI * 2);
+          g.moveTo((a.x + (end.x - a.x) * back) * S, (a.y + (end.y - a.y) * back) * S);
+          g.lineTo(px * S, py * S);
+          g.stroke();
+          g.lineWidth = 1;
+        } else {
+          g.beginPath();
+          g.arc(px * S, py * S, style.size, 0, Math.PI * 2);
           g.fill();
         }
+      } else if (outcome !== 'miss' && local < 2) {
+        const k = local - 1;
+        g.fillStyle = outcome === 'hit' ? `rgba(255,170,60,${1 - k})` : `rgba(240,240,160,${1 - k})`;
+        g.beginPath();
+        g.arc(end.x * S, end.y * S, 6 + k * 16, 0, Math.PI * 2);
+        g.fill();
+        if (outcome === 'block') drawFloat(t, '盾擋', '#f0f0a0', k, 2);
+      } else if (outcome === 'miss' && local < 1.6) {
+        drawFloat(end, 'MISS', '#bbbbbb', (local - 1) / 0.6, 0);
       }
     }
-    for (const u of playback.prevUnits) {
-      const s = sampleAt(moves.get(u.id), progress);
-      const live = view.state.units.find((x) => x.id === u.id) ?? u;
-      drawUnit(progress >= 1 ? live : u, s ?? u.pos, s?.f ?? u.facing);
+    if (elapsed < SHOT_DELAY + 150) {
+      g.fillStyle = 'rgba(255,255,255,0.8)';
+      g.beginPath();
+      g.arc((a.x + ux * 0.6) * S, (a.y + uy * 0.6) * S, 5, 0, Math.PI * 2);
+      g.fill();
     }
-    if (progress >= 1) drawShots(playback.events);
+    drawDamageFloats(beat.events.slice(1), shotLandTime(head.shots - 1), elapsed, over);
+  } else if (head.type === 'lock') {
+    const a = posOf(head.unit, over)!;
+    const t = posOf(head.target, over)!;
+    const k = Math.min(1, elapsed / 500);
+    g.strokeStyle = 'rgba(120,220,255,0.8)';
+    g.setLineDash([6, 4]);
+    g.beginPath();
+    g.moveTo(a.x * S, a.y * S);
+    g.lineTo((a.x + (t.x - a.x) * k) * S, (a.y + (t.y - a.y) * k) * S);
+    g.stroke();
+    g.setLineDash([]);
+    if (k >= 1) {
+      const r = (1.2 - Math.min(1, (elapsed - 500) / 300) * 0.4) * S;
+      g.beginPath();
+      g.arc(t.x * S, t.y * S, r, 0, Math.PI * 2);
+      g.moveTo(t.x * S - r - 4, t.y * S);
+      g.lineTo(t.x * S + r + 4, t.y * S);
+      g.moveTo(t.x * S, t.y * S - r - 4);
+      g.lineTo(t.x * S, t.y * S + r + 4);
+      g.stroke();
+    }
+  } else if (head.type === 'swap') {
+    drawFloat(posOf(head.unit, over)!, `換上${equipName(unitView(head.unit), head.equip)}`, '#c8f7c5', elapsed / 800);
+  } else if (head.type === 'actionFail') {
+    drawFloat(posOf(head.unit, over)!, '落空', '#bbbbbb', elapsed / 800);
+  } else if (head.type === 'grapple') {
+    const a = posOf(head.a, over)!;
+    const b = posOf(head.b, over)!;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const k = Math.min(1, elapsed / 1700);
+    g.strokeStyle = `rgba(255,230,120,${1 - k})`;
+    g.lineWidth = 3;
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2 + k * 2;
+      g.beginPath();
+      g.moveTo((mid.x + Math.cos(ang) * 0.2) * S, (mid.y + Math.sin(ang) * 0.2) * S);
+      g.lineTo((mid.x + Math.cos(ang) * (0.5 + k)) * S, (mid.y + Math.sin(ang) * (0.5 + k)) * S);
+      g.stroke();
+    }
+    g.lineWidth = 1;
+    drawFloat(a, GRAPPLE_NAMES[head.choiceA], '#ffe9a8', k, 2);
+    drawFloat(b, GRAPPLE_NAMES[head.choiceB], '#ffe9a8', k, 2);
+    drawDamageFloats(beat.events.slice(1), 700, elapsed, over);
+  } else {
+    const end = beat.events.find((e) => e.type === 'gameOver');
+    if (end) drawBanner(describe(end) ?? '');
+    drawDamageFloats(beat.events, 0, elapsed, over);
   }
 }
 
@@ -318,26 +599,40 @@ function drawRanges() {
   }
 }
 
-function drawPath(u: UnitView, maneuver: string, limiter: boolean, style: string) {
-  const pts = samplePath(buildPath(u, { maneuver, limiter }));
+function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'facingOffset'>, style: string, ghost: boolean) {
+  const path = buildPath(u, plan);
+  const pts = samplePath(path);
   g.strokeStyle = style;
   g.setLineDash([5, 4]);
   g.beginPath();
   pts.forEach((p, i) => (i ? g.lineTo(p.x * S, p.y * S) : g.moveTo(p.x * S, p.y * S)));
   g.stroke();
   g.setLineDash([]);
-  const end = pts[pts.length - 1];
-  g.strokeStyle = style;
+  const end = worldPose(path, 1);
+  const facing = end.facing + (path.length === 0 ? (plan.facingOffset * Math.PI) / 180 : 0);
+  const r = config.BASE_RADIUS * S;
   g.beginPath();
-  g.arc(end.x * S, end.y * S, config.BASE_RADIUS * S, 0, Math.PI * 2);
+  g.arc(end.pos.x * S, end.pos.y * S, r, 0, Math.PI * 2);
+  if (ghost) {
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.fill();
+  }
   g.stroke();
+  if (ghost) {
+    g.beginPath();
+    g.moveTo(end.pos.x * S, end.pos.y * S);
+    g.lineTo(end.pos.x * S + Math.cos(facing) * r * 1.4, end.pos.y * S + Math.sin(facing) * r * 1.4);
+    g.stroke();
+  }
 }
 
 function drawPreviews() {
   if (view?.phase === 'move') {
     for (const [id, plan] of Object.entries(moveDrafts)) {
       const u = unitView(id);
-      if (u && !inGrapple(id)) drawPath(u, plan.maneuver, plan.limiter, color(u.owner, id === selected ? 0.9 : 0.45));
+      if (!u || inGrapple(id)) continue;
+      if (hoverManeuver?.unit === id) drawPath(u, { ...plan, maneuver: hoverManeuver.maneuver, facingOffset: 0 }, 'rgba(255,255,255,0.95)', true);
+      else drawPath(u, plan, color(u.owner, id === selected ? 0.9 : 0.45), id === selected);
     }
   } else if (view?.phase === 'action') {
     // 已選的射擊／鎖定目標
@@ -353,20 +648,6 @@ function drawPreviews() {
       g.stroke();
       g.setLineDash([]);
     }
-  }
-}
-
-function drawShots(events: GameEvent[]) {
-  for (const e of events) {
-    if (e.type !== 'shot') continue;
-    const a = unitView(e.attacker);
-    const b = unitView(e.target);
-    if (!a || !b) continue;
-    g.strokeStyle = e.hits ? 'rgba(255,207,74,0.8)' : 'rgba(255,255,255,0.25)';
-    g.beginPath();
-    g.moveTo(a.pos.x * S, a.pos.y * S);
-    g.lineTo(b.pos.x * S, b.pos.y * S);
-    g.stroke();
   }
 }
 
@@ -419,8 +700,14 @@ function partsHtml(u: UnitView): string {
     const cls = p.destroyed ? 'dead' : p.damage ? 'hurt' : '';
     return `<span>${esc(p.name)}</span><span class="bar ${cls}"><i style="width:${Math.max(4, ratio * 100)}%"></i></span><span class="muted">${p.durability - p.damage}/${p.durability}</span>`;
   });
-  return `<div class="parts">${rows.join('')}</div>`;
+  const total = Object.values(u.parts).reduce((t, p) => t + p.durability, 0);
+  const left = Object.values(u.parts).reduce((t, p) => t + p.durability - p.damage, 0);
+  const broken = Object.values(u.parts).filter((p) => p.destroyed).map((p) => p.name);
+  const summary = `部位耐久 ${left}/${total}${broken.length ? `　<span class="err">已破壞：${broken.map(esc).join('、')}</span>` : ''}`;
+  return `<details id="partsBox" ${partsOpen ? 'open' : ''}><summary>${summary}</summary><div class="parts">${rows.join('')}</div></details>`;
 }
+
+let partsOpen = false;
 
 const PHASE_HINT = {
   move: '<b>步驟 1／2：移動</b>　替每台機體選機動和姿態（地圖上的虛線是預計路徑），全部選好後按「送出移動」。雙方同時移動。',
@@ -442,6 +729,11 @@ function renderPanel() {
   bindEditor(u);
 
   sub.innerHTML = '';
+  if (show) {
+    sub.innerHTML = '<hr><div class="row"><span class="muted">結算演出中…</span><button id="skipBtn">跳過演出</button></div>';
+    $('skipBtn').onclick = skipShow;
+    return;
+  }
   if (view.phase === 'over') {
     const w = view.state.winner;
     sub.innerHTML = `<h3>${w === 'draw' ? '平手' : w === view.you ? '勝利' : '敗北'}</h3>`;
@@ -498,19 +790,56 @@ function unitPanel(u: UnitView): string {
   return html + (view!.phase === 'move' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]));
 }
 
+const DIAL_COLUMNS = ['turn-L', 'bank-L', 'straight-S', 'bank-R', 'turn-R'];
+const GLYPH: Record<string, string> = { 'turn-L': '↰', 'bank-L': '↖', 'straight-S': '↑', 'bank-R': '↗', 'turn-R': '↱', 'arc-L': '⤺', 'arc-R': '⤻', 'kturn-S': '⥁', 'hover-S': '◎' };
+const dialKey = (m: ManeuverSpec) => `${m.kind}-${m.dir === -1 ? 'L' : m.dir === 1 ? 'R' : 'S'}`;
+
+/** 機動盤：每個機動一顆按鈕，滑鼠停上去會在地圖預覽 */
+function dialHtml(u: UnitView, plan: MovePlan): string {
+  const dial = CHASSIS[u.chassisId].dial.map(parseManeuver);
+  const usable = new Set(availableManeuvers(u).map((m) => m.id));
+  const button = (m: ManeuverSpec) => {
+    const ok = usable.has(m.id);
+    const cls = ['mv', m.id === plan.maneuver ? 'on' : '', m.stress > 0 ? 'hard' : '', m.propellant > 0 ? 'fuel' : ''].join(' ');
+    const title = `${m.name}：推進劑 −${m.propellant}／壓力 +${m.stress}${ok ? '' : '（目前不能用：推進劑不足、部位損壞或黑視）'}`;
+    return `<button class="${cls}" data-m="${m.id}" title="${title}" ${ok ? '' : 'disabled'}>${GLYPH[dialKey(m)]}<small>${m.kind === 'hover' ? '' : m.speed}</small></button>`;
+  };
+  const basic = dial.filter((m) => DIAL_COLUMNS.includes(dialKey(m)));
+  const speeds = [...new Set(basic.map((m) => m.speed))].sort((a, b) => b - a);
+  let html = '<div class="dial">';
+  for (const sp of speeds) {
+    for (const col of DIAL_COLUMNS) {
+      const m = basic.find((x) => x.speed === sp && dialKey(x) === col);
+      html += m ? button(m) : '<span></span>';
+    }
+  }
+  html += '</div><div class="dialExtra">';
+  const order = ['arc-L', 'kturn-S', 'hover-S', 'arc-R'];
+  for (const key of order) for (const m of dial.filter((x) => dialKey(x) === key)) html += button(m);
+  html += '</div>';
+  return html;
+}
+
 function moveControls(u: UnitView, plan: MovePlan): string {
   if (inGrapple(u.id)) {
     const opts = grappleOptions(u as unknown as UnitState);
     return `<div class="warn">纏鬥中：本回合不移動，改選纏鬥動作</div><div class="row"><label>纏鬥</label><select data-f="grapple">${opts.map((o) => `<option value="${o}" ${plan.grapple === o ? 'selected' : ''}>${GRAPPLE_NAMES[o]}</option>`).join('')}</select></div>`;
   }
-  const prop = (u.propellant ?? 0) - (plan.facingOffset ? config.FACING_OFFSET_COST : 0);
-  const opts = availableManeuvers({ ...u, propellant: prop });
-  if (!opts.some((m) => m.id === plan.maneuver) && opts[0]) plan.maneuver = opts[0].id;
-  let html = `<div class="row"><label>機動</label><select data-f="maneuver">${opts.map((m) => `<option value="${m.id}" ${m.id === plan.maneuver ? 'selected' : ''}>${m.name}（推 ${m.propellant}／壓 ${m.stress}）</option>`).join('')}</select></div>`;
+  const usable = availableManeuvers(u);
+  if (!usable.some((m) => m.id === plan.maneuver) && usable[0]) plan.maneuver = usable[0].id;
+  const m = parseManeuver(plan.maneuver);
+  const cost = planCost(plan);
+  let html = `<div class="row"><label>機動</label><span><b>${m.name}</b>　推進劑 −${cost.propellant}　壓力 +${cost.stress}</span></div>`;
+  html += dialHtml(u, plan);
+  html += '<div class="muted" style="font-size:12px">滑鼠停在按鈕上可預覽路徑。紅字：會增加壓力；黃底線：消耗推進劑。</div>';
   html += `<div class="row"><label>姿態</label>${(['normal', 'charge', 'evade'] as Stance[]).map((s) => `<label><input type="radio" name="stance" value="${s}" ${plan.stance === s ? 'checked' : ''}> ${{ normal: '一般', charge: '突進', evade: '迴避' }[s]}</label>`).join('')}</div>`;
   html += `<div class="muted" style="font-size:12px">${{ normal: '撞到別人只算碰撞。', charge: '撞到敵機時發動近戰（手上要有光劍或熱能斧才砍得到）。', evade: '比較不容易被撞到、被射中。' }[plan.stance]}</div>`;
-  html += `<div class="row"><label>轉身</label><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
-  html += `<div class="row"><label></label><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（速度 +1，壓力 +${config.LIMITER_STRESS}）</label></div>`;
+  if (m.kind === 'hover') {
+    html += `<div class="row"><label>轉身</label><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
+    html += '<div class="muted" style="font-size:12px">懸停時可以原地轉身，讓正面或盾牌對準敵人（迴避會 −10）。</div>';
+  } else {
+    html += `<div class="row"><label></label><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（多走 1 格，壓力 +${config.LIMITER_STRESS}）</label></div>`;
+  }
   html += `<div class="row"><label></label><label><input type="checkbox" data-f="soften" ${plan.soften ? 'checked' : ''}> 收刀（接觸時花 1 壓力降一檔）</label></div>`;
   return html;
 }
@@ -552,7 +881,20 @@ function bindEditor(u: UnitView | null | undefined) {
   const plan = actionDrafts[u.id];
   const ed = $('editor');
   const rerender = () => renderPanel();
+  const box = ed.querySelector<HTMLDetailsElement>('#partsBox');
+  if (box) box.ontoggle = () => (partsOpen = box.open);
   ed.querySelectorAll<HTMLInputElement>('input[name=stance]').forEach((r) => (r.onchange = () => ((move.stance = r.value as Stance), rerender())));
+  ed.querySelectorAll<HTMLButtonElement>('button[data-m]').forEach((b) => {
+    b.onmouseenter = () => (hoverManeuver = { unit: u.id, maneuver: b.dataset.m! });
+    b.onmouseleave = () => (hoverManeuver = null);
+    b.onclick = () => {
+      move.maneuver = b.dataset.m!;
+      if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
+      else move.facingOffset = 0;
+      hoverManeuver = null;
+      rerender();
+    };
+  });
   ed.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-f]').forEach((el) => {
     el.onchange = () => {
       const v = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
@@ -606,7 +948,7 @@ const RESULT_NAMES = { none: '擦身而過', bump: '擦撞', clinch: '纏鬥', h
 const ANGLE_NAMES = { front: '正面', side: '側面', back: '背後' };
 
 function partName(unitId: string, part: string): string {
-  const u = unitView(unitId) ?? playback?.prevUnits.find((x) => x.id === unitId);
+  const u = unitView(unitId) ?? show?.prevUnits.find((x) => x.id === unitId);
   return u?.parts[part]?.name ?? part;
 }
 

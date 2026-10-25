@@ -21,8 +21,8 @@ main { display: grid; grid-template-columns: minmax(0, 672px) minmax(300px, 1fr)
 .board { grid-row: 1 / span 2; }
 canvas { width: 100%; height: auto; background: #0a0e12; border: 1px solid var(--line); display: block; }
 #legend { color: var(--muted); font-size: 12px; margin-top: 4px; max-width: 672px; }
-aside { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 470px; overflow: auto; }
-#log { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; line-height: 1.6; max-height: 260px; overflow: auto; }
+aside { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: calc(100vh - 220px); min-height: 360px; overflow: auto; }
+#log { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; line-height: 1.6; max-height: 160px; overflow: auto; }
 #log .turn { color: var(--accent); margin-top: 4px; }
 #log .mine { color: #9fd0ff; }
 #log .theirs { color: #ffb0b0; }
@@ -61,3 +61,12 @@ hr { border: none; border-top: 1px solid var(--line); margin: 8px 0; }
 .helpBox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; max-width: 560px; max-height: 90vh; overflow: auto; line-height: 1.6; }
 .helpBox h2 { margin: 0 0 8px; font-size: 18px; }
 .helpBox ol { padding-left: 20px; margin: 4px 0 8px; }
+.dial { display: grid; grid-template-columns: repeat(5, 40px); gap: 4px; margin: 6px 0 4px; }
+.dialExtra { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.mv { width: 40px; height: 36px; padding: 0; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; gap: 1px; }
+.mv small { font-size: 11px; }
+.mv.hard { color: #ff7b7b; }
+.mv.fuel { box-shadow: inset 0 -3px 0 #d9b23a; }
+.mv.on { outline: 2px solid var(--accent); background: #3a4a5c; }
+.mv:disabled { opacity: 0.25; }
+details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); margin: 4px 0; }

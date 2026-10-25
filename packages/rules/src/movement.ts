@@ -11,7 +11,7 @@ interface Mover {
   path: PathParams | null; // null = 本回合不動（纏鬥中）
   plan: MovePlan | null;
   moving: boolean;
-  /** 被撞開時朝向已隨機改變，不再套用轉身 */
+  /** 被撞開時朝向已隨機改變，懸停轉身中斷 */
   knocked: boolean;
   samples: [number, number, number][];
 }
@@ -65,10 +65,15 @@ export function simulateMovement(
     const t = k / C.MOVE_STEPS;
     const prev = new Map(movers.map((m) => [m.unit.id, { ...m.unit.pos }]));
     for (const m of movers) {
-      if (!m.moving || !m.path) continue;
-      const p = worldPose(m.path, t);
-      m.unit.pos = p.pos;
-      m.unit.facing = p.facing;
+      if (!m.path) continue;
+      if (m.moving) {
+        const p = worldPose(m.path, t);
+        m.unit.pos = p.pos;
+        m.unit.facing = p.facing;
+      } else if (m.path.length === 0 && m.plan?.facingOffset && !m.knocked && m.unit.status === 'active') {
+        // 懸停時原地轉身，在整段時間內慢慢轉過去
+        m.unit.facing = m.path.startFacing + m.plan.facingOffset * DEG * t;
+      }
     }
 
     const live = movers.filter((m) => m.unit.status === 'active');
@@ -103,14 +108,6 @@ export function simulateMovement(
     for (const m of movers) m.samples.push([m.unit.pos.x, m.unit.pos.y, m.unit.facing]);
   }
 
-  // 轉身與最後的重疊排除
-  for (const m of movers) {
-    if (m.plan && m.path && !m.knocked && m.unit.status === 'active') {
-      m.unit.facing += m.plan.facingOffset * DEG;
-      const last = m.samples[m.samples.length - 1];
-      last[2] = m.unit.facing;
-    }
-  }
   separateOverlaps(ctx, movers);
   for (const m of movers) {
     const last = m.samples[m.samples.length - 1];

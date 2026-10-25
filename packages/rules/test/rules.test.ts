@@ -6,7 +6,7 @@ import { resolveTurn } from '../src/resolve';
 import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
-import { availableManeuvers, defaultMove, heldItem } from '../src/unit';
+import { availableManeuvers, defaultMove, heldItem, validateMove } from '../src/unit';
 import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
 
 type Plans = Record<string, UnitPlan>;
@@ -28,6 +28,17 @@ describe('機動模板', () => {
     expect(b.pos.y).toBeGreaterThan(0);
     const k = localPose(parseManeuver('kturn-S-3'), 3, 1);
     expect(k.facing).toBeCloseTo(Math.PI);
+  });
+
+  it('只有懸停可以轉身，且轉身在移動過程中完成', () => {
+    const u = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]).units[0];
+    expect(validateMove(u, plan({ maneuver: 'straight-S-2', facingOffset: 90 }), false)).toHaveLength(1);
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', facingOffset: 90 }), false)).toEqual([]);
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
+    const r = resolveTurn(st, [{ [st.units[0].id]: plan({ maneuver: 'hover-S-0', facingOffset: 90 }) }, {}]);
+    expect(r.state.units[0].facing).toBeCloseTo(Math.PI / 2);
+    const samples = of(r.events, 'move')[0].samples;
+    expect(samples[20][2]).toBeCloseTo(Math.PI / 4, 1);
   });
 
   it('推進背包破壞後不能用高速模板', () => {

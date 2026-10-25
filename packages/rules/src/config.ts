@@ -10,8 +10,8 @@ export const TURN_LIMIT = 12;
 export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;
 
 // 機動
+/** 懸停時可原地轉身的角度（不另外消耗推進劑） */
 export const FACING_OFFSETS = [0, 45, -45, 90, -90, 180] as const;
-export const FACING_OFFSET_COST = 1;
 export const HOVER_EVASION_PENALTY = 10;
 export const LIMITER_STRESS = 2;
 /** 技能達到此值的駕駛，一擊脫離的 Vc 上限 +1 */

@@ -1,4 +1,4 @@
-import { FACING_OFFSETS, FACING_OFFSET_COST, LIMITER_STRESS } from './config';
+import { FACING_OFFSETS, LIMITER_STRESS } from './config';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
 import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
@@ -59,7 +59,7 @@ export function availableManeuvers(u: ManeuverLimits): ManeuverSpec[] {
 export function planCost(plan: MovePlan): { propellant: number; stress: number } {
   const m = parseManeuver(plan.maneuver);
   return {
-    propellant: m.propellant + (plan.facingOffset !== 0 ? FACING_OFFSET_COST : 0),
+    propellant: m.propellant,
     stress: m.stress + (plan.limiter && m.kind !== 'hover' ? LIMITER_STRESS : 0),
   };
 }
@@ -72,6 +72,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
   }
   if (!['normal', 'charge', 'evade'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
+  else if (plan.facingOffset !== 0 && !grappled && parseManeuver(plan.maneuver).kind !== 'hover') errors.push(`${u.label}：只有懸停時可以轉身`);
   return errors;
 }
 
