@@ -29,6 +29,7 @@ import {
   type UnitView,
   type Vec,
 } from '@mech/rules';
+import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
 import { LocalGame } from './local';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
 
@@ -83,6 +84,7 @@ function showCover(next: PlayerId) {
 }
 
 function switchSeat(next: PlayerId) {
+  savedViews[seat] = cam.save();
   seat = next;
   view = null;
   draftKey = '';
@@ -91,6 +93,9 @@ function switchSeat(next: PlayerId) {
   pendingView = null;
   errors = [];
   document.getElementById('confirm')!.hidden = true;
+  const saved = savedViews[next];
+  if (saved) cam.restore(saved);
+  else resetCamera();
   renderLog();
   local!.takeOver(next);
 }
@@ -252,65 +257,137 @@ function heldAfter(u: UnitView, plan: ActionPlan | undefined, hand: Hand): Equip
   return equipmentAfterSwap(u, plan).find((e) => e.location === hand && !u.parts[e.id].destroyed) ?? null;
 }
 
-// ---------- 畫面：地圖 ----------
+// ---------- 畫面：地圖（透視相機） ----------
 
 const canvas = document.getElementById('map') as HTMLCanvasElement;
 const g = canvas.getContext('2d')!;
-/** 地圖以 CSS 像素繪製；W 為邊長，S 為每單位的像素數 */
-let W = 600;
-let S = W / config.MAP_SIZE;
+const cam = new Camera(config.MAP_SIZE);
+/** 畫布的 CSS 像素尺寸 */
+let W = 800;
+let H = 600;
+/** 機體浮在地面上的視覺高度（規則上不存在，只用來表現） */
+const UNIT_Z = 0.8;
 const color = (owner: number, alpha = 1) => (owner === 0 ? `rgba(74,163,255,${alpha})` : `rgba(255,93,93,${alpha})`);
+/** 本機輪流時各席位各自記住視角 */
+const savedViews: [CameraView | null, CameraView | null] = [null, null];
+/** 各席位的預設視角：自己的陣地在畫面下方 */
+const seatYaw = (s: PlayerId) => (s === 0 ? Math.PI : 0);
+
+let sized = false;
 
 function resizeCanvas() {
   const stage = document.getElementById('stage')!;
-  const size = Math.max(200, Math.floor(Math.min(stage.clientWidth, stage.clientHeight)));
+  const first = !sized;
+  sized = true;
+  W = Math.max(200, stage.clientWidth);
+  H = Math.max(200, stage.clientHeight);
   const dpr = window.devicePixelRatio || 1;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  canvas.width = Math.round(size * dpr);
-  canvas.height = Math.round(size * dpr);
+  canvas.style.width = `${W}px`;
+  canvas.style.height = `${H}px`;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  W = size;
-  S = size / config.MAP_SIZE;
+  cam.width = W;
+  cam.height = H;
+  if (first) resetCamera();
 }
+
+function resetCamera() {
+  cam.reset();
+  cam.yaw = seatYaw(seat);
+}
+
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-function unitAt(e: MouseEvent): UnitView | undefined {
-  const r = canvas.getBoundingClientRect();
-  const p = { x: (e.clientX - r.left) / S, y: (e.clientY - r.top) / S };
-  return view?.state.units.find((u) => Math.hypot(u.pos.x - p.x, u.pos.y - p.y) < config.BASE_RADIUS + 0.25);
+const pr = (x: number, y: number, z = 0) => cam.project(x, y, z);
+
+/** 依世界座標畫折線（看不到的點會斷開） */
+function polyWorld(points: [number, number, number][]) {
+  g.beginPath();
+  let open = false;
+  for (const [x, y, z] of points) {
+    const p = pr(x, y, z);
+    if (!p.visible) {
+      open = false;
+      continue;
+    }
+    if (open) g.lineTo(p.x, p.y);
+    else g.moveTo(p.x, p.y);
+    open = true;
+  }
+}
+
+/** 地面（或指定高度）上的圓或圓弧 */
+function ringWorld(x: number, y: number, r: number, z = 0, a0 = 0, a1 = Math.PI * 2, n = 40) {
+  const pts: [number, number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + ((a1 - a0) * i) / n;
+    pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r, z]);
+  }
+  polyWorld(pts);
+}
+
+/** 螢幕上的實心圓，半徑依距離縮放 */
+function dotAt(p: Projected, px: number, fill: string) {
+  if (!p.visible) return;
+  g.fillStyle = fill;
+  g.beginPath();
+  g.arc(p.x, p.y, Math.max(1.5, px * Math.min(2, Math.max(0.5, p.k / 25))), 0, Math.PI * 2);
+  g.fill();
+}
+
+/** 螢幕座標最接近的機體（看浮空標記和地面底板） */
+function unitAt(sx: number, sy: number): UnitView | undefined {
+  let best: UnitView | undefined;
+  let bestD = Infinity;
+  for (const u of view?.state.units ?? []) {
+    const top = pr(u.pos.x, u.pos.y, UNIT_Z);
+    const base = pr(u.pos.x, u.pos.y, 0);
+    if (!top.visible) continue;
+    const d = Math.min(Math.hypot(top.x - sx, top.y - sy), Math.hypot(base.x - sx, base.y - sy));
+    if (d < Math.max(12, top.k * 0.55) && d < bestD) {
+      best = u;
+      bestD = d;
+    }
+  }
+  return best;
 }
 
 /** 行動步驟：已選裝備的本方機體點敵機＝設定目標；其他情況點機體＝選取查看 */
-canvas.addEventListener('click', (e) => {
-  const hit = unitAt(e);
-  if (!view || !hit || show) return;
-  const sel = selected ? unitView(selected) : undefined;
-  const plan = sel ? actionDrafts[sel.id] : undefined;
-  if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !view.submitted[view.you]) {
-    setTarget(sel.id, hit.id);
-    return;
-  }
-  selected = hit.id;
-  renderAll();
+attachCameraControls(canvas, cam, {
+  onClick(sx, sy) {
+    const hit = unitAt(sx, sy);
+    if (!view || !hit || show) return;
+    const sel = selected ? unitView(selected) : undefined;
+    const plan = sel ? actionDrafts[sel.id] : undefined;
+    if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !view.submitted[view.you]) {
+      setTarget(sel.id, hit.id);
+      return;
+    }
+    selected = hit.id;
+    renderAll();
+  },
+  onHover(sx, sy) {
+    const hit = unitAt(sx, sy);
+    hoverUnit = hit?.id ?? null;
+    canvas.style.cursor = hit ? 'pointer' : 'grab';
+  },
+  onLeave() {
+    hoverUnit = null;
+  },
 });
-canvas.addEventListener('mousemove', (e) => {
-  const hit = unitAt(e);
-  hoverUnit = hit?.id ?? null;
-  canvas.style.cursor = hit ? 'pointer' : 'default';
-});
-canvas.addEventListener('mouseleave', () => (hoverUnit = null));
 
 function drawFrame(now: number) {
   requestAnimationFrame(drawFrame);
-  g.clearRect(0, 0, W, W);
-  drawGrid();
+  g.clearRect(0, 0, W, H);
+  drawGround();
   if (!view) return;
   if (!show) {
     drawRanges();
     drawPreviews();
-    for (const u of view.state.units) drawUnit(u, u.pos, u.facing);
+    drawUnits(view.state.units.map((u) => ({ u, pos: u.pos, f: u.facing })));
+    drawHoverHint();
     return;
   }
   const beat = show.beats[show.index];
@@ -322,9 +399,8 @@ function drawFrame(now: number) {
       if (e.type !== 'move') continue;
       const p = sampleAt(e.samples, mp.t);
       if (p) over.set(e.unit, { ...show.display.get(e.unit)!, x: p.x, y: p.y, f: p.f });
-      g.strokeStyle = 'rgba(255,255,255,0.10)';
-      g.beginPath();
-      e.samples.forEach(([x, y], i) => (i ? g.lineTo(x * S, y * S) : g.moveTo(x * S, y * S)));
+      g.strokeStyle = 'rgba(255,255,255,0.14)';
+      polyWorld(e.samples.map(([x, y]) => [x, y, 0]));
       g.stroke();
     }
     drawShowUnits(over);
@@ -345,36 +421,42 @@ function drawFrame(now: number) {
 }
 
 const posOf = (id: string, over: Map<string, Disp>): Disp | undefined => over.get(id) ?? show?.display.get(id);
+/** 效果用的位置：機體浮空標記的高度 */
+const fx = (v: Vec) => pr(v.x, v.y, UNIT_Z);
 
 function drawShowUnits(over: Map<string, Disp>) {
-  for (const u of show!.prevUnits) {
-    const d = posOf(u.id, over)!;
-    drawUnit({ ...u, status: d.status }, d, d.f);
-  }
+  drawUnits(
+    show!.prevUnits.map((u) => {
+      const d = posOf(u.id, over)!;
+      return { u: { ...u, status: d.status }, pos: d, f: d.f };
+    }),
+  );
 }
 
 function drawBanner(text: string) {
   g.font = 'bold 15px sans-serif';
   const w = Math.min(W - 20, g.measureText(text).width + 28);
   g.fillStyle = 'rgba(10,14,18,0.85)';
-  g.fillRect((W - w) / 2, 50, w, 30);
+  g.fillRect((W - w) / 2, 12, w, 30);
   g.fillStyle = '#ffe9a8';
   g.textAlign = 'center';
-  g.fillText(text, W / 2, 71, w - 16);
+  g.fillText(text, W / 2, 33, w - 16);
 }
 
 /** 浮在機體上方的文字（傷害數字等），p 為 0..1 的進度 */
 function drawFloat(at: Vec, text: string, colour: string, p: number, line = 0) {
   if (p < 0 || p > 1) return;
+  const s = fx(at);
+  if (!s.visible) return;
   g.globalAlpha = p < 0.8 ? 1 : (1 - p) / 0.2;
   g.font = 'bold 14px sans-serif';
   g.textAlign = 'center';
   g.lineWidth = 3;
   g.strokeStyle = 'rgba(0,0,0,0.8)';
-  const y = at.y * S - 22 - p * 18 - line * 16;
-  g.strokeText(text, at.x * S, y);
+  const y = s.y - 26 - p * 18 - line * 16;
+  g.strokeText(text, s.x, y);
   g.fillStyle = colour;
-  g.fillText(text, at.x * S, y);
+  g.fillText(text, s.x, y);
   g.globalAlpha = 1;
   g.lineWidth = 1;
 }
@@ -413,7 +495,6 @@ function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Dis
     else if (current === pause) related.push(e);
   }
   const contacts = beat.events.filter((e): e is Extract<GameEvent, { type: 'contact' }> => e.type === 'contact' && e.t === pause && e.result !== 'none');
-  const elapsed = p * 900;
   for (const c of contacts) {
     const a = posOf(c.a, over)!;
     const b = posOf(c.b, over)!;
@@ -422,18 +503,16 @@ function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Dis
       for (const st of related) if (st.type === 'strike') drawSlash(posOf(st.defender, over)!, posOf(st.attacker, over)!, p, st.outcome);
     } else {
       const colour = { ram: '255,138,61', clinch: '190,150,255', bump: '200,200,200', hitrun: '', none: '' }[c.result];
-      const r = (0.4 + p * (c.result === 'ram' ? 1.4 : 0.8)) * S;
       g.strokeStyle = `rgba(${colour},${1 - p})`;
       g.lineWidth = c.result === 'ram' ? 5 : 3;
-      g.beginPath();
-      g.arc(mid.x * S, mid.y * S, r, 0, Math.PI * 2);
+      ringWorld(mid.x, mid.y, 0.4 + p * (c.result === 'ram' ? 1.4 : 0.8), UNIT_Z);
       g.stroke();
       g.lineWidth = 1;
     }
     const title = { ram: '撞擊！', clinch: '纏鬥！', bump: '擦撞', hitrun: '一擊脫離！', none: '' }[c.result];
     drawBanner(`${labelOf(c.a)} × ${labelOf(c.b)}（相對速度 ${c.vc}）：${title}`);
   }
-  drawDamageFloats(related, 250, elapsed, over);
+  drawDamageFloats(related, 250, p * 900, over);
 }
 
 function drawSlash(def: Vec, att: Vec, p: number, outcome: 'hit' | 'parried' | 'blocked') {
@@ -441,16 +520,10 @@ function drawSlash(def: Vec, att: Vec, p: number, outcome: 'hit' | 'parried' | '
   const sweep = Math.min(1, p * 2.5);
   g.strokeStyle = `rgba(255,255,255,${p < 0.6 ? 1 : (1 - p) / 0.4})`;
   g.lineWidth = 4;
-  g.beginPath();
-  g.arc(def.x * S, def.y * S, 0.9 * S, base - 1.3, base - 1.3 + 2.6 * sweep);
+  ringWorld(def.x, def.y, 0.9, UNIT_Z, base - 1.3, base - 1.3 + 2.6 * sweep, 20);
   g.stroke();
   g.lineWidth = 1;
-  if (outcome !== 'hit' && p > 0.3) {
-    g.fillStyle = `rgba(150,220,255,${1 - p})`;
-    g.beginPath();
-    g.arc(((def.x + att.x) / 2) * S, ((def.y + att.y) / 2) * S, 8 + p * 10, 0, Math.PI * 2);
-    g.fill();
-  }
+  if (outcome !== 'hit' && p > 0.3) dotAt(fx({ x: (def.x + att.x) / 2, y: (def.y + att.y) / 2 }), 8 + p * 10, `rgba(150,220,255,${1 - p})`);
   drawFloat(def, { hit: '斬！', parried: '架開', blocked: '盾擋' }[outcome], outcome === 'hit' ? '#ffffff' : '#9fe0ff', p * 0.9, 2);
 }
 
@@ -469,11 +542,9 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
     const a = posOf(head.attacker, over)!;
     const t = posOf(head.target, over)!;
     const style = WEAPON_STYLE[head.weapon] ?? WEAPON_STYLE.beam_rifle;
-    const dx = t.x - a.x;
-    const dy = t.y - a.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len;
-    const uy = dy / len;
+    const len = Math.hypot(t.x - a.x, t.y - a.y) || 1;
+    const ux = (t.x - a.x) / len;
+    const uy = (t.y - a.y) / len;
     for (let i = 0; i < head.shots; i++) {
       const local = (elapsed - SHOT_DELAY - i * SHOT_GAP) / SHOT_FLIGHT;
       if (local < 0) continue;
@@ -481,41 +552,31 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
       const side = i % 2 ? 1 : -1;
       const end =
         outcome === 'hit' ? t : outcome === 'block' ? { x: t.x - ux * 0.5, y: t.y - uy * 0.5 } : { x: t.x + ux * 1.6 - uy * 0.8 * side, y: t.y + uy * 1.6 + ux * 0.8 * side };
+      const at = (k: number) => ({ x: a.x + (end.x - a.x) * k, y: a.y + (end.y - a.y) * k });
       if (local < 1) {
-        const px = a.x + (end.x - a.x) * local;
-        const py = a.y + (end.y - a.y) * local;
-        g.strokeStyle = style.colour;
-        g.fillStyle = style.colour;
         if (style.beam) {
-          const back = Math.max(0, local - 0.25);
+          g.strokeStyle = style.colour;
           g.lineWidth = style.size;
-          g.beginPath();
-          g.moveTo((a.x + (end.x - a.x) * back) * S, (a.y + (end.y - a.y) * back) * S);
-          g.lineTo(px * S, py * S);
+          const b0 = at(Math.max(0, local - 0.25));
+          const b1 = at(local);
+          polyWorld([
+            [b0.x, b0.y, UNIT_Z],
+            [b1.x, b1.y, UNIT_Z],
+          ]);
           g.stroke();
           g.lineWidth = 1;
         } else {
-          g.beginPath();
-          g.arc(px * S, py * S, style.size, 0, Math.PI * 2);
-          g.fill();
+          dotAt(fx(at(local)), style.size, style.colour);
         }
       } else if (outcome !== 'miss' && local < 2) {
         const k = local - 1;
-        g.fillStyle = outcome === 'hit' ? `rgba(255,170,60,${1 - k})` : `rgba(240,240,160,${1 - k})`;
-        g.beginPath();
-        g.arc(end.x * S, end.y * S, 6 + k * 16, 0, Math.PI * 2);
-        g.fill();
+        dotAt(fx(end), 6 + k * 16, outcome === 'hit' ? `rgba(255,170,60,${1 - k})` : `rgba(240,240,160,${1 - k})`);
         if (outcome === 'block') drawFloat(t, '盾擋', '#f0f0a0', k, 2);
       } else if (outcome === 'miss' && local < 1.6) {
         drawFloat(end, 'MISS', '#bbbbbb', (local - 1) / 0.6, 0);
       }
     }
-    if (elapsed < SHOT_DELAY + 150) {
-      g.fillStyle = 'rgba(255,255,255,0.8)';
-      g.beginPath();
-      g.arc((a.x + ux * 0.6) * S, (a.y + uy * 0.6) * S, 5, 0, Math.PI * 2);
-      g.fill();
-    }
+    if (elapsed < SHOT_DELAY + 150) dotAt(fx({ x: a.x + ux * 0.6, y: a.y + uy * 0.6 }), 5, 'rgba(255,255,255,0.8)');
     drawDamageFloats(beat.events.slice(1), shotLandTime(head.shots - 1), elapsed, over);
   } else if (head.type === 'lock') {
     const a = posOf(head.unit, over)!;
@@ -523,19 +584,14 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
     const k = Math.min(1, elapsed / 500);
     g.strokeStyle = 'rgba(120,220,255,0.8)';
     g.setLineDash([6, 4]);
-    g.beginPath();
-    g.moveTo(a.x * S, a.y * S);
-    g.lineTo((a.x + (t.x - a.x) * k) * S, (a.y + (t.y - a.y) * k) * S);
+    polyWorld([
+      [a.x, a.y, UNIT_Z],
+      [a.x + (t.x - a.x) * k, a.y + (t.y - a.y) * k, UNIT_Z],
+    ]);
     g.stroke();
     g.setLineDash([]);
     if (k >= 1) {
-      const r = (1.2 - Math.min(1, (elapsed - 500) / 300) * 0.4) * S;
-      g.beginPath();
-      g.arc(t.x * S, t.y * S, r, 0, Math.PI * 2);
-      g.moveTo(t.x * S - r - 4, t.y * S);
-      g.lineTo(t.x * S + r + 4, t.y * S);
-      g.moveTo(t.x * S, t.y * S - r - 4);
-      g.lineTo(t.x * S, t.y * S + r + 4);
+      ringWorld(t.x, t.y, 1.2 - Math.min(1, (elapsed - 500) / 300) * 0.4, UNIT_Z);
       g.stroke();
     }
   } else if (head.type === 'swap') {
@@ -551,9 +607,10 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
     g.lineWidth = 3;
     for (let i = 0; i < 6; i++) {
       const ang = (i / 6) * Math.PI * 2 + k * 2;
-      g.beginPath();
-      g.moveTo((mid.x + Math.cos(ang) * 0.2) * S, (mid.y + Math.sin(ang) * 0.2) * S);
-      g.lineTo((mid.x + Math.cos(ang) * (0.5 + k)) * S, (mid.y + Math.sin(ang) * (0.5 + k)) * S);
+      polyWorld([
+        [mid.x + Math.cos(ang) * 0.2, mid.y + Math.sin(ang) * 0.2, UNIT_Z],
+        [mid.x + Math.cos(ang) * (0.5 + k), mid.y + Math.sin(ang) * (0.5 + k), UNIT_Z],
+      ]);
       g.stroke();
     }
     g.lineWidth = 1;
@@ -578,38 +635,69 @@ function sampleAt(samples: [number, number, number][] | undefined, t: number): (
   return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, f: k < 0.5 ? f0 : f1 };
 }
 
-function drawGrid() {
-  for (let i = 0; i <= config.MAP_SIZE; i++) {
-    g.strokeStyle = i % 6 === 0 ? '#1f2a35' : '#141b22';
-    g.beginPath();
-    g.moveTo(i * S, 0);
-    g.lineTo(i * S, W);
-    g.moveTo(0, i * S);
-    g.lineTo(W, i * S);
+/** 地面：地圖範圍、格線、雙方陣地的顏色提示 */
+function drawGround() {
+  const M = config.MAP_SIZE;
+  g.fillStyle = '#0d1319';
+  polyWorld([
+    [0, 0, 0],
+    [M, 0, 0],
+    [M, M, 0],
+    [0, M, 0],
+    [0, 0, 0],
+  ]);
+  g.fill();
+  for (let i = 0; i <= M; i++) {
+    g.strokeStyle = i % 6 === 0 ? '#22303d' : '#16202a';
+    polyWorld([
+      [i, 0, 0],
+      [i, M, 0],
+    ]);
+    g.stroke();
+    polyWorld([
+      [0, i, 0],
+      [M, i, 0],
+    ]);
     g.stroke();
   }
+  g.strokeStyle = '#3a4a5c';
+  g.lineWidth = 2;
+  polyWorld([
+    [0, 0, 0],
+    [M, 0, 0],
+    [M, M, 0],
+    [0, M, 0],
+    [0, 0, 0],
+  ]);
+  g.stroke();
+  g.lineWidth = 1;
+}
+
+/** 由遠到近畫，近的蓋在遠的上面 */
+function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
+  list
+    .map((x) => ({ ...x, k: pr(x.pos.x, x.pos.y, 0).k }))
+    .sort((a, b) => a.k - b.k)
+    .forEach((x) => drawUnit(x.u, x.pos, x.f));
 }
 
 function drawUnit(u: UnitView, pos: Vec, facing: number) {
   const out = u.status !== 'active';
-  const x = pos.x * S;
-  const y = pos.y * S;
-  const r = config.BASE_RADIUS * S;
-  g.fillStyle = out ? '#3a3f45' : color(u.owner, 0.85);
-  g.beginPath();
-  g.arc(x, y, r, 0, Math.PI * 2);
+  const R = config.BASE_RADIUS;
+  const top = pr(pos.x, pos.y, UNIT_Z);
+  const base = pr(pos.x, pos.y, 0);
+  if (!top.visible || !base.visible) return;
+  // 地面底板與朝向
+  g.fillStyle = out ? 'rgba(80,80,80,0.25)' : color(u.owner, 0.18);
+  g.strokeStyle = out ? '#555' : color(u.owner, 0.7);
+  ringWorld(pos.x, pos.y, R);
   g.fill();
-  if (u.id === selected) {
-    g.strokeStyle = '#ffcf4a';
-    g.lineWidth = 2;
-    g.stroke();
-    g.lineWidth = 1;
-  }
-  // 朝向
-  g.strokeStyle = '#fff';
-  g.beginPath();
-  g.moveTo(x, y);
-  g.lineTo(x + Math.cos(facing) * r * 1.4, y + Math.sin(facing) * r * 1.4);
+  g.stroke();
+  g.strokeStyle = out ? '#555' : 'rgba(255,255,255,0.75)';
+  polyWorld([
+    [pos.x, pos.y, 0],
+    [pos.x + Math.cos(facing) * R * 1.5, pos.y + Math.sin(facing) * R * 1.5, 0],
+  ]);
   g.stroke();
   // 盾弧
   const shield = (['right', 'left'] as Hand[]).find((h) => {
@@ -621,52 +709,81 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
     const half = config.SHIELD_ARC_HALF_DEG * (Math.PI / 180);
     g.strokeStyle = '#e6e6a0';
     g.lineWidth = 3;
-    g.beginPath();
-    g.arc(x, y, r + 3, c - half, c + half);
+    ringWorld(pos.x, pos.y, R + 0.12, 0, c - half, c + half, 16);
     g.stroke();
     g.lineWidth = 1;
   }
+  // 垂直線與浮空標記
+  g.strokeStyle = out ? '#444' : color(u.owner, 0.5);
+  g.beginPath();
+  g.moveTo(base.x, base.y);
+  g.lineTo(top.x, top.y);
+  g.stroke();
+  const r = Math.max(5, top.k * 0.3);
+  g.fillStyle = out ? '#3a3f45' : color(u.owner, 0.95);
+  g.beginPath();
+  g.arc(top.x, top.y, r, 0, Math.PI * 2);
+  g.fill();
+  if (u.id === selected) {
+    g.strokeStyle = '#ffcf4a';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(top.x, top.y, r + 3, 0, Math.PI * 2);
+    g.stroke();
+    g.lineWidth = 1;
+  }
+  const nose = pr(pos.x + Math.cos(facing) * 0.6, pos.y + Math.sin(facing) * 0.6, UNIT_Z);
+  g.strokeStyle = '#fff';
+  g.beginPath();
+  g.moveTo(top.x, top.y);
+  g.lineTo(nose.x, nose.y);
+  g.stroke();
   g.fillStyle = out ? '#777' : '#fff';
   g.font = '11px sans-serif';
   g.textAlign = 'center';
-  g.fillText(u.label.split(' ')[0] + (u.vague === 'sluggish' ? ' ⚠' : ''), x, y - r - 4);
+  g.fillText(u.label.split(' ')[0] + (u.vague === 'sluggish' ? ' ⚠' : ''), top.x, top.y - r - 5);
 }
 
 function drawRanges() {
   const u = selected ? unitView(selected) : null;
   if (!u || u.status !== 'active') return;
-  g.strokeStyle = 'rgba(255,255,255,0.08)';
+  g.strokeStyle = 'rgba(255,255,255,0.12)';
   for (const lim of [config.RANGE_LIMITS.r1, config.RANGE_LIMITS.r2, config.RANGE_LIMITS.r3]) {
-    g.beginPath();
-    g.arc(u.pos.x * S, u.pos.y * S, (lim + 2 * config.BASE_RADIUS) * S, 0, Math.PI * 2);
+    ringWorld(u.pos.x, u.pos.y, lim + 2 * config.BASE_RADIUS, 0, 0, Math.PI * 2, 64);
     g.stroke();
   }
 }
 
 function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'facingOffset'>, style: string, ghost: boolean) {
   const path = buildPath(u, plan);
-  const pts = samplePath(path);
   g.strokeStyle = style;
   g.setLineDash([5, 4]);
-  g.beginPath();
-  pts.forEach((p, i) => (i ? g.lineTo(p.x * S, p.y * S) : g.moveTo(p.x * S, p.y * S)));
+  polyWorld(samplePath(path).map((p) => [p.x, p.y, 0]));
   g.stroke();
   g.setLineDash([]);
   const end = worldPose(path, 1);
   const facing = end.facing + (path.length === 0 ? (plan.facingOffset * Math.PI) / 180 : 0);
-  const r = config.BASE_RADIUS * S;
-  g.beginPath();
-  g.arc(end.pos.x * S, end.pos.y * S, r, 0, Math.PI * 2);
+  const R = config.BASE_RADIUS;
+  ringWorld(end.pos.x, end.pos.y, R);
   if (ghost) {
-    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.fillStyle = 'rgba(255,255,255,0.15)';
     g.fill();
   }
   g.stroke();
   if (ghost) {
-    g.beginPath();
-    g.moveTo(end.pos.x * S, end.pos.y * S);
-    g.lineTo(end.pos.x * S + Math.cos(facing) * r * 1.4, end.pos.y * S + Math.sin(facing) * r * 1.4);
+    polyWorld([
+      [end.pos.x, end.pos.y, 0],
+      [end.pos.x + Math.cos(facing) * R * 1.5, end.pos.y + Math.sin(facing) * R * 1.5, 0],
+    ]);
     g.stroke();
+    // 終點的浮空殘影
+    const top = pr(end.pos.x, end.pos.y, UNIT_Z);
+    const base = pr(end.pos.x, end.pos.y, 0);
+    g.beginPath();
+    g.moveTo(base.x, base.y);
+    g.lineTo(top.x, top.y);
+    g.stroke();
+    dotAt(top, 6, 'rgba(255,255,255,0.35)');
   }
 }
 
@@ -679,25 +796,6 @@ function drawPreviews() {
       else drawPath(u, plan, color(u.owner, id === selected ? 0.9 : 0.45), id === selected);
     }
   } else if (view?.phase === 'action') {
-    // 滑鼠停在敵機上：顯示所選機體對它的估計命中率
-    const sel = selected ? unitView(selected) : undefined;
-    const hov = hoverUnit ? unitView(hoverUnit) : undefined;
-    const selPlan = sel ? actionDrafts[sel.id] : undefined;
-    if (sel && hov && selPlan && selPlan.action.type !== 'none' && hov.owner !== view.you && hov.status === 'active') {
-      const text = selPlan.action.type === 'shoot' ? `點擊設為目標・${estimate(sel, selPlan, hov)}` : '點擊鎖定';
-      g.strokeStyle = 'rgba(255,207,74,0.9)';
-      g.beginPath();
-      g.arc(hov.pos.x * S, hov.pos.y * S, config.BASE_RADIUS * S + 6, 0, Math.PI * 2);
-      g.stroke();
-      g.font = 'bold 13px sans-serif';
-      g.textAlign = 'left';
-      g.lineWidth = 3;
-      g.strokeStyle = 'rgba(0,0,0,0.85)';
-      g.strokeText(text, hov.pos.x * S + 16, hov.pos.y * S + 4);
-      g.fillStyle = '#ffe9a8';
-      g.fillText(text, hov.pos.x * S + 16, hov.pos.y * S + 4);
-      g.lineWidth = 1;
-    }
     // 已選的射擊／鎖定目標
     for (const [id, plan] of Object.entries(actionDrafts)) {
       const a = unitView(id);
@@ -705,14 +803,50 @@ function drawPreviews() {
       if (!a || !t) continue;
       g.strokeStyle = plan.action.type === 'shoot' ? 'rgba(255,207,74,0.8)' : 'rgba(120,220,255,0.7)';
       g.setLineDash([6, 4]);
-      g.beginPath();
-      g.moveTo(a.pos.x * S, a.pos.y * S);
-      g.lineTo(t.pos.x * S, t.pos.y * S);
+      polyWorld([
+        [a.pos.x, a.pos.y, UNIT_Z],
+        [t.pos.x, t.pos.y, UNIT_Z],
+      ]);
       g.stroke();
       g.setLineDash([]);
     }
   }
 }
+
+/** 行動步驟：滑鼠停在敵機上時顯示所選機體對它的估計命中率 */
+function drawHoverHint() {
+  if (view?.phase !== 'action') return;
+  const sel = selected ? unitView(selected) : undefined;
+  const hov = hoverUnit ? unitView(hoverUnit) : undefined;
+  const plan = sel ? actionDrafts[sel.id] : undefined;
+  if (!sel || !hov || !plan || plan.action.type === 'none' || hov.owner === view.you || hov.status !== 'active') return;
+  const text = plan.action.type === 'shoot' ? `點擊設為目標・${estimate(sel, plan, hov)}` : '點擊鎖定';
+  const p = fx(hov.pos);
+  g.strokeStyle = 'rgba(255,207,74,0.9)';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(p.x, p.y, Math.max(5, p.k * 0.3) + 7, 0, Math.PI * 2);
+  g.stroke();
+  g.lineWidth = 3;
+  g.font = 'bold 13px sans-serif';
+  g.textAlign = 'left';
+  g.strokeStyle = 'rgba(0,0,0,0.85)';
+  g.strokeText(text, p.x + 18, p.y + 4);
+  g.fillStyle = '#ffe9a8';
+  g.fillText(text, p.x + 18, p.y + 4);
+  g.lineWidth = 1;
+}
+
+// 視角按鈕
+document.querySelectorAll<HTMLButtonElement>('#viewCtl button[data-view]').forEach((b) => {
+  b.onclick = () => {
+    const v = b.dataset.view;
+    if (v === 'left') cam.rotate(-Math.PI / 4);
+    else if (v === 'right') cam.rotate(Math.PI / 4);
+    else if (v === 'top') cam.toggleTopDown();
+    else resetCamera();
+  };
+});
 
 // ---------- 畫面：面板 ----------
 

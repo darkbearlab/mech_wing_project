@@ -22,7 +22,11 @@ header a { color: var(--accent); margin-left: 8px; }
 
 /* 全版地圖與疊在上面的浮層 */
 #stage { position: relative; flex: 1; min-height: 240px; display: flex; align-items: center; justify-content: center; background: #080b0e; overflow: hidden; }
-canvas { background: #0a0e12; display: block; }
+canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
+#stage { background: radial-gradient(ellipse at center, #0b1118 0%, #05070a 75%); }
+#viewCtl { position: absolute; right: 10px; top: 10px; z-index: 3; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 300px; }
+#viewCtl button { font-size: 13px; padding: 3px 9px; opacity: 0.9; }
+#viewCtl .small { width: 100%; text-align: right; text-shadow: 0 0 3px #000; }
 #unitList { position: absolute; left: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
 .ucard { width: 140px; background: rgba(24, 32, 41, 0.92); border: 1px solid var(--line); border-left: 4px solid var(--a); border-radius: 6px; padding: 5px 8px; cursor: pointer; font-size: 12.5px; }
 .ucard.enemy { border-left-color: var(--b); }
