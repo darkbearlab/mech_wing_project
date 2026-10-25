@@ -12,6 +12,11 @@
       <span id="status"></span>
       <span class="spacer"></span>
       <span id="seatLinks"></span>
+      <select id="opponent" title="對手">
+        <option value="ai">對戰電腦</option>
+        <option value="hotseat">同機輪流</option>
+        <option value="aivai">電腦對戰電腦</option>
+      </select>
       <button id="helpBtn">玩法說明</button>
       <button id="resetBtn" title="重開這場對戰">重開</button>
     </header>
@@ -41,7 +46,8 @@
     <div id="help" hidden>
       <div class="helpBox">
         <h2>玩法說明</h2>
-        <p><b>目標</b>：讓對方所有機體失去戰鬥能力（擊毀、駕駛昏迷或飛出地圖）。12 回合內沒分出勝負，就比剩下的機體數。</p>
+        <p><b>目標</b>：目前是測試用的快速規則——<b>先失去一台機體的一方輸</b>（被擊毀、駕駛昏迷或飛出地圖都算）。12 回合內沒分出勝負就是平手。</p>
+        <p><b>對手</b>：右上角可以選「對戰電腦」「同機輪流」或「電腦對戰電腦」（觀戰）。對戰結束後可以重播整場的結算演出。</p>
         <p><b>每回合兩步</b></p>
         <ol>
           <li><b>移動</b>：在左側選機體，下方用機動盤選機動（滑鼠停在按鈕上會預覽路徑）和姿態，全部選好後按「送出指令」。雙方都送出後同時移動。</li>

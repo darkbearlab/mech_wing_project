@@ -130,12 +130,15 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   return { state, events: ctx.events };
 }
 
-/** 一方全滅就結束；回合結束時另外檢查回合上限 */
+/** 一方全滅（或快速勝負時先少一台）就結束；回合結束時另外檢查回合上限 */
 function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
   const { state } = ctx;
   const alive = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status === 'active').length);
-  if (alive[0] > 0 && alive[1] > 0 && !(endOfTurn && state.turn >= C.TURN_LIMIT)) return false;
-  state.winner = alive[0] === alive[1] ? 'draw' : ((alive[0] > alive[1] ? 0 : 1) as PlayerId);
+  const lost = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status !== 'active').length);
+  const firstLoss = C.WIN_ON_FIRST_LOSS && (lost[0] > 0 || lost[1] > 0);
+  if (!firstLoss && alive[0] > 0 && alive[1] > 0 && !(endOfTurn && state.turn >= C.TURN_LIMIT)) return false;
+  if (firstLoss) state.winner = lost[0] === lost[1] ? 'draw' : ((lost[0] < lost[1] ? 0 : 1) as PlayerId);
+  else state.winner = alive[0] === alive[1] ? 'draw' : ((alive[0] > alive[1] ? 0 : 1) as PlayerId);
   ctx.events.push({ type: 'gameOver', winner: state.winner });
   return true;
 }

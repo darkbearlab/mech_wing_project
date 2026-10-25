@@ -5,6 +5,8 @@ export const BASE_RADIUS = 0.5;
 export const EVADE_RADIUS_REDUCTION = 0.15;
 export const MOVE_STEPS = 40;
 export const TURN_LIMIT = 12;
+/** 測試用的快速勝負：先失去一台機體（擊毀、昏迷或飛出地圖）的一方輸 */
+export const WIN_ON_FIRST_LOSS = true;
 
 // 距離帶（底板邊緣距離的上限）
 export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;

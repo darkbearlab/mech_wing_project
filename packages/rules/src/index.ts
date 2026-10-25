@@ -11,5 +11,6 @@ export * from './resolve';
 export * from './setup';
 export * from './visibility';
 export * from './match';
+export * from './ai';
 export { Rng } from './rng';
 export type * from './protocol';

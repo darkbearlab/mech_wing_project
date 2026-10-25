@@ -14,12 +14,13 @@ npm run dev
 ### 兩種模式
 
 - **伺服器模式**（`npm run dev` 的預設）：連本機 WebSocket 伺服器，A、B 各開一個視窗。
-- **本機輪流模式**（建置版與 GitHub Pages 的預設，或網址加 `?mode=local`）：對戰直接跑在瀏覽器裡，雙方輪流用同一台裝置，換手時會先蓋住畫面。
+- **本機模式**（建置版與 GitHub Pages 的預設，或網址加 `?mode=local`）：對戰直接跑在瀏覽器裡。右上角可選對手：對戰電腦、同機輪流（換手時會先蓋住畫面）、電腦對戰電腦（觀戰）；也可以用網址 `?opponent=ai|hotseat|aivai` 指定。對戰結束後可以重播整場的結算演出。
 
 ### 其他指令
 
 - `npm test`：規則引擎測試
 - `npm run sim -- 500`：批次隨機對戰，粗看數值分布
+- `npm run aisim -- 200`：批次 AI 對 AI，看勝負與退場原因
 - `TURN_SECONDS=60 npm run dev`：開啟回合計時
 
 ## GitHub Pages

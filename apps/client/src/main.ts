@@ -30,7 +30,7 @@ import {
   type Vec,
 } from '@mech/rules';
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
-import { LocalGame } from './local';
+import { LocalGame, type Opponent } from './local';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
 
 // ---------- 連線 ----------
@@ -63,7 +63,7 @@ function sendMsg(msg: ClientMessage) {
   if (local) {
     const next = local.submit(seat, msg);
     if (next === null) return;
-    if (msg.t === 'reset') switchSeat(next);
+    if (msg.t === 'reset' || next === seat) switchSeat(next);
     else showCover(next);
     return;
   }
@@ -154,13 +154,45 @@ function onMessage(msg: ServerMessage) {
 
 // ---------- 結算演出：一拍一拍播放 ----------
 
-function startShow(events: GameEvent[]) {
+/** 每次結算的演出都記下來，對戰結束後可以整場重播（各席位只記自己看得到的內容） */
+interface ReplayItem {
+  turn: number;
+  phase: 'move' | 'action';
+  events: GameEvent[];
+  prevUnits: UnitView[];
+}
+const replays: [ReplayItem[], ReplayItem[]] = [[], []];
+/** 重播中：還沒播的段落 */
+let replayQueue: ReplayItem[] | null = null;
+let replayNow: ReplayItem | null = null;
+
+function startShow(events: GameEvent[], replayed?: ReplayItem) {
   stopShow();
-  const prevUnits = view?.state.units ?? [];
+  const prevUnits = replayed?.prevUnits ?? view?.state.units ?? [];
+  if (!replayed && view && view.phase !== 'over') replays[seat].push({ turn: view.state.turn, phase: view.phase, events, prevUnits });
+  replayNow = replayed ?? null;
   const display = new Map(prevUnits.map((u) => [u.id, { x: u.pos.x, y: u.pos.y, f: u.facing, status: u.status }]));
   show = { beats: buildBeats(events), index: -1, beatStart: 0, prevUnits, display, timer: 0 };
   renderPanel();
   nextBeat();
+}
+
+function startReplay() {
+  replayQueue = [...replays[seat]];
+  playNextReplay();
+}
+
+function playNextReplay() {
+  const next = replayQueue?.shift();
+  if (!next) return stopReplay();
+  startShow(next.events, next);
+}
+
+function stopReplay() {
+  replayQueue = null;
+  replayNow = null;
+  stopShow();
+  renderAll();
 }
 
 function nextBeat() {
@@ -170,7 +202,7 @@ function nextBeat() {
   s.index++;
   if (s.index >= s.beats.length) return finishShow();
   const beat = s.beats[s.index];
-  appendLog(beat.events);
+  if (!replayNow) appendLog(beat.events);
   s.beatStart = performance.now();
   // 用計時器推進：分頁在背景時 requestAnimationFrame 不會跑，不能靠它
   s.timer = window.setTimeout(nextBeat, beat.duration);
@@ -194,15 +226,35 @@ function stopShow() {
 
 function finishShow() {
   stopShow();
+  if (replayQueue) {
+    window.setTimeout(() => replayQueue && !show && playNextReplay(), 500);
+    renderPanel();
+    return;
+  }
   if (pendingView) applyView(pendingView);
   pendingView = null;
   renderPanel();
+  scheduleAuto();
 }
 
 function skipShow() {
   if (!show) return;
-  for (let i = show.index + 1; i < show.beats.length; i++) appendLog(show.beats[i].events);
+  if (!replayNow) for (let i = show.index + 1; i < show.beats.length; i++) appendLog(show.beats[i].events);
   finishShow();
+}
+
+// ---------- 電腦對戰電腦：自動推進 ----------
+
+let autoTimer = 0;
+
+function scheduleAuto() {
+  if (!local || local.opponent !== 'aivai' || autoTimer) return;
+  autoTimer = window.setTimeout(() => {
+    autoTimer = 0;
+    if (!local || local.opponent !== 'aivai' || show || replayQueue || !view || view.phase === 'over') return;
+    local.autoStep();
+    local.takeOver(seat);
+  }, 700);
 }
 
 function applyView(v: PlayerView) {
@@ -220,6 +272,7 @@ function applyView(v: PlayerView) {
       if (v.phase === 'action') actionDrafts[u.id] = { action: { type: 'none' } };
     }
   }
+  if (!show) scheduleAuto();
   if (!selected || !v.state.units.some((u) => u.id === selected)) selected = ownUnits().find((u) => u.status === 'active')?.id ?? null;
   renderAll();
 }
@@ -862,7 +915,11 @@ function renderAll() {
 function renderStatus() {
   const other = seat === 0 ? 1 : 0;
   $('seatLinks').innerHTML = local
-    ? `本機輪流模式　現在是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>`
+    ? local.opponent === 'aivai'
+      ? '觀戰中（從 A 方視角）'
+      : local.opponent === 'ai'
+        ? `你是 <b style="color:${color(seat)}">A 方</b>，B 方由電腦操作`
+        : `同機輪流　現在是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>`
     : `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b> <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${SIDE(other)} 方視窗</a>`;
   if (!view) {
     $('status').textContent = '連線中…';
@@ -934,7 +991,11 @@ function renderPanel() {
     $('submitCol').innerHTML = '';
     return;
   }
-  $('phaseHint').textContent = show || view.submitted[view.you] ? '' : PHASE_HINT[view.phase];
+  $('phaseHint').textContent = replayNow
+    ? `重播中：第 ${replayNow.turn} 回合・${replayNow.phase === 'move' ? '移動' : '行動'}`
+    : show || view.submitted[view.you] || local?.opponent === 'aivai'
+      ? ''
+      : PHASE_HINT[view.phase];
   const u = selected ? unitView(selected) : undefined;
   $('info').innerHTML = u ? infoHtml(u) : '<span class="muted">點左側或地圖上的機體</span>';
   $('controls').innerHTML = controlsHtml(u);
@@ -979,12 +1040,20 @@ function infoHtml(u: UnitView): string {
 
 // ---- 中欄：機動盤／行動 ----
 
+function resultText(): string {
+  const w = view!.state.winner;
+  if (w === 'draw') return '平手';
+  if (local?.opponent === 'aivai') return `${SIDE(w as PlayerId)} 方勝利`;
+  return w === view!.you ? '勝利' : '敗北';
+}
+
 function controlsHtml(u: UnitView | undefined): string {
+  if (replayNow) return `<span class="muted">重播第 ${replayNow.turn} 回合的${replayNow.phase === 'move' ? '移動' : '行動'}結算（共 ${replays[seat].length} 段，剩 ${replayQueue?.length ?? 0} 段）</span>`;
   if (show) return '<span class="muted">結算演出中…</span>';
   if (view!.phase === 'over') {
-    const w = view!.state.winner;
-    return `<h3>${w === 'draw' ? '平手' : w === view!.you ? '勝利' : '敗北'}</h3>`;
+    return `<h3>${resultText()}</h3><div class="row"><button class="primary" id="replayBtn" ${replays[seat].length ? '' : 'disabled'}>重播整場戰鬥</button><button id="againBtn">再來一場</button></div><div class="small muted">重播只播每回合的結算演出，可以逐段跳過。</div>`;
   }
+  if (local?.opponent === 'aivai') return '<span class="muted">觀戰中：雙方都由電腦操作，會自動進行到分出勝負。</span>';
   if (!u) return '';
   if (u.owner !== view!.you) return '<span class="muted">敵方機體：只能查看外觀與受損部位，看不到駕駛、壓力與推進劑。</span>';
   if (u.status !== 'active') return '<span class="muted">這台機體已經不能行動。</span>';
@@ -1137,6 +1206,10 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
 }
 
 function bindControls(u: UnitView | undefined) {
+  const replayBtn = document.getElementById('replayBtn');
+  if (replayBtn) replayBtn.onclick = startReplay;
+  const againBtn = document.getElementById('againBtn');
+  if (againBtn) againBtn.onclick = () => restart();
   if (!u || u.owner !== view!.you) return;
   const ctr = $('controls');
   const move = moveDrafts[u.id];
@@ -1205,12 +1278,18 @@ function setTarget(unitId: string, targetId: string) {
 
 function renderSubmit() {
   const col = $('submitCol');
+  if (replayNow || (replayQueue && !show)) {
+    col.innerHTML = '<button class="big" id="skipBtn">跳過這段</button><button class="big" id="stopReplayBtn">結束重播</button>';
+    $('skipBtn').onclick = skipShow;
+    $('stopReplayBtn').onclick = stopReplay;
+    return;
+  }
   if (show) {
     col.innerHTML = '<button class="big" id="skipBtn">跳過演出</button>';
     $('skipBtn').onclick = skipShow;
     return;
   }
-  if (!view || view.phase === 'over') {
+  if (!view || view.phase === 'over' || local?.opponent === 'aivai') {
     col.innerHTML = '';
     return;
   }
@@ -1341,14 +1420,42 @@ $('logToggle').onclick = () => {
   renderLog();
 };
 
+function restart() {
+  logs[0].length = 0;
+  logs[1].length = 0;
+  replays[0].length = 0;
+  replays[1].length = 0;
+  replayQueue = null;
+  replayNow = null;
+  savedViews[0] = savedViews[1] = null;
+  draftKey = '';
+  renderLog();
+  sendMsg({ t: 'reset' });
+}
+
 $('resetBtn').onclick = () => {
-  if (confirm(local ? '重新開始一場對戰？' : '重開這個房間？雙方的對戰都會重設。')) {
-    logs[0].length = 0;
-    logs[1].length = 0;
-    draftKey = '';
-    renderLog();
-    sendMsg({ t: 'reset' });
-  }
+  if (confirm(local ? '重新開始一場對戰？' : '重開這個房間？雙方的對戰都會重設。')) restart();
+};
+
+// 對手：電腦／同機輪流／電腦對戰電腦（只有本機模式）
+const OPPONENT_KEY = 'mech-wing-opponent';
+const opponentSel = $('opponent') as HTMLSelectElement;
+function initialOpponent(): Opponent {
+  const fromUrl = params.get('opponent');
+  if (fromUrl === 'ai' || fromUrl === 'hotseat' || fromUrl === 'aivai') return fromUrl;
+  try {
+    const saved = localStorage.getItem(OPPONENT_KEY);
+    if (saved === 'ai' || saved === 'hotseat' || saved === 'aivai') return saved;
+  } catch {}
+  return 'ai';
+}
+opponentSel.onchange = () => {
+  if (!local) return;
+  local.opponent = opponentSel.value as Opponent;
+  try {
+    localStorage.setItem(OPPONENT_KEY, local.opponent);
+  } catch {}
+  restart();
 };
 
 // 玩法說明：第一次開啟時自動顯示
@@ -1370,9 +1477,11 @@ try {
 }
 
 if (mode === 'local') {
-  local = new LocalGame(onMessage);
+  local = new LocalGame(onMessage, initialOpponent());
+  opponentSel.value = local.opponent;
   switchSeat(0);
 } else {
+  opponentSel.hidden = true;
   connect();
 }
 requestAnimationFrame(drawFrame);

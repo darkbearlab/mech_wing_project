@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { damageUnit, type Ctx } from '../src/damage';
 import { localPose, parseManeuver } from '../src/maneuvers';
 import { Match } from '../src/match';
+import { aiActions, aiMoves } from '../src/ai';
 import { resolveTurn } from '../src/resolve';
 import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
@@ -293,6 +294,36 @@ describe('整場模擬', () => {
         st = r.state;
         expect(st.turn).toBeLessThanOrEqual(12);
       }
+    }
+  });
+});
+
+describe('勝負與 AI', () => {
+  it('快速勝負：先失去一台機體（飛出地圖也算）的一方輸', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 23, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 5, y: 20, facingDeg: 0 },
+    ]);
+    const r = resolveTurn(st, [{ [st.units[0].id]: plan({ maneuver: 'straight-S-3' }) }, {}]);
+    expect(r.state.units[0].status).toBe('withdrawn');
+    expect(r.state.winner).toBe(1);
+  });
+
+  it('AI 對 AI：指令都合法，而且會打完', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const m = new Match(seed);
+      const rng = new Rng(seed * 13);
+      let guard = 0;
+      while (m.phase !== 'over' && guard++ < 40) {
+        for (const p of [0, 1] as const) {
+          const v = m.viewFor(p);
+          const errors = m.phase === 'move' ? m.submitMoves(p, aiMoves(v, rng)) : m.submitActions(p, aiActions(v, rng));
+          expect(errors).toEqual([]);
+        }
+      }
+      expect(m.phase).toBe('over');
+      expect(m.state.units.some((u) => u.status === 'withdrawn')).toBe(false);
     }
   });
 });
