@@ -2,7 +2,7 @@
   "name": "@mech/client",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite --port 5173 --strictPort" },
+  "scripts": { "dev": "vite --port 5173 --strictPort", "build": "vite build" },
   "dependencies": { "@mech/rules": "*" },
   "devDependencies": { "vite": "^6.1.0" }
 }

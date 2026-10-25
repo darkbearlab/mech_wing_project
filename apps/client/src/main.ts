@@ -16,6 +16,8 @@ import {
   type GameEvent,
   type GrappleChoice,
   type Hand,
+  type ClientMessage,
+  type PlayerId,
   type PlayerView,
   type ServerMessage,
   type Stance,
@@ -24,14 +26,18 @@ import {
   type UnitView,
   type Vec,
 } from '@mech/rules';
+import { LocalGame } from './local';
 
 // ---------- 連線 ----------
 
 const params = new URLSearchParams(location.search);
+// server：連本機 WebSocket 伺服器，兩個視窗各坐一席；local：同一台裝置輪流（GitHub Pages 用這個）
+const mode = params.get('mode') ?? (import.meta.env.PROD ? 'local' : 'server');
 const room = params.get('room') || 'test';
-const seat = params.get('seat') === '1' ? 1 : 0;
+let seat: PlayerId = params.get('seat') === '1' ? 1 : 0;
 
 let ws: WebSocket;
+let local: LocalGame | null = null;
 let view: PlayerView | null = null;
 let connected: [boolean, boolean] = [false, false];
 let deadline: number | null = null;
@@ -48,8 +54,40 @@ function connect() {
   };
 }
 
-function sendMsg(msg: object) {
+function sendMsg(msg: ClientMessage) {
+  if (local) {
+    const next = local.submit(seat, msg);
+    if (next === null) return;
+    if (msg.t === 'reset') switchSeat(next);
+    else showCover(next);
+    return;
+  }
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+const SIDE = (s: PlayerId) => (s === 0 ? 'A' : 'B');
+
+/** 本機模式換手：先蓋住畫面，等下一位按下才顯示他的視角 */
+function showCover(next: PlayerId) {
+  const cover = document.getElementById('cover')!;
+  cover.innerHTML = `<div><p>輪到 <b style="color:${color(next)}">${SIDE(next)} 方</b></p><p class="muted">請把裝置交給對方，避免看到彼此的駕駛與指令。</p><button class="primary" id="coverBtn">我是 ${SIDE(next)} 方，開始</button></div>`;
+  cover.hidden = false;
+  document.getElementById('coverBtn')!.onclick = () => {
+    cover.hidden = true;
+    switchSeat(next);
+  };
+}
+
+function switchSeat(next: PlayerId) {
+  seat = next;
+  view = null;
+  draftKey = '';
+  selected = null;
+  playback = null;
+  pendingView = null;
+  errors = [];
+  renderLog();
+  local!.takeOver(next);
 }
 
 // ---------- 用戶端狀態 ----------
@@ -59,7 +97,7 @@ let draftKey = '';
 let selected: string | null = null;
 let pendingView: PlayerView | null = null;
 let playback: { events: GameEvent[]; start: number; prevUnits: UnitView[] } | null = null;
-const logLines: { text: string; cls: string }[] = [];
+const logs: [{ text: string; cls: string }[], { text: string; cls: string }[]] = [[], []];
 const PLAYBACK_MS = 2600;
 
 function onMessage(msg: ServerMessage) {
@@ -151,12 +189,14 @@ canvas.addEventListener('click', (e) => {
 });
 
 function drawFrame(now: number) {
+  requestAnimationFrame(drawFrame);
   g.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid();
-  if (!view) return requestAnimationFrame(drawFrame);
+  if (!view) return;
 
   let progress = 1;
-  if (playback) progress = Math.min(1, (now - playback.start) / PLAYBACK_MS);
+  // rAF 的時間戳可能比 playback.start 還早，要夾在 0..1
+  if (playback) progress = Math.max(0, Math.min(1, (now - playback.start) / PLAYBACK_MS));
 
   if (!playback) {
     drawRanges();
@@ -190,7 +230,6 @@ function drawFrame(now: number) {
     }
     if (progress >= 1) drawShots(playback.events);
   }
-  requestAnimationFrame(drawFrame);
 }
 
 function sampleAt(samples: [number, number, number][] | undefined, t: number): (Vec & { f: number }) | null {
@@ -319,7 +358,9 @@ function renderAll() {
 
 function renderStatus() {
   const other = seat === 0 ? 1 : 0;
-  $('seatLinks').innerHTML = `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${seat === 0 ? 'A' : 'B'} 方</b> <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${other === 0 ? 'A' : 'B'} 方視窗</a>`;
+  $('seatLinks').innerHTML = local
+    ? `本機輪流模式　現在是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>`
+    : `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b> <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${SIDE(other)} 方視窗</a>`;
   if (!view) {
     $('status').textContent = '連線中…';
     return;
@@ -565,21 +606,31 @@ function appendLog(events: GameEvent[]) {
     const text = describe(e);
     if (!text) continue;
     const owner = eventOwner(e);
-    logLines.push({ text, cls: e.type === 'turnStart' || e.type === 'gameOver' ? 'turn' : owner === null ? '' : owner === seat ? 'mine' : 'theirs' });
+    logs[seat].push({ text, cls: e.type === 'turnStart' || e.type === 'gameOver' ? 'turn' : owner === null ? '' : owner === seat ? 'mine' : 'theirs' });
   }
+  renderLog();
+}
+
+function renderLog() {
   const el = $('log');
-  el.innerHTML = logLines.map((l) => `<div class="${l.cls}">${esc(l.text)}</div>`).join('');
+  el.innerHTML = logs[seat].map((l) => `<div class="${l.cls}">${esc(l.text)}</div>`).join('');
   el.scrollTop = el.scrollHeight;
 }
 
 $('resetBtn').onclick = () => {
-  if (confirm('重開這個房間？雙方的對戰都會重設。')) {
-    logLines.length = 0;
+  if (confirm(local ? '重新開始一場對戰？' : '重開這個房間？雙方的對戰都會重設。')) {
+    logs[0].length = 0;
+    logs[1].length = 0;
     $('log').innerHTML = '';
     draftKey = '';
     sendMsg({ t: 'reset' });
   }
 };
 
-connect();
+if (mode === 'local') {
+  local = new LocalGame(onMessage);
+  switchSeat(0);
+} else {
+  connect();
+}
 requestAnimationFrame(drawFrame);
