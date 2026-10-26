@@ -227,12 +227,17 @@ function stopShow() {
 }
 
 function finishShow() {
-  stopShow();
-  if (replayQueue) {
-    window.setTimeout(() => replayQueue && !show && playNextReplay(), 500);
+  if (replayQueue && show) {
+    // 重播段落之間：停在這段結算完的畫面，不要退回目前（最終）的戰場
+    clearTimeout(show.timer);
+    for (let i = Math.max(0, show.index); i < show.beats.length; i++) settleBeat(show, show.beats[i]);
+    show.index = show.beats.length;
+    const current = show;
+    window.setTimeout(() => replayQueue && show === current && playNextReplay(), 500);
     renderPanel();
     return;
   }
+  stopShow();
   if (pendingView) applyView(pendingView);
   pendingView = null;
   renderPanel();
@@ -241,6 +246,8 @@ function finishShow() {
 
 function skipShow() {
   if (!show) return;
+  // 重播中這段已經播完、正在等下一段：直接跳到下一段
+  if (replayQueue && show.index >= show.beats.length) return playNextReplay();
   if (!replayNow) for (let i = show.index + 1; i < show.beats.length; i++) appendLog(show.beats[i].events);
   finishShow();
 }
