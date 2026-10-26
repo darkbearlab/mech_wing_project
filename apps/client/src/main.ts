@@ -1972,6 +1972,9 @@ try {
   setHelp(true);
 }
 
+// 關掉分頁時，打到一半的對局也上傳紀錄
+addEventListener('pagehide', () => local?.upload());
+
 if (mode === 'local') {
   // ?content=builtin 用內建資料，?content=0.1.4 指定版本，預設抓線上最新版
   void loadContent(params.get('content')).then(({ version, note }) => {

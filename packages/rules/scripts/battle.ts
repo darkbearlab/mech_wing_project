@@ -2,6 +2,7 @@
 //   npm run battle -- 7                    第 7 號種子打一場，印出逐回合紀錄
 //   npm run battle -- 7 mirror             雙方同一套隨機陣容（鏡像對戰）
 //   npm run battle -- --stats 200 mirror   打 200 場，只看統計（撞隕石、卡住、集火、平手…）
+//   npm run battle -- --replay logs/battle-12.json   重播線上上傳的對戰紀錄（先用 npm run admin -w @mech/api -- battle 12 下載）
 // 陣容模式：config（照設定）、random、mirror、default。PACK=資料包.json 用指定的資料包。
 import { readFileSync } from 'node:fs';
 import {
@@ -16,7 +17,10 @@ import {
   parseManeuver,
   pickRosters,
   randomRoster,
+  replayRecord,
   useContent,
+  type BattleRecord,
+  type ContentPack,
   type GameEvent,
   type PlayerActions,
   type PlayerId,
@@ -28,6 +32,7 @@ import {
 if (process.env.PACK) useContent(JSON.parse(readFileSync(process.env.PACK, 'utf-8')));
 
 const args = process.argv.slice(2);
+const replayMode = args[0] === '--replay';
 const statsMode = args[0] === '--stats';
 const games = statsMode ? Number(args[1] ?? 100) : 1;
 const seed0 = statsMode ? 1 : Number(args[0] ?? 1);
@@ -67,30 +72,23 @@ interface Stats {
 }
 const S: Stats = { games: 0, turns: 0, wins: { 0: 0, 1: 0, draw: 0 }, rockHits: 0, rockRepeat: 0, stuckTurns: 0, shots: 0, hits: 0, noActionTurns: 0, unitTurns: 0, focusShots: 0, actionTurnsWithShots: 0, ends: {}, friendlyBumps: 0 };
 
-function play(seed: number, verbose: boolean) {
-  const m = new Match(seed, createGame(seed, rosters(seed)));
-  const rng = new Rng(seed * 7919 + 3);
+type Orders = PlayerMoves | PlayerActions | null;
+
+/** 整理一場對戰的經過；verbose 時印出逐回合紀錄，同時累計統計 */
+function reporter(m: Match, verbose: boolean, seatNote = ['', '']) {
   const label = (id: string) => m.state.units.find((u) => u.id === id)?.label ?? id;
   const owner = (id: string) => m.state.units.find((u) => u.id === id)?.owner;
   const lastRock = new Map<string, number>();
   const say = (s: string) => verbose && console.log(s);
 
   if (verbose) {
-    say(`種子 ${seed}，陣容模式 ${mode}，資料 ${m.state.contentVersion}`);
     say(`隕石：${m.state.obstacles.map((o) => `${o.kind === 'rock' ? '大隕石' : '隕石群'}(${f1(o.x)},${f1(o.y)}) r${f1(o.r)}`).join('、')}`);
-    for (const u of m.state.units) say(`  ${u.label} 駕駛 ${u.pilotId}　${u.equipment.map((e) => `${EQUIPMENT[e.defId].name}(${e.location})`).join('、')}`);
+    for (const u of m.state.units) say(`  ${u.label}${seatNote[u.owner]} 駕駛 ${u.pilotId}　${u.equipment.map((e) => `${EQUIPMENT[e.defId].name}(${e.location})`).join('、')}`);
   }
 
-  let guard = 0;
-  while (m.phase !== 'over' && guard++ < 100) {
-    const phase = m.phase;
-    const turn = m.state.turn;
-    const plans: [PlayerMoves | PlayerActions | null, PlayerMoves | PlayerActions | null] = [null, null];
-    for (const p of [0, 1] as PlayerId[]) {
-      const v = m.viewFor(p);
-      if (phase === 'move') m.submitMoves(p, (plans[p] = aiMoves(v, rng)));
-      else m.submitActions(p, (plans[p] = aiActions(v, rng)));
-    }
+  let turn = m.state.turn;
+  // 每次結算後呼叫：phase 是剛結算的階段，plans 是雙方這次送出的指令
+  const resolved = (phase: 'move' | 'action', plans: [Orders, Orders]) => {
     const events: GameEvent[] = m.turnResolvedEvents;
     if (phase === 'move') {
       say(`\n── 第 ${turn} 回合 移動 ──`);
@@ -165,16 +163,61 @@ function play(seed: number, verbose: boolean) {
         }
       }
     }
-  }
+    turn = m.state.turn;
+  };
+  const finish = () => {
   S.games++;
   S.turns += m.state.turn;
   S.wins[String(m.state.winner)]++;
-  say(`\n結果：${m.state.winner === 'draw' ? '平手' : `${m.state.winner === 0 ? 'A' : 'B'} 方勝`}（第 ${m.state.turn} 回合）`);
+  say(`\n結果：${m.state.winner === null ? '沒打完（中途重開或關掉）' : m.state.winner === 'draw' ? '平手' : `${m.state.winner === 0 ? 'A' : 'B'} 方勝`}（第 ${m.state.turn} 回合）`);
+  };
+  return { resolved, finish };
 }
 
-for (let g = 0; g < games; g++) play(seed0 + g, !statsMode);
+/** 雙方都由 AI 操作打一場 */
+function play(seed: number, verbose: boolean) {
+  const m = new Match(seed, createGame(seed, rosters(seed)));
+  const rng = new Rng(seed * 7919 + 3);
+  if (verbose) console.log(`種子 ${seed}，陣容模式 ${mode}，資料 ${m.state.contentVersion}`);
+  const r = reporter(m, verbose);
+  let guard = 0;
+  while (m.phase !== 'over' && guard++ < 100) {
+    const phase = m.phase;
+    const plans: [Orders, Orders] = [null, null];
+    for (const p of [0, 1] as PlayerId[]) {
+      const v = m.viewFor(p);
+      if (phase === 'move') m.submitMoves(p, (plans[p] = aiMoves(v, rng)));
+      else m.submitActions(p, (plans[p] = aiActions(v, rng)));
+    }
+    r.resolved(phase, plans);
+  }
+  r.finish();
+}
 
-if (statsMode) {
+/** 重播上傳的對戰紀錄 */
+async function replay(file: string) {
+  const rec = JSON.parse(readFileSync(file, 'utf-8')) as BattleRecord;
+  if (rec.pack) useContent(rec.pack);
+  else if (!process.env.PACK && !rec.contentVersion.startsWith('builtin')) {
+    const res = await fetch(`${process.env.MECH_API ?? 'https://mech-wing-api.darkbearlab.workers.dev'}/packs/${encodeURIComponent(rec.contentVersion)}`);
+    if (!res.ok) throw new Error(`抓不到資料包 ${rec.contentVersion}：HTTP ${res.status}`);
+    useContent((await res.json()) as ContentPack);
+  }
+  const who = { human: '（玩家）', ai: '（電腦）' };
+  console.log(`紀錄 ${file}：${rec.startedAt}，種子 ${rec.seed}，資料 ${rec.contentVersion}，建置 ${rec.build ?? '?'}，A 方${who[rec.seats[0]]} B 方${who[rec.seats[1]]}`);
+  let r: ReturnType<typeof reporter> | null = null;
+  const { match, errors } = replayRecord(rec, (m, phase, orders) => {
+    r ??= reporter(m, true, [who[rec.seats[0]], who[rec.seats[1]]]);
+    r.resolved(phase, orders);
+  });
+  (r ?? reporter(match, true)).finish();
+  if (errors.length) console.log(`\n⚠ 重播有問題：\n  ${errors.join('\n  ')}`);
+}
+
+if (replayMode) await replay(args[1]);
+else for (let g = 0; g < games; g++) play(seed0 + g, !statsMode);
+
+if (statsMode && !replayMode) {
   const per = (n: number) => (n / S.games).toFixed(2);
   console.log(`[${mode}] ${S.games} 場，平均 ${(S.turns / S.games).toFixed(1)} 回合　勝負 ${JSON.stringify(S.wins)}　退場 ${JSON.stringify(S.ends)}`);
   console.log(`撞隕石 每場 ${per(S.rockHits)} 次（連續兩回合撞 ${per(S.rockRepeat)} 次）　友軍互撞 每場 ${per(S.friendlyBumps)} 次`);

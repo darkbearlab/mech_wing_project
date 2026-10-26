@@ -3,6 +3,8 @@ import { contentVersion, useContent, type ContentPack } from '@mech/rules';
 
 export const API = import.meta.env.VITE_CONTENT_API ?? 'https://mech-wing-api.darkbearlab.workers.dev';
 const TIMEOUT_MS = 3000;
+/** 機庫草稿試玩時的整份資料包（草稿沒有固定版本，對戰紀錄要附上） */
+export let draftPack: ContentPack | null = null;
 
 /** 回傳實際使用的資料版本與來源說明 */
 export async function loadContent(source: string | null): Promise<{ version: string; note: string }> {
@@ -17,6 +19,7 @@ export async function loadContent(source: string | null): Promise<{ version: str
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();
     useContent((source === 'draft' ? body.pack : body) as ContentPack);
+    if (source === 'draft') draftPack = body.pack;
     return { version: contentVersion(), note: source === 'draft' ? '機庫草稿（試玩）' : '線上資料' };
   } catch (e) {
     console.warn('內容 API 讀取失敗，改用內建資料', e);
