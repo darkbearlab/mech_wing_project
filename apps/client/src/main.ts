@@ -33,6 +33,7 @@ import {
 } from '@mech/rules';
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
 import { LocalGame, type Opponent } from './local';
+import { mechSilhouette } from './silhouette';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
 
 // ---------- 連線 ----------
@@ -444,6 +445,7 @@ function drawFrame(now: number) {
   requestAnimationFrame(drawFrame);
   g.clearRect(0, 0, W, H);
   drawGround();
+  updateHoverCard();
   if (!view) return;
   if (!show) {
     drawRanges();
@@ -1127,6 +1129,33 @@ function placeCard() {
   card.style.left = `${pos.x}px`;
   card.style.top = `${pos.y}px`;
   cardRect = { x: pos.x, y: pos.y, w, h };
+}
+
+/** 滑鼠停在機體標記上：旁邊浮出受損圖小卡片（敵我都看得到，只有外觀） */
+let hoverCardKey = '';
+
+function updateHoverCard() {
+  const el = $('hoverCard');
+  const u = view && !show && hoverUnit ? unitView(hoverUnit) : undefined;
+  if (!u) {
+    el.hidden = true;
+    hoverCardKey = '';
+    return;
+  }
+  const key = `${u.id}:${JSON.stringify(u.parts)}:${u.status}`;
+  if (key !== hoverCardKey) {
+    hoverCardKey = key;
+    const ch = CHASSIS[u.chassisId];
+    const status = u.status !== 'active' ? `<div class="small err">${{ destroyed: '已擊毀', withdrawn: '已脫離戰場', unconscious: '駕駛昏迷', disabled: '停止動作' }[u.status]}</div>` : u.vague === 'sluggish' ? '<div class="small warn">動作遲鈍</div>' : '';
+    el.innerHTML = `<div class="hname" style="color:${color(u.owner)}">${esc(u.label.split(' ')[0])} <span class="hsub">${esc(ch.name.replace(/^X-\d+ /, ''))}</span></div>${mechSilhouette(u)}${status}`;
+  }
+  el.hidden = false;
+  const p = fx(u.pos);
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const x = p.x + 22 + w > W ? p.x - 22 - w : p.x + 22;
+  el.style.left = `${Math.max(4, x)}px`;
+  el.style.top = `${Math.max(4, Math.min(H - h - 4, p.y - h / 2))}px`;
 }
 
 /** 指令卡與地圖上所選機體之間的細線 */
