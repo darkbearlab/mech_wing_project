@@ -14,5 +14,5 @@ export function makeState(defs: { entry: RosterEntry; owner: PlayerId; x: number
 export type UnitPlan = MovePlan & ActionPlan;
 
 export function plan(p: Partial<UnitPlan> & { maneuver: string }): UnitPlan {
-  return { stance: 'normal', facingOffset: 0, limiter: false, soften: false, action: { type: 'none' }, ...p };
+  return { stance: 'normal', facingOffset: 0, limiter: false, action: { type: 'none' }, ...p };
 }

@@ -149,13 +149,11 @@ export function simulateMovement(
     let result: ContactResult;
     if (attackers.length === 0) result = 'bump';
     else if (vc <= C.CLINCH_MAX_VC) result = 'clinch';
-    else {
-      result = bladed.length ? 'hitrun' : 'ram';
-      const softeners = attackers.filter((m) => m.plan?.soften);
-      for (const m of softeners) addStress(ctx, m.unit, C.SOFTEN_STRESS, '收刀');
-      if (softeners.length) result = 'clinch';
-    }
+    else result = bladed.length ? 'hitrun' : 'ram';
     emit(vc, result);
+    // 承受衝擊：被突進撞上的一方站穩硬吃，壓力 +相對速度 ÷ 2
+    const bracer = [a, b].find((m) => !attackers.includes(m) && stance[m.unit.id] === 'brace');
+    if (bracer && (result === 'hitrun' || result === 'ram')) addStress(ctx, bracer.unit, Math.floor(vc / 2), '承受衝擊');
 
     switch (result) {
       case 'bump':
@@ -174,23 +172,29 @@ export function simulateMovement(
         }
         const att = bladed[0];
         const def = att === a ? b : a;
-        meleeClash(ctx, att.unit, def.unit, t, stance[def.unit.id] === 'charge');
+        const caught = meleeClash(ctx, att.unit, def.unit, t, stance[def.unit.id] === 'charge', def === bracer);
+        if (caught) {
+          halt(a, b);
+          ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: null });
+        }
         break;
       }
       case 'ram':
         halt(a, b);
-        ram(ctx, attackers, a, b, vc);
+        ram(ctx, attackers, a, b, vc, bracer);
         break;
     }
     return result;
   }
 
   /** 撞擊：被撞的一方受「相對速度＋重量差」傷害，撞人的一方自己承受一半；雙方都突進則各自吃對方的撞擊 */
-  function ram(ctx: Ctx, rammers: Mover[], a: Mover, b: Mover, vc: number) {
+  function ram(ctx: Ctx, rammers: Mover[], a: Mover, b: Mover, vc: number, bracer?: Mover) {
     const wa = chassisOf(a.unit).weightClass;
     const wb = chassisOf(b.unit).weightClass;
-    const hitA = Math.max(1, vc + wb - wa);
-    const hitB = Math.max(1, vc + wa - wb);
+    // 承受衝擊的一方受到的撞擊傷害減半
+    const braced = (m: Mover, n: number) => (m === bracer ? Math.max(1, Math.floor(n / 2)) : n);
+    const hitA = braced(a, Math.max(1, vc + wb - wa));
+    const hitB = braced(b, Math.max(1, vc + wa - wb));
     const both = rammers.length === 2;
     damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered');
     damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered');
@@ -199,7 +203,7 @@ export function simulateMovement(
     if (wa === wb) return;
     const [heavy, light] = wa > wb ? [a, b] : [b, a];
     const dir = normalize(sub(light.unit.pos, heavy.unit.pos));
-    light.unit.pos = add(light.unit.pos, scale(dir, Math.abs(wa - wb) + 1));
+    light.unit.pos = add(light.unit.pos, scale(dir, (Math.abs(wa - wb) + 1) / (light === bracer ? 2 : 1)));
     light.unit.facing += ctx.rng.range(-45, 45) * DEG;
     light.knocked = true;
     ctx.events.push({ type: 'knockback', unit: light.unit.id, to: { ...light.unit.pos }, facing: light.unit.facing });

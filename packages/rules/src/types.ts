@@ -1,6 +1,7 @@
 export type Vec = { x: number; y: number };
 export type PlayerId = 0 | 1;
-export type Stance = 'normal' | 'charge' | 'evade';
+/** brace：承受衝擊，站穩等對方撞上來，有機會把一擊脫離拖進纏鬥 */
+export type Stance = 'normal' | 'charge' | 'evade' | 'brace';
 export type Hand = 'right' | 'left';
 export type RangeBand = 0 | 1 | 2 | 3;
 export type GrappleChoice = 'slash' | 'parry' | 'grab' | 'push' | 'disengage';
@@ -127,8 +128,6 @@ export interface MovePlan {
   stance: Stance;
   facingOffset: number;
   limiter: boolean;
-  /** 接觸時花 1 壓力把結果降一檔 */
-  soften: boolean;
   grapple?: GrappleChoice;
 }
 
@@ -163,6 +162,8 @@ export type GameEvent =
       defHits: number;
       winner: string | null;
       damage: number;
+      /** 防守方承受衝擊並把攻擊方拖進纏鬥 */
+      caught: boolean;
     }
   | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number }
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }

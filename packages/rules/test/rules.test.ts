@@ -7,6 +7,7 @@ import { resolveTurn } from '../src/resolve';
 import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
+import type { RosterEntry } from '../src/data';
 import { availableManeuvers, defaultMove, heldItem, validateMove } from '../src/unit';
 import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
 
@@ -118,7 +119,7 @@ describe('同時移動與接觸', () => {
     expect(c.winner).toBe(st.units[0].id);
   });
 
-  it('高速出刀加壓力，王牌門檻較高；收刀改成纏鬥', () => {
+  it('高速出刀加壓力，王牌門檻較高', () => {
     const mk = (pilot: string) =>
       makeState([
         { entry: { ...saberX00, pilot }, owner: 0, x: 5, y: 10, facingDeg: 0 },
@@ -129,8 +130,57 @@ describe('同時移動與接觸', () => {
     const speedStress = (events: GameEvent[]) => of(events, 'stress').find((e) => e.reason === '高速出刀')?.amount ?? 0;
     expect(speedStress(duel(charge, rush, mk('veteran')).events)).toBe(2);
     expect(speedStress(duel(charge, rush, mk('ace')).events)).toBe(1);
-    const soft = duel({ ...charge, soften: true }, rush, mk('veteran'));
-    expect(of(soft.events, 'contact')[0].result).toBe('clinch');
+
+  });
+
+  it('承受衝擊：速度 2 以下才能選', () => {
+    const u = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]).units[0];
+    expect(validateMove(u, plan({ maneuver: 'straight-S-2', stance: 'brace' }), false)).toEqual([]);
+    expect(validateMove(u, plan({ maneuver: 'straight-S-2', stance: 'brace', limiter: true }), false)).toHaveLength(1);
+    expect(validateMove(u, plan({ maneuver: 'straight-S-3', stance: 'brace' }), false)).toHaveLength(1);
+  });
+
+  it('承受衝擊：對決贏或平手就把一擊脫離拖進纏鬥，輸了照常被砍', () => {
+    const heavy: RosterEntry = { chassis: 'X-02', pilot: 'veteran', equipment: [['bazooka', 'right'], ['shield', 'left']] };
+    let caught = 0;
+    let passed = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const st = makeState(
+        [
+          { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+          { entry: heavy, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
+        ],
+        seed,
+      );
+      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0', stance: 'brace' }), st);
+      const c = of(r.events, 'clash')[0];
+      // 重裝老兵：2 + 3 + 承受 1 + 重量差 1
+      expect(c.defDice).toHaveLength(7);
+      expect(of(r.events, 'stress').some((e) => e.reason === '承受衝擊')).toBe(true);
+      if (c.defHits >= c.attHits) {
+        expect(c.caught).toBe(true);
+        expect(r.state.grapples).toHaveLength(1);
+        caught++;
+      } else {
+        expect(r.state.grapples).toHaveLength(0);
+        passed++;
+      }
+    }
+    expect(caught).toBeGreaterThan(0);
+    expect(passed).toBeGreaterThan(0);
+  });
+
+  it('承受衝擊：被撞擊時傷害減半', () => {
+    const mk = (stance: 'normal' | 'brace') => {
+      const st = makeState([
+        { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+        { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
+      ]);
+      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0', stance }), st);
+      return of(r.events, 'damage').filter((e) => e.unit === st.units[1].id).reduce((t, e) => t + e.amount, 0);
+    };
+    expect(mk('normal')).toBe(3);
+    expect(mk('brace')).toBe(1);
   });
 
   it('突進但手上沒有近戰武器 → 撞擊，被撞的一方傷得比較重', () => {

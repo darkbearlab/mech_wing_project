@@ -9,6 +9,7 @@ import {
   config,
   grappleOptions,
   hitChance,
+  moveSpeed,
   parseManeuver,
   planCost,
   samplePath,
@@ -290,7 +291,7 @@ const equipName = (u: UnitView | undefined, eqId: string | null) => {
 function initialMove(u: UnitView): MovePlan {
   const opts = availableManeuvers(u);
   const pick = opts.find((m) => m.id === 'straight-S-2') ?? opts.find((m) => m.propellant === 0) ?? opts[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, soften: false, grapple: 'push' };
+  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, grapple: 'push' };
 }
 
 /** 套用規劃中的換武器後，手上會拿著什麼 */
@@ -562,6 +563,7 @@ function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Dis
         if (cl.winner === cl.attacker) drawSlash(def, att, p, 'hit');
         else if (cl.winner && cl.damage) drawSlash(att, def, p, 'counter');
         else drawSlash(def, att, p, cl.winner ? (cl.defense === 'shield' ? 'blocked' : 'dodged') : 'tie');
+        if (cl.caught) drawFloat(def, '拖住！', '#c9a8ff', p, 3);
       }
     } else {
       const colour = { ram: '255,138,61', clinch: '190,150,255', bump: '200,200,200', hitrun: '', none: '' }[c.result];
@@ -1119,17 +1121,14 @@ function placeCard() {
   cardRect = { x: pos.x, y: pos.y, w, h };
 }
 
-/** 指令卡與機體資料卡之間的細線 */
+/** 指令卡與地圖上所選機體之間的細線 */
 function drawCardLink() {
-  const info = $('infoCard');
-  if (!cardRect || show || info.hidden) return;
-  const r = relRect(info, $('stage').getBoundingClientRect());
-  const inside = (p: { x: number; y: number }, q: { x: number; y: number; w: number; h: number }) => ({
-    x: Math.max(q.x, Math.min(q.x + q.w, p.x)),
-    y: Math.max(q.y, Math.min(q.y + q.h, p.y)),
-  });
-  const a = inside({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, cardRect);
-  const b = inside({ x: cardRect.x + cardRect.w / 2, y: cardRect.y + cardRect.h / 2 }, r);
+  const u = selected ? unitView(selected) : undefined;
+  if (!cardRect || show || !u) return;
+  const p = fx(u.pos);
+  if (!p.visible) return;
+  const a = { x: Math.max(cardRect.x, Math.min(cardRect.x + cardRect.w, p.x)), y: Math.max(cardRect.y, Math.min(cardRect.y + cardRect.h, p.y)) };
+  const b = { x: p.x, y: p.y };
   if (Math.hypot(a.x - b.x, a.y - b.y) < 4) return;
   g.strokeStyle = 'rgba(255,207,74,0.6)';
   g.setLineDash([4, 3]);
@@ -1310,8 +1309,9 @@ const STANCE_TIPS: Record<Stance, string> = {
   normal: '撞到其他機體只算擦撞：雙方停在接觸點、本回合不能行動，但不受傷。',
   charge: '撞到敵機時出手。相對速度 0–2：纏在一起（纏鬥）。3 以上：一擊脫離，雙方擲骰比近戰（駕駛技能越高骰越多），贏越多傷害越大；速度 5 以上出手會加壓力（王牌 6 以上）。手上沒有近戰武器則是撞擊：速度越快傷害越大，自己也吃一半。',
   evade: '底板判定變小，比較不容易被撞到；被射擊時命中率 −15%。撞到別人時效果同「一般」。',
+  brace: `承受衝擊：站穩等對方撞上來（這回合速度要在 ${config.BRACE_MAX_SPEED} 以下）。敵機突進一擊脫離時，你的近戰骰 +${config.BRACE_DIE}、再加雙方重量級差；贏或平手就把對方拖進纏鬥。被撞擊時傷害和被撞開的距離減半。不管成不成功都會吃「相對速度 ÷ 2」的壓力；對方沒衝過來就白選了。`,
 };
-const STANCE_NAMES: Record<Stance, string> = { normal: '一般', charge: '突進', evade: '迴避' };
+const STANCE_NAMES: Record<Stance, string> = { normal: '一般', charge: '突進', evade: '迴避', brace: '承受衝擊' };
 const GRAPPLE_TIPS: Record<GrappleChoice, string> = {
   slash: '用手上的近戰武器攻擊。會被「架」擋下，但能打斷「抓」。',
   parry: '用近戰武器或盾牌擋下「斬」並取得優勢；擋不住「抓」，也會被「推」壓制。',
@@ -1339,14 +1339,21 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   html += dialHtml(u, plan);
   html += '</div><div>';
   html += '<div class="sec">姿態</div><div class="row">';
-  html += (['normal', 'charge', 'evade'] as Stance[]).map((s) => tip(`<button class="${plan.stance === s ? 'on' : ''}" data-stance="${s}">${STANCE_NAMES[s]}</button>`, STANCE_TIPS[s])).join('');
+  const tooFast = moveSpeed(plan) > config.BRACE_MAX_SPEED;
+  html += (['normal', 'charge', 'evade', 'brace'] as Stance[])
+    .map((s) => {
+      const off = s === 'brace' && tooFast;
+      const text = off ? `${STANCE_TIPS[s]}（目前的機動太快，選速度 ${config.BRACE_MAX_SPEED} 以下才能用）` : STANCE_TIPS[s];
+      // 不用 disabled：停用的按鈕收不到滑鼠事件，說明區就看不到原因
+      return tip(`<button class="${plan.stance === s ? 'on' : ''}${off ? ' dis' : ''}" data-stance="${s}" ${off ? 'data-off="1"' : ''}>${STANCE_NAMES[s]}</button>`, text);
+    })
+    .join('');
   html += '</div>';
   if (m.kind === 'hover') {
     html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
   } else {
     html += `<div class="row small"><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（多走 1 格，壓力 +${config.LIMITER_STRESS}）</label></div>`;
   }
-  html += `<div class="row small"><label><input type="checkbox" data-f="soften" ${plan.soften ? 'checked' : ''}> 收刀（接觸時花 1 壓力降一檔）</label></div>`;
   return html + '</div></div>';
 }
 
@@ -1453,18 +1460,26 @@ function bindControls(u: UnitView | undefined) {
       move.maneuver = b.dataset.m!;
       if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
       else move.facingOffset = 0;
+      if (move.stance === 'brace' && moveSpeed(move) > config.BRACE_MAX_SPEED) move.stance = 'normal';
       hoverManeuver = null;
       changed();
     };
   });
-  ctr.querySelectorAll<HTMLButtonElement>('button[data-stance]').forEach((b) => (b.onclick = () => ((move.stance = b.dataset.stance as Stance), changed())));
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-stance]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (b.dataset.off) return;
+        move.stance = b.dataset.stance as Stance;
+        changed();
+      }),
+  );
   ctr.querySelectorAll<HTMLButtonElement>('button[data-grapple]').forEach((b) => (b.onclick = () => ((move.grapple = b.dataset.grapple as GrappleChoice), changed())));
   ctr.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-f]').forEach((el) => {
     el.onchange = () => {
       const v = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
       if (el.dataset.f === 'facingOffset') move.facingOffset = Number(v);
       if (el.dataset.f === 'limiter') move.limiter = v as boolean;
-      if (el.dataset.f === 'soften') move.soften = v as boolean;
+      if (move.stance === 'brace' && moveSpeed(move) > config.BRACE_MAX_SPEED) move.stance = 'normal';
       changed();
     };
   });
@@ -1574,6 +1589,7 @@ function clashText(e: Extract<GameEvent, { type: 'clash' }>): string {
   else if (e.winner === e.attacker) result = `${labelOf(e.attacker)} 斬中，${e.damage} 點傷害`;
   else if (e.damage) result = `${labelOf(e.defender)} 反斬，${e.damage} 點傷害`;
   else result = `${labelOf(e.defender)} ${e.defense === 'shield' ? '擋下' : '閃開'}了`;
+  if (e.caught) result += `，${labelOf(e.defender)} 承受衝擊拖住了對方，進入纏鬥`;
   return `${side} vs ${def}：${result}`;
 }
 

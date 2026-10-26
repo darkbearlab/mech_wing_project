@@ -25,7 +25,9 @@ export const CLINCH_MAX_VC = 2;
 /** 一擊脫離的高速負荷：相對速度達到這個值起，每多 1 點出手方壓力 +1（王牌門檻較高） */
 export const HIGH_SPEED_FROM = 5;
 export const ACE_HIGH_SPEED_FROM = 6;
-export const SOFTEN_STRESS = 1;
+/** 承受衝擊：機動速度上限；對決時骰數 +1 再加重量差；撞擊傷害與被撞開距離減半 */
+export const BRACE_MAX_SPEED = 2;
+export const BRACE_DIE = 1;
 // 近戰對決（骰池，D6 擲出 5 以上算成功）
 export const MELEE_BASE_DICE = 2;
 export const MELEE_CHARGE_DIE = 1;

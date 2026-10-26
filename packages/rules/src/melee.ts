@@ -5,7 +5,7 @@ import { contactAngle, inShieldArc } from './combat';
 import { addStress, damageUnit, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import type { UnitState } from './types';
-import { heldOfKind, pilotOf } from './unit';
+import { chassisOf, heldOfKind, pilotOf } from './unit';
 
 export type ClashDefense = 'blade' | 'shield' | 'dodge' | 'none';
 
@@ -20,9 +20,10 @@ export function meleePool(u: UnitState, charging: boolean, sidePenalty: boolean)
   return Math.max(1, n);
 }
 
-export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, defCharging: boolean): void {
+/** 回傳 true 表示承受衝擊的防守方把攻擊方拖住了（贏或平手） */
+export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, defCharging: boolean, defBracing = false): boolean {
   const attWeapon = heldOfKind(att, 'melee');
-  if (!attWeapon) return;
+  if (!attWeapon) return false;
   const angle = contactAngle(def, att.pos);
   const defWeapon = heldOfKind(def, 'melee');
   const roll = (n: number) => Array.from({ length: n }, () => ctx.rng.die(6));
@@ -35,8 +36,11 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
     defense = 'none';
   } else {
     defense = defWeapon ? 'blade' : heldOfKind(def, 'shield') && inShieldArc(def, att.pos) ? 'shield' : 'dodge';
-    const pool = meleePool(def, defCharging, angle === 'side');
-    defDice = roll(defense === 'dodge' ? Math.max(1, Math.floor(pool / 2)) : pool);
+    let pool = meleePool(def, defCharging, angle === 'side');
+    if (defense === 'dodge') pool = Math.max(1, Math.floor(pool / 2));
+    // 承受衝擊：站穩接人，重機比較接得住
+    if (defBracing) pool = Math.max(1, pool + C.BRACE_DIE + chassisOf(def).weightClass - chassisOf(att).weightClass);
+    defDice = roll(pool);
   }
   const attHits = hits(attDice);
   const defHits = defense === 'none' ? 0 : hits(defDice);
@@ -56,7 +60,8 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
       damage = (EQUIPMENT[defWeapon.defId].damage ?? 1) + (-margin - 1);
     }
   }
-  ctx.events.push({ type: 'clash', t, attacker: att.id, defender: def.id, angle, defense, attDice, defDice, attHits, defHits, winner, damage });
+  const caught = defBracing && defense !== 'none' && margin <= 0;
+  ctx.events.push({ type: 'clash', t, attacker: att.id, defender: def.id, angle, defense, attDice, defDice, attHits, defHits, winner, damage, caught });
 
   if (defense === 'none') addStress(ctx, def, C.BACKSTAB_STRESS, '背後偷襲');
   if (winner === null) {
@@ -64,4 +69,5 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
     addStress(ctx, def, C.MELEE_TIE_STRESS, '刀刃相抵');
   }
   if (victim && damage > 0) damageUnit(ctx, victim, damage, 'focused');
+  return caught;
 }

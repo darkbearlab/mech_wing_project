@@ -107,3 +107,4 @@ select, input { background: #0f1419; color: var(--text); border: 1px solid var(-
 .helpBox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; max-width: 580px; max-height: 90vh; overflow: auto; line-height: 1.6; }
 .helpBox h2 { margin: 0 0 8px; font-size: 18px; }
 .helpBox ol { padding-left: 20px; margin: 4px 0 8px; }
+.dis { opacity: 0.4; cursor: not-allowed; }
