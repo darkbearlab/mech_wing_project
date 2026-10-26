@@ -1,6 +1,7 @@
 // 出擊準備：開戰前選雙方陣容（機型、駕駛、配裝）與對手，帶進本機對戰。
 import { CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, LOADOUTS, PILOTS, randomRoster, type RosterEntry } from '@mech/rules';
 import type { Opponent } from './local';
+import { setUploadEnabled, uploadEnabled } from './record';
 
 type Rosters = [RosterEntry[], RosterEntry[]];
 const KEY = 'mech-wing-lineup';
@@ -71,13 +72,15 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
         <button data-act="default">載入預設陣容</button><button data-act="last" ${saved ? '' : 'disabled'}>上次的陣容</button></div>
       <div class="luCols">${sideHtml(0)}${sideHtml(1)}</div>
       <div class="luFoot"><span class="muted">對手</span><select data-f="opponent">${OPPONENTS.map(([v, t]) => `<option value="${v}" ${v === opp ? 'selected' : ''}>${t}</option>`).join('')}</select>
-        <span class="muted">每方 1–${MAX_UNITS} 台</span><span class="spacer"></span><button class="primary big" data-act="start">開始戰鬥</button></div>
+        <span class="muted">每方 1–${MAX_UNITS} 台</span><span class="spacer"></span>
+        <label class="muted" title="只有種子、陣容和雙方指令，用來檢討 AI 與平衡"><input type="checkbox" data-f="upload" ${uploadEnabled() ? 'checked' : ''}> 上傳對戰紀錄</label><button class="primary big" data-act="start">開始戰鬥</button></div>
     </div>`;
   };
 
   box.onchange = (ev) => {
     const el = ev.target as HTMLSelectElement;
     const f = el.dataset.f;
+    if (f === 'upload') return setUploadEnabled((el as unknown as HTMLInputElement).checked);
     if (f === 'opponent') opp = el.value as Opponent;
     else if (f) {
       const u = rosters[Number(el.dataset.s) as 0 | 1][Number(el.dataset.i)];

@@ -8,8 +8,11 @@
 //   DELETE /draft/:kind/:id    刪除一筆（需管理金鑰）
 //   POST   /draft/import       用整個資料包取代草稿（需管理金鑰）
 //   POST   /publish            檢查草稿後發佈成新版本（需管理金鑰）；body { note?, bump?: 'patch' | 'minor' | 'major' }
+//   POST   /battles            上傳一場對戰紀錄（不用金鑰；只留最近 MAX_BATTLES 場）
+//   GET    /battles            對戰紀錄列表（需管理金鑰）；?limit=
+//   GET    /battles/:id        一場對戰的完整紀錄（需管理金鑰）
 // 版本號是「大.小.修」（例如 0.1.4）；最早的 v1…v5 已改名為 0.1.0…0.1.4
-import { validateContent, type ContentPack } from '@mech/rules';
+import { MAX_RECORD_BYTES, checkRecord, validateContent, type BattleRecord, type ContentPack } from '@mech/rules';
 
 export interface Env {
   DB: D1Database;
@@ -21,6 +24,7 @@ export interface Env {
 const KINDS = ['equipment', 'chassis', 'pilots', 'loadouts', 'rosters'] as const;
 type Kind = (typeof KINDS)[number];
 const SIDES = ['A', 'B'];
+const MAX_BATTLES = 2000;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -135,10 +139,40 @@ async function handle(req: Request, env: Env): Promise<Response> {
 
   if (parts[0] === 'auth' && method === 'GET') return (await isAdmin(req, env)) ? json({ ok: true }) : fail(401, '管理金鑰不正確');
 
+  if (parts[0] === 'battles' && parts.length === 1 && method === 'POST') {
+    const text = await req.text();
+    if (text.length > MAX_RECORD_BYTES) return fail(413, '紀錄太大');
+    let rec: BattleRecord;
+    try {
+      rec = JSON.parse(text);
+    } catch {
+      return fail(400, '內容不是 JSON');
+    }
+    const problem = checkRecord(rec);
+    if (problem) return fail(400, problem);
+    const winner = rec.winner === null ? null : rec.winner === 'draw' ? 'draw' : 'AB'[rec.winner];
+    const row = await env.DB.prepare('INSERT INTO battles (content_version, opponent, winner, turns, data) VALUES (?, ?, ?, ?, ?) RETURNING id')
+      .bind(rec.contentVersion, rec.seats.join('/'), winner, rec.turns, text)
+      .first<{ id: number }>();
+    await env.DB.prepare('DELETE FROM battles WHERE id <= ?').bind((row?.id ?? 0) - MAX_BATTLES).run();
+    return json({ ok: true, id: row?.id });
+  }
+
   // 以下都要管理金鑰
-  const writes = (parts[0] === 'draft' && ['PUT', 'DELETE', 'POST'].includes(method)) || (parts[0] === 'publish' && method === 'POST');
+  const writes = (parts[0] === 'draft' && ['PUT', 'DELETE', 'POST'].includes(method)) || (parts[0] === 'publish' && method === 'POST') || (parts[0] === 'battles' && method === 'GET');
   if (!writes) return fail(404, '沒有這個路徑');
   if (!(await isAdmin(req, env))) return fail(401, '需要管理金鑰');
+
+  if (parts[0] === 'battles') {
+    if (parts.length === 1) {
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 50));
+      const { results } = await env.DB.prepare('SELECT id, created_at, content_version, opponent, winner, turns FROM battles ORDER BY id DESC LIMIT ?').bind(limit).all();
+      return json(results);
+    }
+    const row = await env.DB.prepare('SELECT data FROM battles WHERE id = ?').bind(Number(parts[1])).first<{ data: string }>();
+    if (!row) return fail(404, '找不到這場對戰');
+    return new Response(row.data, { headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS } });
+  }
 
   if (parts[0] === 'draft' && parts[1] === 'import' && method === 'POST') {
     const pack = (await readBody(req)) as ContentPack | undefined;

@@ -5,3 +5,4 @@ dist/
 apps/api/.admin-token
 *.local
 apps/api/.dev-admin-token
+logs/
