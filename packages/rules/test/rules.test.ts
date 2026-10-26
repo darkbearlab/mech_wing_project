@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_CONTENT, contentVersion, useContent, validateContent } from '../src/content';
 import { damageUnit, type Ctx } from '../src/damage';
 import { localPose, parseManeuver } from '../src/maneuvers';
 import { Match } from '../src/match';
@@ -695,5 +696,41 @@ describe('不需要準備的武器', () => {
     const after = m.state.units[0];
     damageUnit(ctx, after, 3, 'focused', 'larm');
     expect(equipAlive(after, byDef(after, 'arm_saber'))).toBe(false);
+  });
+});
+
+describe('資料包', () => {
+  afterEach(() => useContent(DEFAULT_CONTENT));
+
+  it('內建資料包通過檢查', () => {
+    expect(validateContent(DEFAULT_CONTENT)).toEqual([]);
+  });
+
+  it('檢查會抓出常見錯誤', () => {
+    const bad = structuredClone(DEFAULT_CONTENT);
+    bad.equipment.machine_gun.id = 'mg';
+    bad.chassis['X-00'].dial.push('warp-9');
+    bad.loadouts['X-00'][0].push(['no_such_gun', 'right']);
+    bad.rosters[0][0].pilot = 'nobody';
+    const errs = validateContent(bad);
+    expect(errs.some((e) => e.includes('machine_gun') && e.includes('鍵名'))).toBe(true);
+    expect(errs.some((e) => e.includes('warp-9'))).toBe(true);
+    expect(errs.some((e) => e.includes('no_such_gun'))).toBe(true);
+    expect(errs.some((e) => e.includes('nobody'))).toBe(true);
+    expect(() => useContent({ ...bad, version: 'bad' })).toThrow();
+    expect(contentVersion()).toBe(DEFAULT_CONTENT.version);
+  });
+
+  it('換資料包後新開的對戰用新資料，並記下版本', () => {
+    const pack = structuredClone(DEFAULT_CONTENT);
+    pack.version = 'test-2';
+    pack.chassis['X-00'].propellant = 99;
+    useContent(pack);
+    const st = createGame(1, [[saberX00], [rifleX00]]);
+    expect(st.contentVersion).toBe('test-2');
+    expect(st.units[0].propellant).toBe(99);
+    useContent(DEFAULT_CONTENT);
+    expect(EQUIPMENT.machine_gun).toBeDefined();
+    expect(createGame(1, [[saberX00], [rifleX00]]).units[0].propellant).toBe(DEFAULT_CONTENT.chassis['X-00'].propellant);
   });
 });

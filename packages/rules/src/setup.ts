@@ -1,4 +1,5 @@
 import { MAP_SIZE, ROSTER_MODE, START_MOMENTUM } from './config';
+import { contentVersion } from './content';
 import { Rng } from './rng';
 import { generateObstacles } from './terrain';
 import { sighting, updateSight } from './visibility';
@@ -67,7 +68,7 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
     });
   });
   const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0));
-  const state: GameState = { turn: 1, phase: 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, winner: null };
+  const state: GameState = { turn: 1, phase: 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null };
   // 開場時雙方都知道對方的部署位置（第 0 回合的目擊），之後就要靠視野
   for (const u of units) state.lastSeen[(1 - u.owner) as PlayerId][u.id] = sighting(u, 0);
   updateSight(state);

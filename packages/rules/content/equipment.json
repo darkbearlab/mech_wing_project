@@ -1,0 +1,225 @@
+{
+  "beam_rifle": {
+    "id": "beam_rifle",
+    "name": "光束步槍",
+    "kind": "ranged",
+    "weight": 2,
+    "durability": 2,
+    "damage": 3,
+    "shots": 1,
+    "mode": "focused",
+    "ranges": {
+      "1": -5,
+      "2": 10,
+      "3": -15
+    }
+  },
+  "machine_gun": {
+    "id": "machine_gun",
+    "name": "機槍",
+    "kind": "ranged",
+    "weight": 2,
+    "durability": 2,
+    "damage": 1,
+    "shots": 4,
+    "mode": "scattered",
+    "ranges": {
+      "1": 10,
+      "2": 0
+    }
+  },
+  "sniper": {
+    "id": "sniper",
+    "name": "狙擊步槍",
+    "kind": "ranged",
+    "weight": 2,
+    "durability": 2,
+    "damage": 4,
+    "shots": 1,
+    "mode": "focused",
+    "ranges": {
+      "2": -10,
+      "3": 10
+    }
+  },
+  "bazooka": {
+    "id": "bazooka",
+    "name": "火箭砲",
+    "kind": "ranged",
+    "weight": 2,
+    "durability": 2,
+    "damage": 5,
+    "shots": 1,
+    "mode": "focused",
+    "ranges": {
+      "1": 0,
+      "2": -5
+    }
+  },
+  "beam_saber": {
+    "id": "beam_saber",
+    "name": "光劍",
+    "kind": "melee",
+    "weight": 1,
+    "durability": 1,
+    "damage": 3,
+    "mode": "focused"
+  },
+  "heat_axe": {
+    "id": "heat_axe",
+    "name": "熱能斧",
+    "kind": "melee",
+    "weight": 1,
+    "durability": 2,
+    "damage": 4,
+    "mode": "focused",
+    "meleeDice": 1
+  },
+  "shield": {
+    "id": "shield",
+    "name": "盾牌",
+    "kind": "shield",
+    "weight": 4,
+    "durability": 6
+  },
+  "fuel_tank": {
+    "id": "fuel_tank",
+    "name": "外掛燃料槽",
+    "kind": "tank",
+    "mount": "mounted",
+    "weight": 2,
+    "durability": 1,
+    "fuel": 6
+  },
+  "head_vulcan": {
+    "id": "head_vulcan",
+    "name": "頭部火神砲",
+    "kind": "ranged",
+    "mount": "integrated",
+    "weight": 0,
+    "durability": 0,
+    "damage": 1,
+    "shots": 3,
+    "mode": "scattered",
+    "ranges": {
+      "1": 10
+    },
+    "arc": 60,
+    "tags": [
+      "secondary"
+    ]
+  },
+  "shoulder_cannon": {
+    "id": "shoulder_cannon",
+    "name": "肩部加農砲",
+    "kind": "ranged",
+    "mount": "mounted",
+    "weight": 2,
+    "durability": 3,
+    "damage": 4,
+    "shots": 1,
+    "mode": "focused",
+    "ranges": {
+      "2": 5,
+      "3": 0
+    },
+    "arc": 30,
+    "pointBlank": false
+  },
+  "back_beam": {
+    "id": "back_beam",
+    "name": "背掛光束砲",
+    "kind": "ranged",
+    "mount": "mounted",
+    "weight": 2,
+    "durability": 2,
+    "damage": 5,
+    "shots": 1,
+    "mode": "focused",
+    "ranges": {
+      "3": 10
+    },
+    "arc": 20,
+    "pointBlank": false
+  },
+  "missile_pod": {
+    "id": "missile_pod",
+    "name": "飛彈莢艙",
+    "kind": "ranged",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 1,
+    "damage": 2,
+    "shots": 2,
+    "mode": "focused",
+    "ranges": {
+      "1": 0,
+      "2": 5
+    },
+    "arc": 60,
+    "ammo": 2,
+    "tags": [
+      "volatile"
+    ]
+  },
+  "finger_beam": {
+    "id": "finger_beam",
+    "name": "手指光束砲",
+    "kind": "ranged",
+    "mount": "integrated",
+    "weight": 0,
+    "durability": 0,
+    "damage": 2,
+    "shots": 2,
+    "mode": "focused",
+    "ranges": {
+      "1": 5,
+      "2": 0
+    },
+    "blocksHand": true
+  },
+  "mega_beam": {
+    "id": "mega_beam",
+    "name": "腹部擴散光束砲",
+    "kind": "ranged",
+    "mount": "integrated",
+    "weight": 0,
+    "durability": 0,
+    "damage": 1,
+    "shots": 6,
+    "mode": "scattered",
+    "ranges": {
+      "1": 5,
+      "2": -10
+    },
+    "arc": 45
+  },
+  "arm_gatling": {
+    "id": "arm_gatling",
+    "name": "臂部機砲",
+    "kind": "ranged",
+    "mount": "integrated",
+    "weight": 0,
+    "durability": 0,
+    "damage": 1,
+    "shots": 3,
+    "mode": "scattered",
+    "ranges": {
+      "1": 5,
+      "2": -5
+    }
+  },
+  "arm_saber": {
+    "id": "arm_saber",
+    "name": "臂內光束劍",
+    "kind": "melee",
+    "mount": "housed",
+    "weight": 0,
+    "durability": 0,
+    "damage": 3,
+    "mode": "focused",
+    "tags": [
+      "quickDraw"
+    ]
+  }
+}

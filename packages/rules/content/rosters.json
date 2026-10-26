@@ -1,0 +1,110 @@
+[
+  [
+    {
+      "chassis": "X-00",
+      "pilot": "recruit",
+      "equipment": [
+        [
+          "beam_rifle",
+          "right"
+        ],
+        [
+          "shield",
+          "left"
+        ],
+        [
+          "beam_saber",
+          "stowed"
+        ]
+      ]
+    },
+    {
+      "chassis": "X-01",
+      "pilot": "ace",
+      "equipment": [
+        [
+          "beam_saber",
+          "right"
+        ],
+        [
+          "machine_gun",
+          "stowed"
+        ]
+      ]
+    },
+    {
+      "chassis": "X-02",
+      "pilot": "veteran",
+      "equipment": [
+        [
+          "bazooka",
+          "right"
+        ],
+        [
+          "shield",
+          "left"
+        ],
+        [
+          "heat_axe",
+          "stowed"
+        ],
+        [
+          "fuel_tank",
+          "mount"
+        ]
+      ]
+    }
+  ],
+  [
+    {
+      "chassis": "X-00",
+      "pilot": "ace",
+      "equipment": [
+        [
+          "beam_rifle",
+          "right"
+        ],
+        [
+          "shield",
+          "left"
+        ],
+        [
+          "beam_saber",
+          "stowed"
+        ]
+      ]
+    },
+    {
+      "chassis": "X-00",
+      "pilot": "recruit",
+      "equipment": [
+        [
+          "machine_gun",
+          "right"
+        ],
+        [
+          "beam_saber",
+          "stowed"
+        ]
+      ]
+    },
+    {
+      "chassis": "X-01",
+      "pilot": "veteran",
+      "equipment": [
+        [
+          "sniper",
+          "right"
+        ],
+        [
+          "beam_saber",
+          "stowed"
+        ],
+        [
+          "fuel_tank",
+          "mount"
+        ]
+      ]
+    }
+  ]
+]

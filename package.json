@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p packages/rules && tsc -p apps/server && tsc -p apps/client",
     "sim": "tsx packages/rules/scripts/sim.ts",
-    "aisim": "tsx packages/rules/scripts/aisim.ts"
+    "aisim": "tsx packages/rules/scripts/aisim.ts",
+    "content:check": "tsx packages/rules/scripts/content-check.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

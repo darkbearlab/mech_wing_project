@@ -178,6 +178,8 @@ export interface GameState {
   units: UnitState[];
   grapples: GrappleState[];
   rngState: number;
+  /** 開場時使用的資料包版本（重播、對戰都以這版為準） */
+  contentVersion: string;
   winner: PlayerId | 'draw' | null;
 }
 

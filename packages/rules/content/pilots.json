@@ -1,0 +1,28 @@
+{
+  "recruit": {
+    "id": "recruit",
+    "name": "徵招兵",
+    "skill": 1,
+    "maxStress": 5,
+    "recovery": 1,
+    "abilities": []
+  },
+  "veteran": {
+    "id": "veteran",
+    "name": "老兵",
+    "skill": 3,
+    "maxStress": 7,
+    "recovery": 2,
+    "abilities": []
+  },
+  "ace": {
+    "id": "ace",
+    "name": "王牌",
+    "skill": 5,
+    "maxStress": 8,
+    "recovery": 2,
+    "abilities": [
+      "quick_draw"
+    ]
+  }
+}

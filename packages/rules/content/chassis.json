@@ -1,0 +1,322 @@
+{
+  "X-00": {
+    "id": "X-00",
+    "name": "X-00 量產型",
+    "weightClass": 2,
+    "propellant": 16,
+    "baseThrust": 1,
+    "maxAccel": 2,
+    "power": 2,
+    "aim": 0,
+    "evasion": 10,
+    "builtIn": [
+      {
+        "defId": "head_vulcan",
+        "host": "head"
+      }
+    ],
+    "parts": {
+      "torso": {
+        "weight": 3,
+        "durability": 8
+      },
+      "rarm": {
+        "weight": 2,
+        "durability": 4
+      },
+      "larm": {
+        "weight": 2,
+        "durability": 4
+      },
+      "pack": {
+        "weight": 2,
+        "durability": 4
+      },
+      "legs": {
+        "weight": 2,
+        "durability": 4
+      },
+      "head": {
+        "weight": 1,
+        "durability": 2
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "straight-S-4",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "bank-L-3",
+      "bank-R-3",
+      "turn-L-1",
+      "turn-R-1",
+      "turn-L-2",
+      "turn-R-2",
+      "arc-L-4",
+      "arc-R-4",
+      "kturn-S-3",
+      "reverse-S-1",
+      "reverse-S-2",
+      "rbank-L-1",
+      "rbank-R-1"
+    ]
+  },
+  "X-01": {
+    "id": "X-01",
+    "name": "X-01 高機動型",
+    "weightClass": 1,
+    "propellant": 18,
+    "baseThrust": 2,
+    "maxAccel": 3,
+    "power": 1,
+    "aim": 5,
+    "evasion": 20,
+    "parts": {
+      "torso": {
+        "weight": 3,
+        "durability": 6
+      },
+      "rarm": {
+        "weight": 2,
+        "durability": 3
+      },
+      "larm": {
+        "weight": 2,
+        "durability": 3
+      },
+      "pack": {
+        "weight": 3,
+        "durability": 3
+      },
+      "legs": {
+        "weight": 2,
+        "durability": 3
+      },
+      "head": {
+        "weight": 1,
+        "durability": 2
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "straight-S-4",
+      "straight-S-5",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "bank-L-3",
+      "bank-R-3",
+      "turn-L-1",
+      "turn-R-1",
+      "turn-L-2",
+      "turn-R-2",
+      "turn-L-3",
+      "turn-R-3",
+      "arc-L-4",
+      "arc-R-4",
+      "arc-L-5",
+      "arc-R-5",
+      "kturn-S-2",
+      "kturn-S-3",
+      "kturn-S-4",
+      "reverse-S-1",
+      "reverse-S-2",
+      "rbank-L-1",
+      "rbank-R-1"
+    ]
+  },
+  "X-02": {
+    "id": "X-02",
+    "name": "X-02 重裝型",
+    "weightClass": 3,
+    "propellant": 14,
+    "baseThrust": 1,
+    "maxAccel": 2,
+    "power": 4,
+    "aim": 0,
+    "evasion": 0,
+    "parts": {
+      "torso": {
+        "weight": 3,
+        "durability": 12
+      },
+      "rarm": {
+        "weight": 2,
+        "durability": 6
+      },
+      "larm": {
+        "weight": 2,
+        "durability": 6
+      },
+      "pack": {
+        "weight": 2,
+        "durability": 5
+      },
+      "legs": {
+        "weight": 2,
+        "durability": 6
+      },
+      "head": {
+        "weight": 1,
+        "durability": 3
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "turn-L-1",
+      "turn-R-1",
+      "kturn-S-2",
+      "reverse-S-1"
+    ]
+  },
+  "X-04": {
+    "id": "X-04",
+    "name": "X-04 砲擊型",
+    "weightClass": 3,
+    "propellant": 14,
+    "baseThrust": 1,
+    "maxAccel": 2,
+    "power": 3,
+    "aim": 5,
+    "evasion": 0,
+    "parts": {
+      "torso": {
+        "weight": 3,
+        "durability": 11
+      },
+      "rarm": {
+        "weight": 2,
+        "durability": 5
+      },
+      "larm": {
+        "weight": 2,
+        "durability": 5
+      },
+      "pack": {
+        "weight": 2,
+        "durability": 4
+      },
+      "legs": {
+        "weight": 2,
+        "durability": 6
+      },
+      "head": {
+        "weight": 1,
+        "durability": 3
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "turn-L-1",
+      "turn-R-1",
+      "kturn-S-2",
+      "reverse-S-1"
+    ],
+    "builtIn": [
+      {
+        "defId": "head_vulcan",
+        "host": "head"
+      }
+    ]
+  },
+  "X-05": {
+    "id": "X-05",
+    "name": "X-05 內建武裝型",
+    "weightClass": 2,
+    "propellant": 16,
+    "baseThrust": 1,
+    "maxAccel": 2,
+    "power": 2,
+    "aim": 5,
+    "evasion": 10,
+    "parts": {
+      "torso": {
+        "weight": 3,
+        "durability": 9
+      },
+      "rarm": {
+        "weight": 2,
+        "durability": 4
+      },
+      "larm": {
+        "weight": 2,
+        "durability": 4
+      },
+      "pack": {
+        "weight": 2,
+        "durability": 4
+      },
+      "legs": {
+        "weight": 2,
+        "durability": 3
+      },
+      "head": {
+        "weight": 1,
+        "durability": 2
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "straight-S-4",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "bank-L-3",
+      "bank-R-3",
+      "turn-L-1",
+      "turn-R-1",
+      "turn-L-2",
+      "turn-R-2",
+      "kturn-S-3",
+      "reverse-S-1",
+      "reverse-S-2",
+      "rbank-L-1",
+      "rbank-R-1"
+    ],
+    "builtIn": [
+      {
+        "defId": "finger_beam",
+        "host": "rarm"
+      },
+      {
+        "defId": "finger_beam",
+        "host": "larm"
+      },
+      {
+        "defId": "mega_beam",
+        "host": "torso"
+      },
+      {
+        "defId": "head_vulcan",
+        "host": "head"
+      }
+    ]
+  }
+}

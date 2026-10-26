@@ -21,6 +21,7 @@ npm run dev
 - `npm test`：規則引擎測試
 - `npm run sim -- 500`：批次隨機對戰，粗看數值分布
 - `npm run aisim -- 200`：批次 AI 對 AI，看勝負與退場原因
+- `npm run content:check [資料包.json]`：檢查機型／武器／駕駛／配裝資料
 - `TURN_SECONDS=60 npm run dev`：開啟回合計時
 
 ## GitHub Pages
@@ -32,6 +33,7 @@ npm run dev
 | 位置 | 內容 |
 | --- | --- |
 | `packages/rules` | 規則引擎（純 TypeScript、無 I/O、帶種子亂數）。伺服器用它裁決，客戶端用同一份程式碼預覽軌跡與成本 |
+| `packages/rules/content` | 遊戲資料（JSON）：武器、機型、駕駛、配裝、預設陣容。`src/content.ts` 負責檢查與切換資料包，每場對戰記下開場時的版本 |
 | `packages/rules/src/match.ts` | 一場對戰的權威狀態與階段流程，不依賴傳輸層；日後包進 Durable Object |
 | `packages/rules/src/visibility.ts` | 依玩家過濾狀態與事件紀錄（看得到機體、看不到駕駛） |
 | `apps/server` | 本機 WebSocket 伺服器（port 8787），替代 Cloudflare |
