@@ -1837,6 +1837,8 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} ${e.hand === 'right' ? '右手' : '左手'}換成 ${equipName(unitView(e.unit), e.equip)}`;
     case 'lock':
       return `${L(e.unit)} 鎖定 ${L(e.target)}`;
+    case 'dazzle':
+      return `${L(e.unit)} 被 ${L(e.by)} 的眩光照到，本回合射擊命中 −${config.DAZZLE_PENALTY}`;
     case 'actionFail':
       return `${L(e.unit)} 動作落空：${e.reason}`;
     case 'fuelFire':

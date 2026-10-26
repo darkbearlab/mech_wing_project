@@ -28,9 +28,10 @@ export interface ChassisPart {
 
 /**
  * 武器標籤：quickDraw 拔出不佔行動；secondary 副武裝（觸發規則之後再定，目前可當一般武器）；volatile 被打壞可能引爆；
- * overflow 溢出傷害（打壞部位後多出來的傷害，每 1 點再擲一次命中部位、造成 1 點傷害，例如火箭砲）
+ * overflow 溢出傷害（打壞部位後多出來的傷害，每 1 點再擲一次命中部位、造成 1 點傷害，例如火箭砲）；
+ * dazzle 眩光（命中的目標本回合射擊命中下降；用它的行動最先結算，例如德姆的擴散光束砲）
  */
-export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow';
+export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow' | 'dazzle';
 
 /**
  * 安裝方式：
@@ -278,6 +279,7 @@ export type GameEvent =
   | { type: 'reposition'; unit: string; to: Vec }
   | { type: 'swap'; unit: string; hand: Hand; equip: string | null }
   | { type: 'lock'; unit: string; target: string }
+  | { type: 'dazzle'; unit: string; by: string }
   | { type: 'actionFail'; unit: string; reason: string }
   | { type: 'fuelFire'; unit: string }
   | { type: 'gameOver'; winner: PlayerId | 'draw' };

@@ -510,7 +510,7 @@ function deleteButton(k: Kind, id: string) {
 
 const KIND_OPTS: [string, string][] = [['ranged', '射擊'], ['melee', '近戰'], ['shield', '盾牌'], ['tank', '燃料槽']];
 const MOUNT_OPTS: [string, string][] = [['hand', '手持'], ['mounted', '外掛'], ['integrated', '內建（部位的一部分）'], ['housed', '內藏（藏在手臂裡）']];
-const TAG_OPTS: [string, string][] = [['quickDraw', '快速拔出'], ['secondary', '副武裝'], ['volatile', '易爆'], ['overflow', '溢出傷害']];
+const TAG_OPTS: [string, string][] = [['quickDraw', '快速拔出'], ['secondary', '副武裝'], ['volatile', '易爆'], ['overflow', '溢出傷害'], ['dazzle', '眩光']];
 
 function equipmentForm(e: EquipDef & Obj) {
   const mount = e.mount ?? 'hand';

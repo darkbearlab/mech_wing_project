@@ -89,6 +89,8 @@ export const MELEE_STANCE_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;
+/** 被眩光照到：本回合射擊命中下降 */
+export const DAZZLE_PENALTY = 20;
 export const HEAD_LONG_PENALTY = 15;
 export const ZERO_RANGE_BONUS = 25;
 export const ZERO_RANGE_SELF_DAMAGE = 20;

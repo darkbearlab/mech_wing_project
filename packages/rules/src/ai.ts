@@ -159,7 +159,9 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       for (const t of enemies) {
         const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos) });
         if (!h || (w.ammo !== undefined && w.ammo <= 0)) continue;
-        const value = (h.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1) + rng.next() * 0.2;
+        // 眩光：照到會開槍的敵機，大約抵得上 1.5 點傷害
+        const dazzle = def.tags?.includes('dazzle') && heldOf(t, 'ranged').length ? 1.5 : 0;
+        const value = (h.chance / 100) * ((def.damage ?? 1) * (def.shots ?? 1) + dazzle) + rng.next() * 0.2;
         if (!shot || value > shot.value) shot = { weapon: w, target: t, value, chance: h.chance };
       }
     }

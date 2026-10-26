@@ -47,6 +47,8 @@ export interface HitInput {
   shooterMelee: boolean;
   /** 射擊線：被大隕石擋住就打不到，穿過隕石群命中下降；不知道時視為暢通 */
   cover?: Cover;
+  /** 射擊方這回合被眩光照到 */
+  dazzled?: boolean;
 }
 
 export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
@@ -64,6 +66,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.targetSkill !== null) chance -= h.targetSkill * C.EVADE_PER_SKILL;
   if (h.relSpeed !== null) chance += relativeSpeedMod(h.relSpeed);
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
+  if (h.dazzled) chance -= C.DAZZLE_PENALTY;
   if (h.cover === 'blocked') return null;
   if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
@@ -102,6 +105,8 @@ export function relativeSpeed(velocity: Record<string, Vec>, a: string, b: strin
 export interface TurnInfo {
   stance: Record<string, Stance>;
   velocity: Record<string, Vec>;
+  /** 這回合被眩光照到的機體 */
+  dazzled?: Set<string>;
 }
 
 export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState): boolean {
@@ -115,6 +120,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     relSpeed: relativeSpeed(turn.velocity, attacker.id, target.id),
     shooterMelee: turn.stance[attacker.id] === 'melee',
     cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos),
+    dazzled: turn.dazzled?.has(attacker.id),
   });
   if (!h) return false;
   if (weapon.ammo !== undefined) weapon.ammo--;
@@ -136,6 +142,10 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     }
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance });
+  if (hits > blocked && def.tags?.includes('dazzle') && !turn.dazzled?.has(target.id)) {
+    turn.dazzled?.add(target.id);
+    ctx.events.push({ type: 'dazzle', unit: target.id, by: attacker.id });
+  }
   for (const p of pending) p();
   // 零距離開火可能傷到自己的武器；內建武器沒有自己的部位，傷到宿主
   const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;

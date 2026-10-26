@@ -31,7 +31,7 @@ export function useContent(pack: ContentPack): void {
 
 const KINDS = ['ranged', 'melee', 'shield', 'tank'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
-const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow'];
+const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
 const ABILITIES = ['quick_draw'];
 const isNum = (v: unknown, min = -Infinity) => typeof v === 'number' && Number.isFinite(v) && v >= min;
 

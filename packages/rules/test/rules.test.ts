@@ -12,7 +12,7 @@ import { lineOfFire } from '../src/terrain';
 import { updateSight, viewState, filterEvents } from '../src/visibility';
 import * as C from '../src/config';
 import { aiActions, aiMoves } from '../src/ai';
-import { resolveMovement, resolveTurn } from '../src/resolve';
+import { resolveActions, resolveMovement, resolveTurn } from '../src/resolve';
 import { hitChance, relativeSpeed } from '../src/combat';
 import { EQUIPMENT } from '../src/data';
 import { Rng } from '../src/rng';
@@ -857,5 +857,40 @@ describe('溢出傷害標籤', () => {
     const ctx2: Ctx = { state: st2, rng: new Rng(3), events: [] };
     damageUnit(ctx2, st2.units[0], 7, 'focused', 'larm');
     expect(ctx2.events.filter((e) => e.type === 'damage')).toHaveLength(1);
+  });
+});
+
+describe('眩光標籤', () => {
+  const byDef = (u: GameState['units'][number], defId: string) => u.equipment.find((e) => e.defId === defId)!;
+  afterEach(() => useContent(DEFAULT_CONTENT));
+  it('眩光射擊最先結算，被照到的目標本回合射擊命中下降', () => {
+    const pack = structuredClone(DEFAULT_CONTENT);
+    pack.version = 'dazzle-test';
+    pack.equipment.flash = { id: 'flash', name: '眩光', kind: 'ranged', weight: 1, durability: 1, damage: 1, shots: 1, ranges: { 1: 50, 2: 50 }, tags: ['dazzle'] };
+    useContent(pack);
+    const flasher: RosterEntry = { chassis: 'X-00', pilot: 'recruit', equipment: [['flash', 'right']] };
+    const ace: RosterEntry = { chassis: 'X-00', pilot: 'ace', equipment: [['beam_rifle', 'right']] };
+    let dazzledSeen = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const st = makeState([
+        { entry: flasher, owner: 0, x: 10, y: 10, facingDeg: 0 },
+        { entry: ace, owner: 1, x: 14, y: 10, facingDeg: 180 },
+      ], seed);
+      st.phase = 'action';
+      st.turnInfo = { stance: {}, velocity: {}, bumped: [] };
+      const [a, b] = st.units;
+      const r = resolveActions(st, [
+        { [a.id]: { action: { type: 'shoot', weapon: byDef(a, 'flash').id, target: b.id } } },
+        { [b.id]: { action: { type: 'shoot', weapon: byDef(b, 'beam_rifle').id, target: a.id } } },
+      ]);
+      const shots = r.events.filter((e) => e.type === 'shot') as Extract<GameEvent, { type: 'shot' }>[];
+      expect(shots[0].attacker).toBe(a.id); // 徵招兵的眩光比王牌先結算
+      const normal = hitChance({ attacker: b, attackerSkill: 5, weapon: EQUIPMENT.beam_rifle, target: a, targetSkill: 1, relSpeed: 0, shooterMelee: false })!.chance;
+      if (r.events.some((e) => e.type === 'dazzle')) {
+        dazzledSeen++;
+        expect(shots[1].chance).toBe(normal - C.DAZZLE_PENALTY);
+      } else expect(shots[1].chance).toBe(normal);
+    }
+    expect(dazzledSeen).toBeGreaterThan(0);
   });
 });

@@ -5,6 +5,7 @@ import { addStress, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
+import { EQUIPMENT } from './data';
 import { lineOfFire } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
@@ -84,15 +85,21 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [] };
   const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
-  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity };
+  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set() };
   const bumped = new Set(info.bumped);
   // 開火或鎖定會暴露位置
   const revealed = new Set<string>();
 
+  // 用眩光武器射擊的最先結算，其餘技能高者先
+  const dazzles = (u: UnitState) => {
+    const a = actionsByPlayer[u.owner][u.id]?.action;
+    const w = a?.type === 'shoot' ? u.equipment.find((e) => e.id === a.weapon) : undefined;
+    return w && EQUIPMENT[w.defId].tags?.includes('dazzle') ? 1 : 0;
+  };
   const order = state.units
     .filter((u) => u.status === 'active')
-    .map((u) => ({ u, skill: pilotOf(u).skill, tie: rng.next() }))
-    .sort((x, y) => y.skill - x.skill || x.tie - y.tie)
+    .map((u) => ({ u, first: dazzles(u), skill: pilotOf(u).skill, tie: rng.next() }))
+    .sort((x, y) => y.first - x.first || y.skill - x.skill || x.tie - y.tie)
     .map((x) => x.u);
   for (const u of order) {
     if (u.status !== 'active') continue;
