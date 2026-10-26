@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
+  // 本機 8787 是遊戲伺服器
+  "dev": { "port": 8788 },
   "d1_databases": [
     { "binding": "DB", "database_name": "mech-wing-content", "database_id": "f9a5d048-fefe-45c9-884f-73861b5db9cf", "migrations_dir": "migrations" }
   ],

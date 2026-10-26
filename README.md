@@ -36,7 +36,7 @@ npm run dev
 - 寫入（要管理金鑰）：`PUT|DELETE /draft/:kind/:id`、`POST /draft/import`、`POST /publish`
 - 管理金鑰存在 `apps/api/.admin-token`（不進 git），設定檔裡只有它的 SHA-256。換金鑰：產生新金鑰寫進該檔，把雜湊更新到 `wrangler.jsonc`
 - 管理指令：`npm run admin -w @mech/api -- status | import [資料包.json] | publish [備註]`
-- 本機測試：`npm run migrate:local -w @mech/api`、`npm run dev -w @mech/api`，再用 `MECH_API=http://localhost:8787` 跑管理指令
+- 本機測試：`npm run migrate:local -w @mech/api`、`npm run dev -w @mech/api`，再用 `MECH_API=http://localhost:8788` 跑管理指令
 - `main` 上 `apps/api` 或 `packages/rules` 有變動時，[.github/workflows/api.yml](.github/workflows/api.yml) 會跑 D1 遷移並部署（用 repo secrets `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`）
 
 ## 結構
