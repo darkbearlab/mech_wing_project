@@ -10,7 +10,7 @@ import { buildPath } from './movement';
 import { MAP_SIZE, FACING_OFFSETS, SLOW_MAX_SPEED } from './config';
 import type { Rng } from './rng';
 import type { ActionPlan, EquipState, GrappleChoice, Hand, MovePlan, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { availableManeuvers, moveSpeed } from './unit';
+import { availableManeuvers, maneuverCost, moveSpeed } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
@@ -67,9 +67,13 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, enemies: UnitView[], planne
   const pos = end.pos;
   const margin = 1.2;
   if (pos.x < margin || pos.y < margin || pos.x > MAP_SIZE - margin || pos.y > MAP_SIZE - margin) return { score: -1000, end: pos, facing: end.facing };
+  // 有動能就煞不住：速度越快，離邊緣要留越多煞車距離
+  const brake = margin + Math.abs(m.endMomentum) * 1.2;
+  const edgeGap = Math.min(pos.x, pos.y, MAP_SIZE - pos.x, MAP_SIZE - pos.y);
+  const edgePenalty = edgeGap < brake ? (brake - edgeGap) * 15 : 0;
   const pref = preferredRange(u);
   const target = nearest(pos, enemies, predict);
-  let score = 0;
+  let score = -edgePenalty;
   if (target) {
     const tp = predict(target);
     const d = edge(pos, tp);
@@ -78,10 +82,11 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, enemies: UnitView[], planne
     if (pref.melee) score += ang < 60 * DEG ? 2 : 0;
     else score += ang < 45 * DEG ? 3 : -ang * 1.5;
   }
+  const cost = maneuverCost(u, m);
   const stress = u.stress ?? 0;
-  if (stress + m.stress > (u.maxStress ?? 5)) score -= 8;
-  score -= m.stress * 0.7;
-  score -= m.propellant * ((u.propellant ?? 0) < 4 ? 2 : 0.4);
+  if (stress + cost.stress > (u.maxStress ?? 5)) score -= 8;
+  score -= cost.stress * 0.7;
+  score -= cost.propellant * ((u.propellant ?? 0) < 6 ? 2 : 0.5);
   for (const p of planned) if (dist(p, pos) < 1.3) score -= 6;
   score += rng.next() * 1.5;
   return { score, end: pos, facing: end.facing };

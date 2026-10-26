@@ -3,7 +3,8 @@ import {
   EQUIPMENT,
   GRAPPLE_NAMES,
   PILOTS,
-  availableManeuvers,
+  cruiseManeuver,
+  maneuverCost,
   bandName,
   buildPath,
   config,
@@ -298,9 +299,7 @@ const equipName = (u: UnitView | undefined, eqId: string | null) => {
 };
 
 function initialMove(u: UnitView): MovePlan {
-  const opts = availableManeuvers(u);
-  const pick = opts.find((m) => m.id === 'straight-S-2') ?? opts.find((m) => m.propellant === 0) ?? opts[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
+  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
 }
 
 /** 套用規劃中的換武器後，手上會拿著什麼 */
@@ -1053,7 +1052,7 @@ function defaultTipFor(u: UnitView): string {
   if (view!.phase === 'move') {
     if (inGrapple(u.id)) return '纏鬥中：本回合不移動。滑鼠停在選項上看說明。';
     const m = parseManeuver(moveDrafts[u.id].maneuver);
-    const c = planCost(moveDrafts[u.id]);
+    const c = planCost(u, moveDrafts[u.id]);
     return `已選 ${m.name}：推進劑 −${c.propellant}、壓力 +${c.stress}。滑鼠停在按鈕上可預覽路徑與看說明；紅字會加壓力，黃底線會耗推進劑。`;
   }
   const plan = actionDrafts[u.id];
@@ -1287,7 +1286,7 @@ function infoHtml(u: UnitView): string {
     html += `<div class="small muted">駕駛：不明${u.vague === 'sluggish' ? '　<span class="warn">動作遲鈍</span>' : ''}</div>`;
   }
   const v = view!.state.velocity[u.id];
-  if (v) html += `<div class="small muted">本回合移動速度 ${Math.hypot(v.x, v.y).toFixed(1)}</div>`;
+  html += `<div class="small muted">動能 ${signed(u.momentum)}${v ? `　本回合移動 ${Math.hypot(v.x, v.y).toFixed(1)}` : ''}</div>`;
   const body = [
     ['', 'head', ''],
     ['larm', 'torso', 'rarm'],
@@ -1317,18 +1316,22 @@ function controlsHtml(u: UnitView | undefined): string {
 }
 
 const DIAL_COLUMNS = ['turn-L', 'bank-L', 'straight-S', 'bank-R', 'turn-R'];
-const GLYPH: Record<string, string> = { 'turn-L': '↰', 'bank-L': '↖', 'straight-S': '↑', 'bank-R': '↗', 'turn-R': '↱', 'arc-L': '⤺', 'arc-R': '⤻', 'kturn-S': '⥁', 'hover-S': '◎' };
+const GLYPH: Record<string, string> = { 'turn-L': '↰', 'bank-L': '↖', 'straight-S': '↑', 'bank-R': '↗', 'turn-R': '↱', 'arc-L': '⤺', 'arc-R': '⤻', 'kturn-S': '⥁', 'hover-S': '◎', 'reverse-S': '↓', 'rbank-L': '↙', 'rbank-R': '↘' };
+/** 後退那一排對齊前進的欄位：斜後退放在緩轉的位置 */
+const REVERSE_COLUMNS: Record<string, string> = { 'bank-L': 'rbank-L', 'straight-S': 'reverse-S', 'bank-R': 'rbank-R' };
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 const dialKey = (m: ManeuverSpec) => `${m.kind}-${m.dir === -1 ? 'L' : m.dir === 1 ? 'R' : 'S'}`;
 
 /** 機動盤：每個機動一顆按鈕，滑鼠停上去會在地圖預覽 */
 function dialHtml(u: UnitView, plan: MovePlan): string {
   const dial = CHASSIS[u.chassisId].dial.map(parseManeuver);
-  const usable = new Set(availableManeuvers(u).map((m) => m.id));
   const button = (m: ManeuverSpec) => {
-    const ok = usable.has(m.id);
-    const cls = ['mv', m.id === plan.maneuver ? 'on' : '', m.stress > 0 ? 'hard' : '', m.propellant > 0 ? 'fuel' : ''].join(' ');
-    const title = `${m.name}：推進劑 −${m.propellant}／壓力 +${m.stress}${ok ? '' : '（目前不能用：推進劑不足、部位損壞或黑視）'}`;
-    return `<button class="${cls}" data-m="${m.id}" data-tip="${esc(title)}" ${ok ? '' : 'disabled'}>${GLYPH[dialKey(m)]}<small>${m.kind === 'hover' ? '' : m.speed}</small></button>`;
+    const c = maneuverCost(u, m, plan.limiter);
+    const ok = c.blocked === null;
+    const cls = ['mv', m.id === plan.maneuver ? 'on' : '', c.stress - (plan.limiter ? config.LIMITER_STRESS : 0) > 0 ? 'hard' : '', c.propellant > 0 ? 'fuel' : '', ok ? '' : 'dis'].join(' ');
+    const title = `${m.name}：動能 ${signed(u.momentum)} → ${signed(m.endMomentum)}（速度變化 ${c.dv}），推進劑 −${c.propellant}、壓力 +${c.stress}。${ok ? '' : `不能用：${c.blocked}。`}`;
+    // 不用 disabled：停用的按鈕收不到滑鼠事件，說明區就看不到原因
+    return `<button class="${cls}" data-m="${m.id}" data-tip="${esc(title)}" ${ok ? '' : 'data-off="1"'}>${GLYPH[dialKey(m)]}<small>${m.kind === 'hover' ? '' : m.speed}</small></button>`;
   };
   const basic = dial.filter((m) => DIAL_COLUMNS.includes(dialKey(m)));
   const speeds = [...new Set(basic.map((m) => m.speed))].sort((a, b) => b - a);
@@ -1336,6 +1339,15 @@ function dialHtml(u: UnitView, plan: MovePlan): string {
   for (const sp of speeds) {
     for (const col of DIAL_COLUMNS) {
       const m = basic.find((x) => x.speed === sp && dialKey(x) === col);
+      html += m ? button(m) : '<span></span>';
+    }
+  }
+  // 後退：速度由慢到快往下排
+  const back = dial.filter((m) => m.kind === 'reverse' || m.kind === 'rbank');
+  for (const sp of [...new Set(back.map((m) => m.speed))].sort((a, b) => a - b)) {
+    for (const col of DIAL_COLUMNS) {
+      const key = REVERSE_COLUMNS[col];
+      const m = key ? back.find((x) => x.speed === sp && dialKey(x) === key) : undefined;
       html += m ? button(m) : '<span></span>';
     }
   }
@@ -1374,12 +1386,11 @@ function moveControls(u: UnitView, plan: MovePlan): string {
       .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, GRAPPLE_TIPS[o]))
       .join('')}</div>`;
   }
-  const usable = availableManeuvers(u);
-  if (!usable.some((m) => m.id === plan.maneuver) && usable[0]) plan.maneuver = usable[0].id;
+  if (planCost(u, plan).blocked) plan.maneuver = cruiseManeuver(u);
   const m = parseManeuver(plan.maneuver);
-  const cost = planCost(plan);
+  const cost = planCost(u, plan);
   let html = '<div class="ctrlRow"><div>';
-  html += `<div class="sec">機動：<b style="color:var(--text)">${m.name}</b>　推 −${cost.propellant}　壓 +${cost.stress}</div>`;
+  html += `<div class="sec">動能 ${signed(u.momentum)} → ${signed(m.endMomentum)}：<b style="color:var(--text)">${m.name}</b>　推 −${cost.propellant}　壓 +${cost.stress}</div>`;
   html += dialHtml(u, plan);
   html += '</div><div>';
   html += '<div class="sec">姿態</div><div class="row">';
@@ -1393,9 +1404,8 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   html += '</div>';
   if (m.kind === 'hover') {
     html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
-  } else {
-    html += `<div class="row small"><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（多走 1 格，壓力 +${config.LIMITER_STRESS}）</label></div>`;
   }
+  html += `<div class="row small"><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（最大加減速 +1，壓力 +${config.LIMITER_STRESS}）</label></div>`;
   return html + '</div></div>';
 }
 
@@ -1503,6 +1513,7 @@ function bindControls(u: UnitView | undefined) {
     b.onmouseenter = () => (hoverManeuver = { unit: u.id, maneuver: b.dataset.m! });
     b.onmouseleave = () => (hoverManeuver = null);
     b.onclick = () => {
+      if (b.dataset.off) return;
       move.maneuver = b.dataset.m!;
       if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
       else move.facingOffset = 0;
@@ -1523,7 +1534,10 @@ function bindControls(u: UnitView | undefined) {
     el.onchange = () => {
       const v = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
       if (el.dataset.f === 'facingOffset') move.facingOffset = Number(v);
-      if (el.dataset.f === 'limiter') move.limiter = v as boolean;
+      if (el.dataset.f === 'limiter') {
+        move.limiter = v as boolean;
+        if (planCost(u, move).blocked) move.maneuver = cruiseManeuver(u);
+      }
       changed();
     };
   });

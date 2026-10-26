@@ -13,7 +13,14 @@ export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;
 // 機動
 /** 懸停時可原地轉身的角度（不另外消耗推進劑） */
 export const FACING_OFFSETS = [0, 45, -45, 90, -90, 180] as const;
+/** 限制器解除：最大加減速 +1，壓力 +LIMITER_STRESS */
 export const LIMITER_STRESS = 2;
+/** 開場時各機的動能 */
+export const START_MOMENTUM = 2;
+/** 一回合內不加壓力的速度變化量（超過的部分每 1 點壓力 +1） */
+export const G_FREE_DV = 2;
+/** 推進背包破壞後的最大加減速（也不能耗用推進劑） */
+export const PACK_BROKEN_ACCEL = 1;
 /** 技能達到此值的駕駛算王牌（高速出刀的負荷門檻較高） */
 export const ACE_SKILL = 5;
 

@@ -34,7 +34,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
     if (!plan) continue;
     stance[u.id] = frozen.has(u.id) ? 'shoot' : plan.stance;
     if (frozen.has(u.id)) continue;
-    const cost = planCost(plan);
+    const cost = planCost(u, plan);
     spendPropellant(ctx, u, Math.min(cost.propellant, u.propellant));
     addStress(ctx, u, cost.stress, plan.limiter ? '機動負荷（限制器解除）' : '機動負荷');
   }
@@ -51,7 +51,13 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   }
 
   // 2. 同時移動
-  const { bumped, velocity } = simulateMovement(ctx, plans, stance, frozen);
+  const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, frozen);
+  // 動能：照機動的終速延續到下回合；被擋停、撞開或纏鬥中歸零
+  for (const u of state.units) {
+    const plan = plans[u.id];
+    if (u.status !== 'active' || !plan) continue;
+    u.momentum = frozen.has(u.id) || stopped.has(u.id) ? 0 : parseManeuver(plan.maneuver).endMomentum;
+  }
   for (const u of state.units) {
     if (u.status === 'active' && (u.pos.x < 0 || u.pos.y < 0 || u.pos.x > C.MAP_SIZE || u.pos.y > C.MAP_SIZE)) {
       u.status = 'withdrawn';

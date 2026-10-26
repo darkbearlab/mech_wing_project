@@ -26,13 +26,17 @@ export interface EquipDef {
   fuel?: number;
 }
 
-export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hover';
+export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hover' | 'reverse' | 'rbank';
 
 export interface ChassisDef {
   id: string;
   name: string;
   weightClass: number;
   propellant: number;
+  /** 每回合免費的速度變化量 */
+  baseThrust: number;
+  /** 一回合最多能改變的速度 */
+  maxAccel: number;
   power: number;
   aim: number;
   evasion: number;
@@ -77,6 +81,8 @@ export interface UnitState {
   pilotId: string;
   pos: Vec;
   facing: number; // 弧度；0 = +x，正值為順時針（畫面 y 向下）
+  /** 動能：沿朝向的速度，後退為負；會延續到下一回合 */
+  momentum: number;
   propellant: number;
   maxPropellant: number;
   stress: number;

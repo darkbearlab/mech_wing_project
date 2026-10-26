@@ -6,17 +6,16 @@ export interface ManeuverSpec {
   name: string;
   kind: ManeuverKind;
   dir: -1 | 0 | 1; // -1 左、1 右
+  /** 路徑長度（速度的大小） */
   speed: number;
-  propellant: number;
-  stress: number;
+  /** 這回合結束後的動能（沿機體朝向，後退為負；懸停與急停反轉為 0） */
+  endMomentum: number;
   /** 急轉、急停類：腿部破壞或黑視時不可用 */
   hard: boolean;
-  /** 高速與突進類：推進背包破壞時不可用 */
-  highSpeed: boolean;
 }
 
-const TURN_ANGLE: Partial<Record<ManeuverKind, number>> = { bank: 45 * DEG, turn: 90 * DEG, arc: 30 * DEG };
-const KIND_NAMES: Record<ManeuverKind, string> = { straight: '直線', bank: '緩轉', turn: '急轉', arc: '弧線突進', kturn: '急停反轉', hover: '懸停' };
+const TURN_ANGLE: Partial<Record<ManeuverKind, number>> = { bank: 45 * DEG, turn: 90 * DEG, arc: 30 * DEG, rbank: 45 * DEG };
+const KIND_NAMES: Record<ManeuverKind, string> = { straight: '直線', bank: '緩轉', turn: '急轉', arc: '弧線突進', kturn: '急停反轉', hover: '懸停', reverse: '後退', rbank: '斜後退' };
 
 export function parseManeuver(id: string): ManeuverSpec {
   const [kindStr, dirStr, speedStr] = id.split('-');
@@ -24,32 +23,7 @@ export function parseManeuver(id: string): ManeuverSpec {
   if (!(kind in KIND_NAMES)) throw new Error(`unknown maneuver ${id}`);
   const dir = dirStr === 'L' ? -1 : dirStr === 'R' ? 1 : 0;
   const speed = Number(speedStr);
-  let propellant = 0;
-  let stress = 0;
-  switch (kind) {
-    case 'straight':
-      propellant = speed >= 4 ? 1 : 0;
-      stress = speed >= 5 ? 1 : 0;
-      break;
-    case 'bank':
-      propellant = speed >= 3 ? 1 : 0;
-      break;
-    case 'turn':
-      propellant = 1;
-      stress = 1;
-      break;
-    case 'arc':
-      propellant = 2;
-      stress = speed - 2;
-      break;
-    case 'kturn':
-      propellant = 2;
-      stress = 2;
-      break;
-    case 'hover':
-      propellant = 1;
-      break;
-  }
+  const backward = kind === 'reverse' || kind === 'rbank';
   const side = dir === -1 ? '左' : dir === 1 ? '右' : '';
   return {
     id,
@@ -57,10 +31,8 @@ export function parseManeuver(id: string): ManeuverSpec {
     kind,
     dir,
     speed,
-    propellant,
-    stress,
+    endMomentum: kind === 'hover' || kind === 'kturn' ? 0 : backward ? -speed : speed,
     hard: kind === 'turn' || kind === 'kturn',
-    highSpeed: kind === 'arc' || speed >= 4,
   };
 }
 
@@ -75,6 +47,13 @@ export interface LocalPose {
 export function localPose(spec: ManeuverSpec, length: number, t: number): LocalPose {
   const phi = TURN_ANGLE[spec.kind];
   if (spec.kind === 'hover' || length <= 0) return { pos: { x: 0, y: 0 }, facing: 0, tangent: 0 };
+  if (spec.kind === 'reverse') return { pos: { x: -length * t, y: 0 }, facing: 0, tangent: Math.PI };
+  if (spec.kind === 'rbank' && phi !== undefined) {
+    // 斜後退：像倒車，車尾往指定那側走，機頭往反方向轉
+    const r = length / phi;
+    const a = phi * t;
+    return { pos: { x: -r * Math.sin(a), y: spec.dir * r * (1 - Math.cos(a)) }, facing: -spec.dir * a, tangent: Math.PI - spec.dir * a };
+  }
   if (phi !== undefined) {
     const r = length / phi;
     const a = phi * t;
@@ -92,9 +71,8 @@ export interface PathParams {
   length: number;
 }
 
-export function pathLength(spec: ManeuverSpec, limiter: boolean): number {
-  if (spec.kind === 'hover') return 0;
-  return spec.speed + (limiter ? 1 : 0);
+export function pathLength(spec: ManeuverSpec): number {
+  return spec.kind === 'hover' ? 0 : spec.speed;
 }
 
 export interface WorldPose {

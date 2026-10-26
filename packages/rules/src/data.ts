@@ -8,24 +8,24 @@ export const EQUIPMENT: Record<string, EquipDef> = {
   beam_saber: { id: 'beam_saber', name: '光劍', kind: 'melee', weight: 1, durability: 1, damage: 3, mode: 'focused' },
   heat_axe: { id: 'heat_axe', name: '熱能斧', kind: 'melee', weight: 1, durability: 2, damage: 4, mode: 'focused', meleeDice: 1 },
   shield: { id: 'shield', name: '盾牌', kind: 'shield', weight: 4, durability: 6 },
-  fuel_tank: { id: 'fuel_tank', name: '外掛燃料槽', kind: 'tank', weight: 2, durability: 1, fuel: 4 },
+  fuel_tank: { id: 'fuel_tank', name: '外掛燃料槽', kind: 'tank', weight: 2, durability: 1, fuel: 6 },
 };
 
 export const CHASSIS: Record<string, ChassisDef> = {
   'X-00': {
-    id: 'X-00', name: 'X-00 量產型', weightClass: 2, propellant: 10, power: 2, aim: 0, evasion: 10,
+    id: 'X-00', name: 'X-00 量產型', weightClass: 2, propellant: 16, baseThrust: 1, maxAccel: 2, power: 2, aim: 0, evasion: 10,
     parts: { torso: { weight: 3, durability: 8 }, rarm: { weight: 2, durability: 4 }, larm: { weight: 2, durability: 4 }, pack: { weight: 2, durability: 4 }, legs: { weight: 2, durability: 4 }, head: { weight: 1, durability: 2 } },
-    dial: ['hover-S-0', 'straight-S-1', 'straight-S-2', 'straight-S-3', 'straight-S-4', 'bank-L-1', 'bank-R-1', 'bank-L-2', 'bank-R-2', 'bank-L-3', 'bank-R-3', 'turn-L-1', 'turn-R-1', 'turn-L-2', 'turn-R-2', 'arc-L-4', 'arc-R-4', 'kturn-S-3'],
+    dial: ['hover-S-0', 'straight-S-1', 'straight-S-2', 'straight-S-3', 'straight-S-4', 'bank-L-1', 'bank-R-1', 'bank-L-2', 'bank-R-2', 'bank-L-3', 'bank-R-3', 'turn-L-1', 'turn-R-1', 'turn-L-2', 'turn-R-2', 'arc-L-4', 'arc-R-4', 'kturn-S-3', 'reverse-S-1', 'reverse-S-2', 'rbank-L-1', 'rbank-R-1'],
   },
   'X-01': {
-    id: 'X-01', name: 'X-01 高機動型', weightClass: 1, propellant: 12, power: 1, aim: 5, evasion: 20,
+    id: 'X-01', name: 'X-01 高機動型', weightClass: 1, propellant: 18, baseThrust: 2, maxAccel: 3, power: 1, aim: 5, evasion: 20,
     parts: { torso: { weight: 3, durability: 6 }, rarm: { weight: 2, durability: 3 }, larm: { weight: 2, durability: 3 }, pack: { weight: 3, durability: 3 }, legs: { weight: 2, durability: 3 }, head: { weight: 1, durability: 2 } },
-    dial: ['hover-S-0', 'straight-S-1', 'straight-S-2', 'straight-S-3', 'straight-S-4', 'straight-S-5', 'bank-L-1', 'bank-R-1', 'bank-L-2', 'bank-R-2', 'bank-L-3', 'bank-R-3', 'turn-L-1', 'turn-R-1', 'turn-L-2', 'turn-R-2', 'turn-L-3', 'turn-R-3', 'arc-L-4', 'arc-R-4', 'arc-L-5', 'arc-R-5', 'kturn-S-2', 'kturn-S-3', 'kturn-S-4'],
+    dial: ['hover-S-0', 'straight-S-1', 'straight-S-2', 'straight-S-3', 'straight-S-4', 'straight-S-5', 'bank-L-1', 'bank-R-1', 'bank-L-2', 'bank-R-2', 'bank-L-3', 'bank-R-3', 'turn-L-1', 'turn-R-1', 'turn-L-2', 'turn-R-2', 'turn-L-3', 'turn-R-3', 'arc-L-4', 'arc-R-4', 'arc-L-5', 'arc-R-5', 'kturn-S-2', 'kturn-S-3', 'kturn-S-4', 'reverse-S-1', 'reverse-S-2', 'rbank-L-1', 'rbank-R-1'],
   },
   'X-02': {
-    id: 'X-02', name: 'X-02 重裝型', weightClass: 3, propellant: 8, power: 4, aim: 0, evasion: 0,
+    id: 'X-02', name: 'X-02 重裝型', weightClass: 3, propellant: 14, baseThrust: 1, maxAccel: 2, power: 4, aim: 0, evasion: 0,
     parts: { torso: { weight: 3, durability: 12 }, rarm: { weight: 2, durability: 6 }, larm: { weight: 2, durability: 6 }, pack: { weight: 2, durability: 5 }, legs: { weight: 2, durability: 6 }, head: { weight: 1, durability: 3 } },
-    dial: ['hover-S-0', 'straight-S-1', 'straight-S-2', 'straight-S-3', 'bank-L-1', 'bank-R-1', 'bank-L-2', 'bank-R-2', 'turn-L-1', 'turn-R-1', 'kturn-S-2'],
+    dial: ['hover-S-0', 'straight-S-1', 'straight-S-2', 'straight-S-3', 'bank-L-1', 'bank-R-1', 'bank-L-2', 'bank-R-2', 'turn-L-1', 'turn-R-1', 'kturn-S-2', 'reverse-S-1'],
   },
 };
 

@@ -11,6 +11,8 @@ export interface UnitView {
   parts: Record<string, PartState>;
   equipment: EquipState[];
   status: UnitStatus | 'disabled';
+  /** 動能：上回合實際的速度，看得到 */
+  momentum: number;
   /** 對手唯一看得到的駕駛狀態 */
   vague: 'sluggish' | null;
   // 以下只有自己的機體才有
@@ -47,6 +49,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     parts: structuredClone(u.parts),
     equipment: structuredClone(u.equipment),
     status: u.status === 'unconscious' && u.owner !== viewer ? 'disabled' : u.status,
+    momentum: u.momentum,
     vague: u.status === 'active' && u.stress >= u.maxStress ? 'sluggish' : null,
   };
   if (u.owner !== viewer) return base;

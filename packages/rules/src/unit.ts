@@ -1,4 +1,4 @@
-import { FACING_OFFSETS, LIMITER_STRESS } from './config';
+import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL } from './config';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
 import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
@@ -42,39 +42,94 @@ export function shieldHand(u: UnitState): Hand | null {
 export interface ManeuverLimits {
   chassisId: string;
   parts: Record<string, PartState>;
+  /** 目前的動能（沿朝向，後退為負） */
+  momentum: number;
   propellant?: number;
   blackout?: boolean;
 }
 
-/** 依部位損壞與黑視過濾；propellant 有提供時也過濾推進劑不足的機動 */
-export function availableManeuvers(u: ManeuverLimits): ManeuverSpec[] {
-  const packOk = partAlive(u, 'pack');
-  const legsOk = partAlive(u, 'legs');
-  return CHASSIS[u.chassisId].dial
-    .map(parseManeuver)
-    .filter((m) => (packOk || !m.highSpeed) && ((legsOk && !u.blackout) || !m.hard))
-    .filter((m) => u.propellant === undefined || m.propellant <= u.propellant);
+export interface ManeuverCost {
+  /** 這回合的速度變化量（含急停反轉的煞車） */
+  dv: number;
+  propellant: number;
+  stress: number;
+  /** 不能用的原因；可以用則為 null */
+  blocked: string | null;
 }
 
-/** 這回合實際走的速度（含限制器解除） */
-export function moveSpeed(plan: Pick<MovePlan, 'maneuver' | 'limiter'>): number {
-  const m = parseManeuver(plan.maneuver);
-  return m.kind === 'hover' ? 0 : m.speed + (plan.limiter ? 1 : 0);
+/** 推進背包破壞時：最大加減速只剩 1，而且不能用推進劑 */
+function thrustLimits(u: ManeuverLimits) {
+  const ch = CHASSIS[u.chassisId];
+  if (!partAlive(u, 'pack')) return { base: PACK_BROKEN_ACCEL, max: PACK_BROKEN_ACCEL, canBurn: false };
+  return { base: ch.baseThrust, max: ch.maxAccel, canBurn: true };
 }
 
-export function planCost(plan: MovePlan): { propellant: number; stress: number } {
+/** 轉向也算加速：速度越快，轉彎要的側向推力和 G 負荷越大 */
+function turnCost(m: ManeuverSpec): { propellant: number; stress: number } {
+  const s = m.speed;
+  switch (m.kind) {
+    case 'bank':
+      return { propellant: (s >= 3 ? 1 : 0) + (s >= 5 ? 1 : 0), stress: 0 };
+    case 'turn':
+      return { propellant: 1 + (s >= 3 ? 1 : 0) + (s >= 5 ? 1 : 0), stress: (s >= 3 ? 1 : 0) + (s >= 5 ? 1 : 0) };
+    case 'arc':
+      return { propellant: 1, stress: 1 };
+    case 'rbank':
+      return { propellant: 1, stress: 0 };
+    case 'kturn':
+      return { propellant: 1, stress: 1 };
+    default:
+      return { propellant: 0, stress: 0 };
+  }
+}
+
+/** 推進劑付的是速度變化：超過基本推力的部分每 1 點花 1；壓力來自超過 G_FREE_DV 的加減速與高速轉向 */
+export function maneuverCost(u: ManeuverLimits, m: ManeuverSpec, limiter = false): ManeuverCost {
+  const lim = thrustLimits(u);
+  // 急停反轉：先加減速到這個速度跑完，再煞到 0 並轉身
+  const dv = m.kind === 'kturn' ? Math.abs(m.speed - u.momentum) + m.speed : Math.abs(m.endMomentum - u.momentum);
+  const turn = turnCost(m);
+  const propellant = Math.max(0, dv - lim.base) + turn.propellant;
+  const stress = Math.max(0, dv - G_FREE_DV) + turn.stress + (limiter ? LIMITER_STRESS : 0);
+  const maxDv = lim.max + (limiter ? 1 : 0);
+  let blocked: string | null = null;
+  if (m.hard && (!partAlive(u, 'legs') || u.blackout)) blocked = '腿部損壞或黑視，不能急轉、急停';
+  else if (dv > maxDv) blocked = `速度變化 ${dv} 超過這台機體一回合的極限 ${maxDv}`;
+  else if (propellant > 0 && !lim.canBurn) blocked = '推進背包損壞，不能耗用推進劑';
+  else if (u.propellant !== undefined && propellant > u.propellant) blocked = '推進劑不足';
+  return { dv, propellant, stress, blocked };
+}
+
+/** 這回合做得到的機動（依動能、最大加減速、部位損壞、黑視與剩餘推進劑） */
+export function availableManeuvers(u: ManeuverLimits, limiter = false): ManeuverSpec[] {
+  return CHASSIS[u.chassisId].dial.map(parseManeuver).filter((m) => maneuverCost(u, m, limiter).blocked === null);
+}
+
+/** 這回合走的速度大小（近戰姿態判斷快慢用） */
+export function moveSpeed(plan: Pick<MovePlan, 'maneuver'>): number {
   const m = parseManeuver(plan.maneuver);
-  return {
-    propellant: m.propellant,
-    stress: m.stress + (plan.limiter && m.kind !== 'hover' ? LIMITER_STRESS : 0),
-  };
+  return m.kind === 'hover' ? 0 : m.speed;
+}
+
+export function planCost(u: ManeuverLimits, plan: Pick<MovePlan, 'maneuver' | 'limiter'>): ManeuverCost {
+  return maneuverCost(u, parseManeuver(plan.maneuver), plan.limiter);
+}
+
+/** 預設機動：維持目前動能、最省推進劑的那個 */
+export function cruiseManeuver(u: ManeuverLimits): string {
+  const options = availableManeuvers(u).map((m) => ({ m, c: maneuverCost(u, m) }));
+  options.sort((a, b) => a.c.propellant - b.c.propellant || a.c.dv - b.c.dv || Number(b.m.kind === 'straight') - Number(a.m.kind === 'straight'));
+  return options[0]?.m.id ?? 'hover-S-0';
 }
 
 export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): string[] {
   const errors: string[] = [];
   if (!grappled) {
-    if (!availableManeuvers({ ...u, propellant: undefined }).some((m) => m.id === plan.maneuver)) errors.push(`${u.label}：無法使用機動 ${plan.maneuver}`);
-    else if (planCost(plan).propellant > u.propellant) errors.push(`${u.label}：推進劑不足`);
+    if (!CHASSIS[u.chassisId].dial.includes(plan.maneuver)) errors.push(`${u.label}：沒有機動 ${plan.maneuver}`);
+    else {
+      const blocked = planCost(u, plan).blocked;
+      if (blocked) errors.push(`${u.label}：${blocked}`);
+    }
   }
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
@@ -92,9 +147,7 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
 }
 
 export function defaultMove(u: UnitState): MovePlan {
-  const options = availableManeuvers(u);
-  const pick = options.find((m) => m.propellant === 0) ?? options[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
+  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
 }
 
 export const defaultAction = (): ActionPlan => ({ action: { type: 'none' } });

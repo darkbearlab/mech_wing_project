@@ -10,7 +10,7 @@ import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
 import type { RosterEntry } from '../src/data';
-import { availableManeuvers, defaultMove, heldItem, validateMove } from '../src/unit';
+import { availableManeuvers, defaultMove, heldItem, maneuverCost, validateMove } from '../src/unit';
 import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
 
 type Plans = Record<string, UnitPlan>;
@@ -45,10 +45,73 @@ describe('機動模板', () => {
     expect(samples[20][2]).toBeCloseTo(Math.PI / 4, 1);
   });
 
-  it('推進背包破壞後不能用高速模板', () => {
+  it('推進背包破壞後：一回合只能改變 1 點速度，而且不能耗推進劑', () => {
     const u = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]).units[0];
     u.parts.pack.destroyed = true;
-    expect(availableManeuvers(u).some((m) => m.highSpeed)).toBe(false);
+    const ids = availableManeuvers(u).map((m) => m.id);
+    expect(ids).toContain('straight-S-2');
+    expect(ids).toContain('straight-S-3');
+    expect(ids).not.toContain('straight-S-4');
+    expect(ids).not.toContain('turn-L-1');
+  });
+});
+
+describe('動能', () => {
+  const unitAt = (entry = rifleX00, momentum = 2) => {
+    const u = makeState([{ entry, owner: 0, x: 12, y: 12, facingDeg: 0 }]).units[0];
+    u.momentum = momentum;
+    return u;
+  };
+  const cost = (u: ReturnType<typeof unitAt>, id: string, limiter = false) => maneuverCost(u, parseManeuver(id), limiter);
+
+  it('推進劑付的是速度變化：維持速度免費，超過基本推力才花', () => {
+    const u = unitAt();
+    expect(cost(u, 'straight-S-2')).toMatchObject({ dv: 0, propellant: 0, stress: 0 });
+    expect(cost(u, 'straight-S-3')).toMatchObject({ dv: 1, propellant: 0 });
+    expect(cost(u, 'straight-S-4')).toMatchObject({ dv: 2, propellant: 1, stress: 0 });
+    expect(cost(u, 'hover-S-0')).toMatchObject({ dv: 2, propellant: 1 });
+  });
+
+  it('動能越高越難煞車：超過最大加減速就不能選，限制器解除可以多 1', () => {
+    const u = unitAt(rifleX00, 4);
+    expect(cost(u, 'hover-S-0').blocked).not.toBeNull();
+    expect(cost(u, 'straight-S-2').blocked).toBeNull();
+    const v = unitAt(rifleX00, 3);
+    expect(cost(v, 'hover-S-0').blocked).not.toBeNull();
+    expect(cost(v, 'hover-S-0', true)).toMatchObject({ blocked: null, stress: 1 + 2 });
+  });
+
+  it('高機動型基本推力 2、極限 3；加速超過 2 會加壓力', () => {
+    const u = unitAt({ chassis: 'X-01', pilot: 'veteran', equipment: [] }, 2);
+    expect(cost(u, 'straight-S-5')).toMatchObject({ dv: 3, propellant: 1, stress: 1, blocked: null });
+  });
+
+  it('後退：朝向不變往後走，動能變負；從前進切到後退要付整段速度變化', () => {
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 12, y: 12, facingDeg: 0 }]);
+    st.units[0].momentum = 1;
+    expect(cost(st.units[0], 'reverse-S-1').dv).toBe(2);
+    const r = resolveTurn(st, [{ [st.units[0].id]: plan({ maneuver: 'reverse-S-1' }) }, {}]);
+    const u = r.state.units[0];
+    expect(u.pos.x).toBeCloseTo(11);
+    expect(u.facing).toBeCloseTo(0);
+    expect(u.momentum).toBe(-1);
+  });
+
+  it('動能延續到下回合；被擋停就歸零', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 5, y: 20, facingDeg: 0 },
+    ]);
+    const r = resolveTurn(st, [{ [st.units[0].id]: plan({ maneuver: 'straight-S-4' }) }, { [st.units[1].id]: plan({ maneuver: 'hover-S-0' }) }]);
+    expect(r.state.units[0].momentum).toBe(4);
+    expect(r.state.units[1].momentum).toBe(0);
+    const bump = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
+    ]);
+    const b = resolveTurn(bump, [{ [bump.units[0].id]: plan({ maneuver: 'straight-S-3' }) }, { [bump.units[1].id]: plan({ maneuver: 'hover-S-0' }) }]);
+    expect(of(b.events, 'contact')[0].result).toBe('bump');
+    expect(b.state.units[0].momentum).toBe(0);
   });
 });
 

@@ -1,4 +1,4 @@
-import { MAP_SIZE } from './config';
+import { MAP_SIZE, START_MOMENTUM } from './config';
 import { BODY_PART_NAMES, CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, PILOTS, type RosterEntry } from './data';
 import type { GameState, PartState, PlayerId, UnitState } from './types';
 
@@ -26,6 +26,7 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
     pilotId: pilot.id,
     pos,
     facing,
+    momentum: START_MOMENTUM,
     propellant: chassis.propellant + fuel,
     maxPropellant: chassis.propellant + fuel,
     stress: 0,

@@ -13,19 +13,23 @@ interface Mover {
   moving: boolean;
   /** 被撞開時朝向已隨機改變，懸停轉身中斷 */
   knocked: boolean;
+  /** 中途被擋停（擦撞、咬住、撞擊） */
+  halted: boolean;
   samples: [number, number, number][];
 }
 
 export interface MoveResult {
   bumped: Set<string>;
   velocity: Record<string, Vec>;
+  /** 中途被擋停或撞開的機體：動能歸零 */
+  stopped: Set<string>;
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 export function buildPath(u: { pos: Vec; facing: number }, plan: Pick<MovePlan, 'maneuver' | 'limiter'>): PathParams {
   const spec = parseManeuver(plan.maneuver);
-  return { spec, start: { ...u.pos }, startFacing: u.facing, length: pathLength(spec, plan.limiter) };
+  return { spec, start: { ...u.pos }, startFacing: u.facing, length: pathLength(spec) };
 }
 
 export function contactRadius(_stance?: Stance): number {
@@ -47,7 +51,7 @@ export function simulateMovement(
   const movers: Mover[] = units.map((u) => {
     const plan = plans[u.id] ?? null;
     const path = plan && !frozen.has(u.id) ? buildPath(u, plan) : null;
-    return { unit: u, path, plan, moving: !!path && path.length > 0, knocked: false, samples: [[u.pos.x, u.pos.y, u.facing]] };
+    return { unit: u, path, plan, moving: !!path && path.length > 0, knocked: false, halted: false, samples: [[u.pos.x, u.pos.y, u.facing]] };
   });
 
   const ignore = new Set<string>(ctx.state.grapples.map((g) => pairKey(g.a, g.b)));
@@ -60,6 +64,7 @@ export function simulateMovement(
   const velocity = (m: Mover, t: number): Vec => (m.moving && m.path ? worldPose(m.path, t).velocity : { x: 0, y: 0 });
   const stop = (m: Mover) => {
     m.moving = false;
+    m.halted = true;
   };
 
   for (let k = 1; k <= C.MOVE_STEPS; k++) {
@@ -123,7 +128,7 @@ export function simulateMovement(
     last[1] = m.unit.pos.y;
     ctx.events.push({ type: 'move', unit: m.unit.id, samples: m.samples.map(([x, y, f]) => [round(x), round(y), round(f)]) });
   }
-  return { bumped, velocity: moved };
+  return { bumped, velocity: moved, stopped: new Set(movers.filter((m) => m.halted || m.knocked).map((m) => m.unit.id)) };
 
   function resolveContact(
     ctx: Ctx,
