@@ -1,0 +1,15 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mech-wing-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "d1_databases": [
+    { "binding": "DB", "database_name": "mech-wing-content", "database_id": "f9a5d048-fefe-45c9-884f-73861b5db9cf", "migrations_dir": "migrations" }
+  ],
+  "kv_namespaces": [{ "binding": "PACKS", "id": "74f8c0ba8f67431bbd921d8e4f870b65" }],
+  "vars": {
+    // 管理金鑰的 SHA-256；金鑰本身在 apps/api/.admin-token（不進 git）
+    "ADMIN_TOKEN_SHA256": "b30f8960dd0183d609bd1f45bbfac3358c126087d126bac5981a9f4da84f4e47"
+  }
+}

@@ -1,0 +1,33 @@
+# main 上的 API 或規則引擎有更新就部署內容 API（Cloudflare Worker + D1 遷移）。
+# 需要 repo secrets：CLOUDFLARE_API_TOKEN、CLOUDFLARE_ACCOUNT_ID
+name: Deploy content API
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/api/**', 'packages/rules/**', '.github/workflows/api.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc -p apps/api
+      - working-directory: apps/api
+        run: npx wrangler d1 migrations apply mech-wing-content --remote
+      - working-directory: apps/api
+        run: npx wrangler deploy

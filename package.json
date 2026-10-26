@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev -w @mech/server\" \"npm:dev -w @mech/client\"",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/rules && tsc -p apps/server && tsc -p apps/client",
+    "typecheck": "tsc -p packages/rules && tsc -p apps/server && tsc -p apps/client && tsc -p apps/api",
     "sim": "tsx packages/rules/scripts/sim.ts",
     "aisim": "tsx packages/rules/scripts/aisim.ts",
     "content:check": "tsx packages/rules/scripts/content-check.ts"

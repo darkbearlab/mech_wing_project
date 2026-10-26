@@ -1,0 +1,13 @@
+{
+  "name": "@mech/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply mech-wing-content --local",
+    "admin": "tsx scripts/admin.ts"
+  },
+  "dependencies": { "@mech/rules": "*" },
+  "devDependencies": { "@cloudflare/workers-types": "^4.20250101.0", "wrangler": "^4.40.0" }
+}
