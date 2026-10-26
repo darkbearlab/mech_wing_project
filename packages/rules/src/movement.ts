@@ -1,3 +1,4 @@
+import { radiusOf } from './body';
 import * as C from './config';
 import { meleeClash } from './melee';
 import { addStress, damageUnit, type Ctx } from './damage';
@@ -32,8 +33,8 @@ export function buildPath(u: { pos: Vec; facing: number }, plan: Pick<MovePlan, 
   return { spec, start: { ...u.pos }, startFacing: u.facing, length: pathLength(spec) };
 }
 
-export function contactRadius(_stance?: Stance): number {
-  return C.BASE_RADIUS;
+export function contactRadius(u: { chassisId?: string }): number {
+  return radiusOf(u);
 }
 
 /**
@@ -56,7 +57,7 @@ export function simulateMovement(
 
   const ignore = new Set<string>(ctx.state.grapples.map((g) => pairKey(g.a, g.b)));
   const touching = new Set<string>();
-  const radius = (m: Mover) => contactRadius(stance[m.unit.id]);
+  const radius = (m: Mover) => contactRadius(m.unit);
   for (let i = 0; i < movers.length; i++)
     for (let j = i + 1; j < movers.length; j++)
       if (dist(movers[i].unit.pos, movers[j].unit.pos) < radius(movers[i]) + radius(movers[j]) + 1e-6) touching.add(pairKey(movers[i].unit.id, movers[j].unit.id));
@@ -85,7 +86,7 @@ export function simulateMovement(
     // 撞上大隕石：停在前一步的位置，速度超過安全值的部分化為傷害與壓力
     for (const m of movers) {
       if (!m.moving || !m.path || m.unit.status !== 'active') continue;
-      const rock = ctx.state.obstacles.find((o) => o.kind === 'rock' && dist(m.unit.pos, o) < C.BASE_RADIUS + o.r);
+      const rock = ctx.state.obstacles.find((o) => o.kind === 'rock' && dist(m.unit.pos, o) < radiusOf(m.unit) + o.r);
       if (!rock) continue;
       m.unit.pos = prev.get(m.unit.id)!;
       stop(m);
@@ -268,7 +269,7 @@ function separateOverlaps(ctx: Ctx, movers: Mover[]) {
         if (b.status !== 'active' && b.status !== 'unconscious') continue;
         if (grappled.has(pairKey(a.id, b.id))) continue;
         const d = dist(a.pos, b.pos);
-        const need = 2 * C.BASE_RADIUS;
+        const need = radiusOf(a) + radiusOf(b);
         if (d >= need - 1e-6) continue;
         const dir = d < 1e-6 ? { x: 1, y: 0 } : normalize(sub(b.pos, a.pos));
         const push = (need - d) / 2 + 1e-4;
@@ -282,9 +283,9 @@ function separateOverlaps(ctx: Ctx, movers: Mover[]) {
       for (const o of ctx.state.obstacles) {
         if (o.kind !== 'rock') continue;
         const d = dist(u.pos, o);
-        if (d >= o.r + C.BASE_RADIUS) continue;
+        if (d >= o.r + radiusOf(u)) continue;
         const dir = d < 1e-6 ? { x: 1, y: 0 } : normalize(sub(u.pos, o));
-        u.pos = add(o, scale(dir, o.r + C.BASE_RADIUS + 1e-3));
+        u.pos = add(o, scale(dir, o.r + radiusOf(u) + 1e-3));
         moved = true;
       }
     }

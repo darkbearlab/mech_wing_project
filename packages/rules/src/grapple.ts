@@ -1,3 +1,4 @@
+import { closeCombatOf, radiusOf } from './body';
 import * as C from './config';
 import { addStress, damageUnit, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
@@ -8,6 +9,7 @@ import { chassisOf, hasFreeHand, heldOfKind, pilotOf } from './unit';
 export const GRAPPLE_NAMES: Record<GrappleChoice, string> = { slash: '斬', parry: '架', grab: '抓', push: '推', disengage: '脫離' };
 
 export function grappleOptions(u: UnitState): GrappleChoice[] {
+  if (!closeCombatOf(u)) return ['disengage'];
   if (u.blackout) return ['push', 'disengage'];
   const out: GrappleChoice[] = [];
   if (heldOfKind(u, 'melee')) out.push('slash', 'parry');
@@ -18,13 +20,14 @@ export function grappleOptions(u: UnitState): GrappleChoice[] {
 }
 
 export function normalizeChoice(u: UnitState, c: GrappleChoice | undefined): GrappleChoice {
-  return c && grappleOptions(u).includes(c) ? c : 'push';
+  const options = grappleOptions(u);
+  return c && options.includes(c) ? c : options.includes('push') ? 'push' : options[0];
 }
 
 /** 把 mover 沿圓心連線推離 anchor，使兩者底板邊緣相距 gap */
 export function pushApart(ctx: Ctx, anchor: UnitState, mover: UnitState, gap: number): void {
   const dir = normalize(sub(mover.pos, anchor.pos));
-  const target = 2 * C.BASE_RADIUS + gap;
+  const target = radiusOf(anchor) + radiusOf(mover) + gap;
   if (dist(anchor.pos, mover.pos) >= target) return;
   mover.pos = add(anchor.pos, scale(dir, target));
   ctx.events.push({ type: 'reposition', unit: mover.id, to: { ...mover.pos } });

@@ -1,3 +1,4 @@
+import { minSpeedOf, roleLost } from './body';
 import * as C from './config';
 import { shoot, hitChance, type TurnInfo } from './combat';
 import { addStress, spendPropellant, unitById, type Ctx } from './damage';
@@ -8,7 +9,7 @@ import { lineOfFire } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, Stance, UnitState } from './types';
-import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handBlocked, heldItem, partAlive, pilotOf, planCost, readyRanged } from './unit';
+import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handUsable, heldItem, pilotOf, planCost, readyRanged } from './unit';
 
 export interface TurnResult {
   state: GameState;
@@ -54,11 +55,13 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
 
   // 2. 同時移動
   const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, frozen);
-  // 動能：照機動的終速延續到下回合；被擋停、撞開或纏鬥中歸零
+  // 動能：照機動的終速延續到下回合；被擋停、撞開或纏鬥中歸零（有最低速度的戰機只降到最低速度，引擎還在推）
   for (const u of state.units) {
     const plan = plans[u.id];
     if (u.status !== 'active' || !plan) continue;
-    u.momentum = frozen.has(u.id) || stopped.has(u.id) ? 0 : parseManeuver(plan.maneuver).endMomentum;
+    const end = frozen.has(u.id) || stopped.has(u.id) ? 0 : parseManeuver(plan.maneuver).endMomentum;
+    const min = minSpeedOf(u);
+    u.momentum = min > 0 ? Math.max(min, end) : end;
   }
   for (const u of state.units) {
     if (u.status === 'active' && (u.pos.x < 0 || u.pos.y < 0 || u.pos.x > C.MAP_SIZE || u.pos.y > C.MAP_SIZE)) {
@@ -163,8 +166,7 @@ export function resolveTurn(input: GameState, moves: [PlayerMoves, PlayerMoves],
 }
 
 function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string | null) {
-  const arm = hand === 'right' ? 'rarm' : 'larm';
-  if (!partAlive(u, arm) || handBlocked(u, hand)) return;
+  if (!handUsable(u, hand)) return;
   const current = heldItem(u, hand);
   if (current?.id === equipId) return;
   const next = equipId ? u.equipment.find((e) => e.id === equipId && !alwaysReady(e) && equipAlive(u, e)) : null;
@@ -194,8 +196,8 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boo
     return false;
   }
   if (action.type === 'lock') {
-    if (!partAlive(u, 'head')) {
-      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '頭部損壞，無法鎖定' });
+    if (roleLost(u, 'sensor')) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '感測部位損壞，無法鎖定' });
       return false;
     }
     const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, relSpeed: null, shooterMelee: false });

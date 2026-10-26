@@ -1,6 +1,7 @@
 export * from './types';
 export * as config from './config';
 export * from './data';
+export * from './body';
 export * from './content';
 export * from './geometry';
 export * from './maneuvers';

@@ -2,6 +2,10 @@
 // 草稿每次修改就在本機用規則引擎檢查，並在停手一下後存回伺服器。
 import {
   BODY_PART_NAMES,
+  PART_ROLES,
+  ROLE_NAMES,
+  chassisParts,
+  type PartRole,
   config as C,
   validateContent,
   type ChassisDef,
@@ -46,7 +50,6 @@ const KINDS: { id: Kind; name: string; err: string }[] = [
   { id: 'rosters', name: '陣容', err: '預設陣容' },
 ];
 const SIDES = ['A', 'B'];
-const BODY = Object.keys(BODY_PART_NAMES);
 const KEY_STORE = 'mech.adminKey';
 
 let adminKey: string | null = null;
@@ -361,9 +364,15 @@ function select(id: string) {
   renderSide();
 }
 
-const TEMPLATES: Partial<Record<Kind, (id: string) => unknown>> = {
+const TEMPLATES: Partial<Record<Kind | 'fighter', (id: string) => unknown>> = {
   equipment: (id) => ({ id, name: '新武器', kind: 'ranged', weight: 1, durability: 1, damage: 1, shots: 1, mode: 'focused', ranges: { 2: 0 } }),
-  chassis: (id) => ({ ...clone(Object.values(draft.chassis)[0]), id, name: `${id} 新機型`, builtIn: [] }),
+  chassis: (id) => ({ ...clone(Object.values(draft.chassis).find((c) => c.parts.torso) ?? Object.values(draft.chassis)[0]), id, name: `${id} 新機型`, builtIn: [] }),
+  fighter: (id) => ({
+    id, name: `${id} 新戰機`, weightClass: 1, propellant: 14, baseThrust: 2, maxAccel: 2, power: 1, aim: 0, evasion: 20,
+    radius: 0.35, minSpeed: 2, closeCombat: false, builtIn: [],
+    parts: { hull: { name: '機身', role: 'core', weight: 3, durability: 4 }, engine: { name: '引擎', role: 'propulsion', weight: 2, durability: 2 }, canopy: { name: '座艙罩', role: 'sensor', weight: 1, durability: 1 } },
+    dial: ['straight-S-2', 'straight-S-3', 'straight-S-4', 'straight-S-5', 'bank-L-2', 'bank-R-2', 'bank-L-3', 'bank-R-3', 'turn-L-3', 'turn-R-3'],
+  }),
   pilots: (id) => ({ id, name: '新駕駛', skill: 1, maxStress: 5, recovery: 1, abilities: [] }),
 };
 
@@ -372,14 +381,14 @@ function renderListActions() {
   if (!canEdit()) return box.replaceChildren();
   if (kind === 'equipment' || kind === 'chassis' || kind === 'pilots') {
     const k = kind;
-    const make = (copy: boolean) => {
+    const make = (copy: boolean, template: Kind | 'fighter' = k) => {
       const input = h('input', { placeholder: '新的 id（英數，例如 beam_gun）' });
       const msg = h('div', { class: 'err' });
       const ok = () => {
         const id = input.value.trim();
         if (!/^[A-Za-z0-9_-]+$/.test(id)) return void (msg.textContent = 'id 只能用英數、底線、連字號');
         if (getItem(draft, k, id) !== undefined) return void (msg.textContent = '這個 id 已經有了');
-        const base = copy && sel ? { ...(clone(getItem(draft, k, sel)) as Obj), id } : TEMPLATES[k]!(id);
+        const base = copy && sel ? { ...(clone(getItem(draft, k, sel)) as Obj), id } : TEMPLATES[template]!(id);
         if (copy && sel) (base as Obj).name = `${(base as Obj).name}（複製）`;
         setItem(draft, k, id, base);
         sel = id;
@@ -387,10 +396,12 @@ function renderListActions() {
         changed(true);
       };
       input.onkeydown = (e) => e.key === 'Enter' && ok();
-      box.replaceChildren(h('div', { class: 'row' }, input), msg, h('div', { class: 'row' }, h('button', { class: 'primary', onclick: ok }, copy ? '複製' : '新增'), h('button', { onclick: renderListActions }, '取消')));
+      box.replaceChildren(h('div', { class: 'row' }, input), msg, h('div', { class: 'row' }, h('button', { class: 'primary', onclick: ok }, copy ? '複製' : template === 'fighter' ? '新增戰機' : '新增'), h('button', { onclick: renderListActions }, '取消')));
       input.focus();
     };
-    box.replaceChildren(h('div', { class: 'row' }, h('button', { onclick: () => make(false) }, '＋ 新增'), sel && h('button', { onclick: () => make(true) }, '複製這筆')));
+    box.replaceChildren(
+      h('div', { class: 'row' }, h('button', { onclick: () => make(false) }, k === 'chassis' ? '＋ 人形' : '＋ 新增'), k === 'chassis' && h('button', { onclick: () => make(false, 'fighter') }, '＋ 戰機'), sel && h('button', { onclick: () => make(true) }, '複製這筆')),
+    );
   } else if (kind === 'loadouts') {
     const free = Object.keys(draft.chassis).filter((c) => !draft.loadouts[c]);
     if (!free.length) return box.replaceChildren(h('div', { class: 'muted' }, '每個機型都有配裝表了'));
@@ -572,6 +583,7 @@ function chassisForm(c: ChassisDef & Obj) {
   const more = top < C.MAX_DIAL_SPEED && h('button', { class: 'small', onclick: () => (topSpeed.set(c.id, top + 1), renderForm()) }, `＋ 加到 ${top + 1} 檔`);
   const odd = c.dial.filter((m) => !known.has(m));
   const parts = c.parts as unknown as Record<string, Obj>;
+  const hostOptions = (cur: string) => partOptions(c.id, cur);
   return [
     sec('基本', grid(
       textField(c, 'name', '名稱'),
@@ -583,10 +595,15 @@ function chassisForm(c: ChassisDef & Obj) {
       numField(c, 'aim', '瞄準'),
       numField(c, 'evasion', '迴避'),
     )),
-    sec('部位', h('table', {},
-      h('tr', {}, h('th', {}, '部位'), h('th', {}, '受擊權重'), h('th', {}, '耐久')),
-      ...BODY.map((p) => {
-        parts[p] ??= { weight: 1, durability: 1 };
+    sec('體型與限制', grid(
+      radiusField(c),
+      numField(c, 'minSpeed', '最低速度', { optional: true, hint: '空白＝0（可以懸停）。戰機填 2 之類：不能懸停、後退或慢於這個速度' }),
+      selField(c, 'closeCombat', '近身戰鬥', [['true', '可以'], ['false', '不行（只能射擊姿態，被纏鬥只能脫離）']], { absent: 'true' }),
+    )),
+    sec('部位（功能決定規則效果：核心壞了退場、手壞了不能握持…）', h('table', {},
+      h('tr', {}, h('th', {}, 'id'), h('th', {}, '名稱'), h('th', {}, '功能'), h('th', {}, '受擊權重'), h('th', {}, '耐久'), h('th', {})),
+      ...chassisParts(c).map((info) => {
+        const p = info.id;
         const num = (key: string) => {
           const i = h('input', { type: 'number', value: parts[p][key] ?? '', disabled: !canEdit() });
           i.oninput = () => {
@@ -596,9 +613,14 @@ function chassisForm(c: ChassisDef & Obj) {
           };
           return i;
         };
-        return h('tr', {}, h('td', {}, BODY_PART_NAMES[p]), h('td', {}, num('weight')), h('td', {}, num('durability')));
+        const name = h('input', { value: info.name, disabled: !canEdit(), style: 'width:90px' });
+        name.oninput = () => ((parts[p].name = name.value), changed());
+        const role = h('select', { disabled: !canEdit() }, h('option', { value: '', selected: info.role === null }, '—'), ...PART_ROLES.map((r) => h('option', { value: r, selected: r === info.role }, ROLE_NAMES[r])));
+        role.onchange = () => ((parts[p].role = (role.value || null) as PartRole | null), changed());
+        const del = canEdit() && Object.keys(parts).length > 1 && h('button', { class: 'small', onclick: () => (delete parts[p], changed(true)) }, '×');
+        return h('tr', {}, h('td', { class: 'muted' }, p), h('td', {}, name), h('td', {}, role), h('td', {}, num('weight')), h('td', {}, num('durability')), h('td', {}, del));
       }),
-    )),
+    ), canEdit() && addPartRow(c)),
     sec('機動盤：前進（點格子開關，列＝速度，上面最快）', dialGrid(c, FWD, [...up].reverse().concat(0)), h('div', {}, more)),
     sec('機動盤：後退與急停', dialGrid(c, BACK, up)),
     odd.length > 0 && sec('其他機動', h('div', { class: 'chips' }, ...odd.map((m) => h('span', { class: 'chip on', title: '點一下移除', onclick: () => canEdit() && ((c.dial = c.dial.filter((x) => x !== m)), changed(true)) }, `${m} ×`)))),
@@ -606,14 +628,49 @@ function chassisForm(c: ChassisDef & Obj) {
       ...c.builtIn.map((b, i) => {
         const def = h('select', { disabled: !canEdit() }, ...integrated.map((e) => h('option', { value: e.id, selected: e.id === b.defId }, e.name)), !integrated.some((e) => e.id === b.defId) && h('option', { value: b.defId, selected: true }, b.defId));
         def.onchange = () => ((b.defId = def.value), changed());
-        const host = h('select', { disabled: !canEdit() }, ...BODY.map((p) => h('option', { value: p, selected: p === b.host }, BODY_PART_NAMES[p])));
+        const host = h('select', { disabled: !canEdit() }, ...hostOptions(b.host));
         host.onchange = () => ((b.host = host.value as typeof b.host), changed());
         return h('div', { class: 'g' }, def, '裝在', host, canEdit() && h('button', { class: 'small', onclick: () => (c.builtIn!.splice(i, 1), changed(true)) }, '移除'));
       }),
-      canEdit() && integrated.length > 0 && h('div', {}, h('button', { class: 'small', onclick: () => (c.builtIn!.push({ defId: integrated[0].id, host: 'head' }), changed(true)) }, '＋ 加內建武裝')),
+      canEdit() && integrated.length > 0 && h('div', {}, h('button', { class: 'small', onclick: () => (c.builtIn!.push({ defId: integrated[0].id, host: Object.keys(parts)[0] }), changed(true)) }, '＋ 加內建武裝')),
       !integrated.length && h('div', { class: 'muted' }, '先在武器裡做一件安裝方式是「內建」的武器'),
     )),
   ];
+}
+
+const RADIUS_PRESETS: [number, string][] = [[0.35, '小型戰機'], [0.5, 'MS'], [0.8, '大型 MA'], [1.5, '戰艦']];
+function radiusField(c: ChassisDef & Obj) {
+  const f = numField(c, 'radius', '底座半徑', { optional: true, step: '0.05', hint: `空白＝${C.BASE_RADIUS}（MS 大小）` });
+  const pick = h('select', { disabled: !canEdit(), title: '常用大小' }, h('option', { value: '' }, '常用…'), ...RADIUS_PRESETS.map(([r, n]) => h('option', { value: String(r) }, `${n} ${r}`)));
+  pick.onchange = () => {
+    if (!pick.value) return;
+    c.radius = Number(pick.value);
+    changed(true);
+  };
+  f.append(pick);
+  return f;
+}
+
+function addPartRow(c: ChassisDef & Obj) {
+  const id = h('input', { placeholder: '新部位 id（英數）', style: 'width:130px' });
+  const msg = h('span', { class: 'err' });
+  const add = () => {
+    const v = id.value.trim();
+    if (!/^[A-Za-z0-9_-]+$/.test(v)) return void (msg.textContent = 'id 只能用英數、底線、連字號');
+    if (c.parts[v]) return void (msg.textContent = '已經有這個部位');
+    c.parts[v] = { name: v, role: null, weight: 1, durability: 2 };
+    changed(true);
+  };
+  return h('div', { class: 'g', style: 'margin-top:6px' }, id, h('button', { class: 'small', onclick: add }, '＋ 加部位'), msg);
+}
+
+/** 宿主部位的選單（依機型實際的部位） */
+function partOptions(chassisId: string | undefined, cur: string | undefined): HTMLOptionElement[] {
+  const c = chassisId ? draft.chassis[chassisId] : undefined;
+  const list = c ? chassisParts(c) : Object.entries(BODY_PART_NAMES).map(([id, name]) => ({ id, name }));
+  const opts = list.map((p) => h('option', { value: p.id, selected: p.id === cur }, p.name));
+  if (cur && !list.some((p) => p.id === cur)) opts.push(h('option', { value: cur, selected: true }, `${cur}（不存在）`));
+  return opts;
 }
 
 function pilotForm(p: PilotDef & Obj) {
@@ -627,7 +684,7 @@ const LOC_OPTS: [string, string][] = [['right', '右手'], ['left', '左手'], [
 type Gear = RosterEntry['equipment'];
 
 /** 一套裝備的編輯列：裝備、位置、宿主部位 */
-function gearEditor(gear: Gear) {
+function gearEditor(gear: Gear, chassisId: string) {
   const eqs = Object.values(draft.equipment);
   const row = (i: number) => {
     const [defId, loc, host] = gear[i];
@@ -640,14 +697,17 @@ function gearEditor(gear: Gear) {
       const m = e?.mount ?? 'hand';
       const used = new Set(gear.map(([, l]) => l));
       if (m === 'hand') put(def.value, e?.kind === 'shield' ? 'left' : !used.has('right') ? 'right' : !used.has('left') ? 'left' : 'stowed', '');
-      else if (m === 'mounted') put(def.value, 'mount', e?.kind === 'tank' ? '' : 'torso');
-      else if (m === 'integrated') put(def.value, 'builtin', 'head');
-      else put(def.value, 'housed', 'larm');
+      const c = draft.chassis[chassisId];
+      const ps = c ? chassisParts(c) : [];
+      const pick = (role: PartRole | null) => ps.find((p) => p.role === role)?.id ?? ps[0]?.id ?? '';
+      if (m === 'mounted') put(def.value, 'mount', e?.kind === 'tank' ? '' : pick('core'));
+      else if (m === 'integrated') put(def.value, 'builtin', pick('sensor'));
+      else if (m === 'housed') put(def.value, 'housed', pick('leftHand'));
       changed(true);
     };
     const l = h('select', { disabled: !canEdit() }, ...LOC_OPTS.map(([v, t]) => h('option', { value: v, selected: v === loc }, t)));
     l.onchange = () => (put(defId, l.value, host ?? ''), changed(true));
-    const hs = h('select', { disabled: !canEdit(), title: '宿主部位（外掛、內建、內藏才需要）' }, h('option', { value: '', selected: !host }, '—'), ...BODY.map((p) => h('option', { value: p, selected: p === host }, BODY_PART_NAMES[p])));
+    const hs = h('select', { disabled: !canEdit(), title: '宿主部位（外掛、內建、內藏才需要）' }, h('option', { value: '', selected: !host }, '—'), ...partOptions(chassisId, host));
     hs.onchange = () => (put(defId, loc, hs.value), changed(true));
     return h('div', { class: 'g' }, def, l, hs, canEdit() && h('button', { class: 'small', onclick: () => (gear.splice(i, 1), changed(true)) }, '×'));
   };
@@ -663,7 +723,7 @@ function loadoutForm(sets: Gear[]) {
           canEdit() && h('button', { class: 'small', onclick: () => (sets.splice(i + 1, 0, clone(gear)), changed(true)) }, '複製這套'),
           canEdit() && sets.length > 1 && h('button', { class: 'small danger', onclick: () => (sets.splice(i, 1), changed(true)) }, '刪除這套'),
         ),
-        gearEditor(gear),
+        gearEditor(gear, sel ?? ''),
       ),
     ),
     canEdit() && h('button', { onclick: () => (sets.push([]), changed(true)) }, '＋ 新增一套'),
@@ -687,7 +747,7 @@ function rosterForm(side: RosterEntry[]) {
       pl.onchange = () => ((u.pilot = pl.value), changed());
       return h('div', { class: 'card' },
         h('div', { class: 'head' }, h('b', {}, `${kindSel()}${i + 1}`), ch, pl, h('span', { class: 'spacer' }), canEdit() && h('button', { class: 'small danger', onclick: () => (side.splice(i, 1), changed(true)) }, '移除')),
-        gearEditor(u.equipment),
+        gearEditor(u.equipment, u.chassis),
       );
     }),
     canEdit() && chassisIds.length > 0 && h('button', {
@@ -747,6 +807,7 @@ function renderForm() {
 // ---------- 右欄：檢查、試算、使用處、變更 ----------
 
 const FIELD_NAMES: Record<string, string> = {
+  radius: '底座半徑', minSpeed: '最低速度', closeCombat: '近身戰鬥',
   name: '名稱', kind: '種類', mount: '安裝方式', weight: '受擊權重', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
   pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
   baseThrust: '免費加速', maxAccel: '最大加速', power: '出力', aim: '瞄準', evasion: '迴避', parts: '部位', dial: '機動盤', builtIn: '內建武裝', skill: '技術',
@@ -808,17 +869,19 @@ function hitPreview(e: EquipDef) {
 }
 
 function chassisPreview(c: ChassisDef) {
-  const parts = Object.fromEntries(Object.entries(c.parts).map(([id, p]) => [id, { id, name: '', kind: 'body', weight: p.weight, durability: p.durability, damage: 0, destroyed: false }]));
+  const parts = Object.fromEntries(chassisParts(c).map((p) => [p.id, { ...p, kind: 'body', damage: 0, destroyed: false }]));
   const svg = mechSilhouette({ label: esc(c.name), parts, equipment: [] } as unknown as UnitView).replace('width="64" height="60"', 'width="120" height="112"');
   const speeds = c.dial.map((m) => m.split('-')).filter(([k]) => k !== 'reverse' && k !== 'rbank').map(([, , s]) => Number(s));
   const back = c.dial.filter((m) => m.startsWith('reverse') || m.startsWith('rbank')).length;
   const total = Object.values(c.parts).reduce((s, p) => s + p.durability, 0);
+  const radius = c.radius ?? C.BASE_RADIUS;
   const wrap = h('div', {});
   wrap.innerHTML = svg;
   return h('div', {},
     wrap,
     h('div', {}, `最快前進 ${Math.max(0, ...speeds)}、${back ? `後退機動 ${back} 種` : '不能後退'}${c.dial.some((m) => m.startsWith('kturn')) ? '、可急停反轉' : ''}`),
     h('div', {}, `機體總耐久 ${total}（武器另計）`),
+    h('div', {}, `底座半徑 ${radius}${c.minSpeed ? `、最低速度 ${c.minSpeed}` : ''}${c.closeCombat === false ? '、不能近身戰鬥' : ''}`),
     h('div', {}, `內建：${c.builtIn?.length ? c.builtIn.map((b) => draft.equipment[b.defId]?.name ?? b.defId).join('、') : '無'}`),
   );
 }

@@ -1,3 +1,4 @@
+import { radiusOf } from './body';
 import { canSee, sensorRange } from './vision';
 import type { EquipState, GameEvent, GameState, GrappleState, Obstacle, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
 
@@ -68,7 +69,7 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
-      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos))),
+      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e)))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);

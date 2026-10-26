@@ -3,7 +3,8 @@ import { damageUnit, type Ctx } from './damage';
 import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
-import { chassisOf, equipDef, heldOfKind, partAlive, pilotOf, shieldHand } from './unit';
+import { radiusOf, roleLost } from './body';
+import { chassisOf, equipDef, heldOfKind, pilotOf, shieldHand } from './unit';
 
 export interface Positioned {
   id: string;
@@ -13,11 +14,11 @@ export interface Positioned {
   parts: Record<string, PartState>;
 }
 
-export function edgeDistance(a: { pos: Vec }, b: { pos: Vec }): number {
-  return dist(a.pos, b.pos) - 2 * C.BASE_RADIUS;
+export function edgeDistance(a: { pos: Vec; chassisId?: string }, b: { pos: Vec; chassisId?: string }): number {
+  return dist(a.pos, b.pos) - radiusOf(a) - radiusOf(b);
 }
 
-export function rangeBand(a: { pos: Vec }, b: { pos: Vec }): RangeBand | null {
+export function rangeBand(a: { pos: Vec; chassisId?: string }, b: { pos: Vec; chassisId?: string }): RangeBand | null {
   const d = edgeDistance(a, b);
   if (d <= C.RANGE_LIMITS.r0) return 0;
   if (d <= C.RANGE_LIMITS.r1) return 1;
@@ -67,7 +68,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
-  if (band === 3 && !partAlive(h.attacker, 'head')) chance -= C.HEAD_LONG_PENALTY;
+  if (band === 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };
 }
 

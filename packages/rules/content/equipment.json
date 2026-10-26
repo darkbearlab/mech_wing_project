@@ -221,5 +221,24 @@
     "tags": [
       "quickDraw"
     ]
+  },
+  "nose_vulcan": {
+    "id": "nose_vulcan",
+    "name": "機首機砲",
+    "kind": "ranged",
+    "mount": "integrated",
+    "weight": 0,
+    "durability": 1,
+    "damage": 1,
+    "shots": 4,
+    "mode": "scattered",
+    "arc": 30,
+    "ranges": {
+      "1": 5,
+      "2": -5
+    },
+    "tags": [
+      "secondary"
+    ]
   }
 }

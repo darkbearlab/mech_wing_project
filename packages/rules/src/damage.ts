@@ -1,7 +1,8 @@
 import { FUEL_IGNITE_CHANCE, FUEL_IGNITE_DAMAGE } from './config';
 import type { Rng } from './rng';
 import type { DamageMode, GameEvent, GameState, UnitState } from './types';
-import { armOf, equipDef, heldItem } from './unit';
+import { corePart, handOfPart, roleLost } from './body';
+import { equipDef, heldItem } from './unit';
 
 export interface Ctx {
   state: GameState;
@@ -45,10 +46,11 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
 function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): void {
   if (u.status === 'destroyed') return;
   let part = u.parts[partId];
-  if (part.kind === 'body' && part.destroyed) part = u.parts.torso;
-  // 打到持盾手臂的傷害先由盾牌承受
-  if (part.id === 'rarm' || part.id === 'larm') {
-    const held = heldItem(u, part.id === 'rarm' ? 'right' : 'left');
+  if (part.kind === 'body' && part.destroyed) part = u.parts[corePart(u)];
+  // 打到持盾那隻手的傷害先由盾牌承受
+  const shieldHand = handOfPart(u, part.id);
+  if (shieldHand) {
+    const held = heldItem(u, shieldHand);
     if (held && equipDef(held).kind === 'shield') part = u.parts[held.id];
   }
   part.damage = Math.min(part.durability, part.damage + amount);
@@ -56,7 +58,7 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): void {
   const newlyDestroyed = destroyed && !part.destroyed;
   part.destroyed = destroyed;
   ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed });
-  if (part.id === 'torso') addStress(ctx, u, amount, '軀幹受創');
+  if (part.role === 'core') addStress(ctx, u, amount, `${part.name}受創`);
   if (newlyDestroyed) onDestroyed(ctx, u, part.id);
 }
 
@@ -72,21 +74,23 @@ function destroyPart(ctx: Ctx, u: UnitState, partId: string): void {
 function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
   // 掛在這個部位上的外掛武裝一起掉落；內建與內藏的會跟著失效（不需要另外處理）
   for (const e of u.equipment) if (e.host === partId && u.parts[e.id]) destroyPart(ctx, u, e.id);
-  if (partId === 'torso') {
+  const role = u.parts[partId]?.role;
+  if (role === 'core' && roleLost(u, 'core')) {
     u.status = 'destroyed';
     ctx.events.push({ type: 'status', unit: u.id, status: 'destroyed' });
     return;
   }
-  if (partId === 'rarm' || partId === 'larm') {
-    const hand = partId === 'rarm' ? 'right' : 'left';
+  const hand = handOfPart(u, partId);
+  if (hand) {
     // 手上拿的東西一起失效（內藏武器拿在手上時沒有自己的部位，靠宿主判斷存亡）
-    for (const e of u.equipment) if (e.location === hand && armOf(hand) === partId && u.parts[e.id]) destroyPart(ctx, u, e.id);
+    for (const e of u.equipment) if (e.location === hand && u.parts[e.id]) destroyPart(ctx, u, e.id);
     return;
   }
-  if (partId === 'head') {
-    u.lockOn = null;
+  if (role === 'sensor') {
+    if (roleLost(u, 'sensor')) u.lockOn = null;
     return;
   }
+  if (u.parts[partId]?.kind === 'body') return;
   const equip = u.equipment.find((e) => e.id === partId);
   if (!equip) return;
   const def = equipDef(equip);
@@ -98,7 +102,7 @@ function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
   // 燃料槽與標了 volatile 的武裝（飛彈莢艙等）被打壞時可能引爆，傷到宿主部位
   if ((def.kind === 'tank' || def.tags?.includes('volatile')) && ctx.rng.d100() <= FUEL_IGNITE_CHANCE) {
     ctx.events.push({ type: 'fuelFire', unit: u.id });
-    const host = equip.host && u.parts[equip.host] && !u.parts[equip.host].destroyed ? equip.host : 'torso';
+    const host = equip.host && u.parts[equip.host] && !u.parts[equip.host].destroyed ? equip.host : corePart(u);
     hitPart(ctx, u, host, FUEL_IGNITE_DAMAGE);
   }
 }

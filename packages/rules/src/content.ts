@@ -1,6 +1,7 @@
 // 資料包：一份完整的機型、武器、駕駛、配裝與預設陣容，帶版本號。
 // 每場對戰記下開場時用的版本，之後換資料也不影響進行中的對戰與重播。
-import { BODY_PART_NAMES, BUILTIN_CONTENT, replaceTables, type RosterEntry } from './data';
+import { PART_ROLES, chassisParts } from './body';
+import { BUILTIN_CONTENT, replaceTables, type RosterEntry } from './data';
 import { MAX_DIAL_SPEED } from './config';
 import { parseManeuver } from './maneuvers';
 import type { ChassisDef, EquipDef, PilotDef } from './types';
@@ -14,7 +15,7 @@ export interface ContentPack {
   rosters: [RosterEntry[], RosterEntry[]];
 }
 
-export const BUILTIN_VERSION = 'builtin-1';
+export const BUILTIN_VERSION = 'builtin-2';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;
@@ -28,7 +29,6 @@ export function useContent(pack: ContentPack): void {
   active = pack.version;
 }
 
-const BODY = Object.keys(BODY_PART_NAMES);
 const KINDS = ['ranged', 'melee', 'shield', 'tank'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile'];
@@ -70,11 +70,19 @@ export function validateContent(pack: ContentPack): string[] {
     if (c.id !== key) err(w, `id（${c.id}）要和鍵名一致`);
     for (const f of ['weightClass', 'propellant', 'baseThrust', 'maxAccel', 'power'] as const) if (!isNum(c[f], 0)) err(w, `${f} 要是 0 以上的數字`);
     for (const f of ['aim', 'evasion'] as const) if (!isNum(c[f])) err(w, `${f} 要是數字`);
-    for (const p of BODY) {
-      const part = c.parts?.[p as keyof ChassisDef['parts']];
-      if (!part) err(w, `缺少部位 ${p}`);
-      else if (!isNum(part.weight, 0) || !isNum(part.durability, 1)) err(w, `部位 ${p} 的權重要 ≥ 0、耐久要 ≥ 1`);
+    const parts = chassisParts(c);
+    if (!parts.length) err(w, '沒有任何部位');
+    for (const part of parts) {
+      if (!isNum(part.weight, 0) || !isNum(part.durability, 1)) err(w, `部位 ${part.name} 的權重要 ≥ 0、耐久要 ≥ 1`);
+      if (part.role !== null && !PART_ROLES.includes(part.role)) err(w, `部位 ${part.name} 的功能不正確（${part.role}）`);
     }
+    if (parts.length && !parts.some((x) => x.role === 'core')) err(w, '至少要有一個「核心」部位');
+    for (const r of ['rightHand', 'leftHand'] as const) if (parts.filter((x) => x.role === r).length > 1) err(w, `「${r === 'rightHand' ? '右手' : '左手'}」只能有一個部位`);
+    if (c.radius !== undefined && !(isNum(c.radius) && c.radius >= 0.2 && c.radius <= 4)) err(w, '半徑要在 0.2–4 之間');
+    if (c.minSpeed !== undefined && !(Number.isInteger(c.minSpeed) && c.minSpeed >= 0 && c.minSpeed <= MAX_DIAL_SPEED)) err(w, `最低速度要是 0–${MAX_DIAL_SPEED} 的整數`);
+    if (c.closeCombat !== undefined && typeof c.closeCombat !== 'boolean') err(w, 'closeCombat 要是 true 或 false');
+    const min = c.minSpeed ?? 0;
+    if (min > 0 && !(c.dial ?? []).some((m) => m.startsWith('straight-') && Number(m.split('-')[2]) >= min)) err(w, `最低速度 ${min}：機動盤至少要有一個速度 ≥ ${min} 的直線`);
     if (!c.dial?.length) err(w, '機動盤是空的');
     if (new Set(c.dial).size !== c.dial?.length) err(w, '機動盤有重複的機動');
     for (const m of c.dial ?? []) {
@@ -91,7 +99,7 @@ export function validateContent(pack: ContentPack): string[] {
       const def = pack.equipment[b.defId];
       if (!def) err(w, `內建武裝 ${b.defId} 不存在`);
       else if ((def.mount ?? 'hand') !== 'integrated') err(w, `內建武裝 ${b.defId} 的 mount 要是 integrated`);
-      if (!BODY.includes(b.host)) err(w, `內建武裝 ${b.defId} 的宿主部位 ${b.host} 不正確`);
+      if (!c.parts?.[b.host]) err(w, `內建武裝 ${b.defId} 的宿主部位 ${b.host} 不存在`);
     }
   }
 
@@ -107,7 +115,10 @@ export function validateContent(pack: ContentPack): string[] {
   /** 檢查一套配裝（裝備存在、位置和安裝方式相符、宿主正確、佔手衝突） */
   const checkGear = (w: string, chassisId: string, gear: RosterEntry['equipment']) => {
     const c = pack.chassis[chassisId];
-    const blocked = new Set((c?.builtIn ?? []).filter((b) => pack.equipment[b.defId]?.blocksHand).map((b) => (b.host === 'rarm' ? 'right' : 'left')));
+    const roles = new Map((c ? chassisParts(c) : []).map((x) => [x.id, x.role]));
+    const handOf = (partId: string) => (roles.get(partId) === 'rightHand' ? 'right' : roles.get(partId) === 'leftHand' ? 'left' : null);
+    const hasHand = { right: [...roles.values()].includes('rightHand'), left: [...roles.values()].includes('leftHand') };
+    const blocked = new Set((c?.builtIn ?? []).filter((b) => pack.equipment[b.defId]?.blocksHand).map((b) => handOf(b.host)));
     for (const [defId, loc, host] of gear) {
       const def = pack.equipment[defId];
       if (!def) {
@@ -119,8 +130,10 @@ export function validateContent(pack: ContentPack): string[] {
       if (def.kind === 'shield' && loc === 'stowed') err(w, `${defId} 盾牌不能收納`);
       if (!allowed[mount]?.includes(loc)) err(w, `${defId}（${mount}）不能放在 ${loc}`);
       if (mount !== 'hand' && def.kind !== 'tank' && !host) err(w, `${defId} 要寫宿主部位`);
-      if (host && !BODY.includes(host)) err(w, `${defId} 的宿主部位 ${host} 不正確`);
-      if (mount === 'housed' && host !== 'rarm' && host !== 'larm') err(w, `${defId} 內藏武器要藏在手臂裡`);
+      if (host && c && !roles.has(host)) err(w, `${defId} 的宿主部位 ${host} 不存在`);
+      if (mount === 'housed' && host && c && !handOf(host)) err(w, `${defId} 內藏武器要藏在有手的部位裡`);
+      if ((loc === 'right' || loc === 'left') && c && !hasHand[loc]) err(w, `${defId}：這個機型沒有${loc === 'right' ? '右手' : '左手'}`);
+      if (loc === 'stowed' && c && !hasHand.right && !hasHand.left) err(w, `${defId}：這個機型沒有手，不能帶收納的手持武器`);
       if ((loc === 'right' || loc === 'left') && blocked.has(loc)) err(w, `${defId} 拿在被佔住的手上（手指光束砲那隻手不能握持）`);
     }
     const hands = gear.filter(([, loc]) => loc === 'right' || loc === 'left').map(([, loc]) => loc);

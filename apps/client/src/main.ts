@@ -1,4 +1,10 @@
 import {
+  closeCombatOf,
+  handOfPart,
+  handUsable,
+  isHumanoid,
+  radiusOf,
+  roleLost,
   CHASSIS,
   EQUIPMENT,
   GRAPPLE_NAMES,
@@ -328,8 +334,7 @@ function equipmentAfterSwap(u: UnitView, plan: ActionPlan | undefined): EquipSta
 }
 
 function heldAfter(u: UnitView, plan: ActionPlan | undefined, hand: Hand): EquipState | null {
-  const arm = hand === 'right' ? 'rarm' : 'larm';
-  if (u.parts[arm].destroyed || handBlocked(u, hand)) return null;
+  if (!handUsable(u, hand)) return null;
   return equipmentAfterSwap(u, plan).find((e) => e.location === hand && equipAlive(u, e)) ?? null;
 }
 
@@ -853,7 +858,7 @@ function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
 
 function drawUnit(u: UnitView, pos: Vec, facing: number) {
   const out = u.status !== 'active';
-  const R = config.BASE_RADIUS;
+  const R = radiusOf(u);
   const top = pr(pos.x, pos.y, UNIT_Z);
   const base = pr(pos.x, pos.y, 0);
   if (!top.visible || !base.visible) return;
@@ -874,7 +879,7 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   // 盾弧
   const shield = (['right', 'left'] as Hand[]).find((h) => {
     const e = u.equipment.find((x) => x.location === h && !u.parts[x.id].destroyed);
-    return e && EQUIPMENT[e.defId].kind === 'shield' && !u.parts[h === 'right' ? 'rarm' : 'larm'].destroyed;
+    return e && EQUIPMENT[e.defId].kind === 'shield' && handUsable(u, h);
   });
   if (shield && !out) {
     const c = facing + (shield === 'right' ? 1 : -1) * config.SHIELD_ARC_OFFSET_DEG * (Math.PI / 180);
@@ -923,13 +928,13 @@ function drawRanges() {
   if (!u || u.status !== 'active') return;
   g.strokeStyle = 'rgba(255,255,255,0.12)';
   for (const lim of [config.RANGE_LIMITS.r1, config.RANGE_LIMITS.r2, config.RANGE_LIMITS.r3]) {
-    ringWorld(u.pos.x, u.pos.y, lim + 2 * config.BASE_RADIUS, 0, 0, Math.PI * 2, 64);
+    ringWorld(u.pos.x, u.pos.y, lim + radiusOf(u) + config.BASE_RADIUS, 0, 0, Math.PI * 2, 64);
     g.stroke();
   }
   if (u.owner === view!.you) {
     g.strokeStyle = 'rgba(120,200,255,0.35)';
     g.setLineDash([2, 6]);
-    ringWorld(u.pos.x, u.pos.y, sensorRange(u) + 2 * config.BASE_RADIUS, 0, 0, Math.PI * 2, 72);
+    ringWorld(u.pos.x, u.pos.y, sensorRange(u) + radiusOf(u) + config.BASE_RADIUS, 0, 0, Math.PI * 2, 72);
     g.stroke();
     g.setLineDash([]);
   }
@@ -944,7 +949,7 @@ function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'fa
   g.setLineDash([]);
   const end = worldPose(path, 1);
   const facing = end.facing + (path.length === 0 ? (plan.facingOffset * Math.PI) / 180 : 0);
-  const R = config.BASE_RADIUS;
+  const R = radiusOf(u);
   ringWorld(end.pos.x, end.pos.y, R);
   if (ghost) {
     g.fillStyle = 'rgba(255,255,255,0.15)';
@@ -1401,13 +1406,18 @@ function infoHtml(u: UnitView): string {
   if (u.hidden) html += `<div class="small warn">目前看不到：以下是第 ${u.seenTurn} 回合最後目擊時的樣子</div>`;
   const v = view!.state.velocity[u.id];
   html += `<div class="small muted">動能 ${signed(u.momentum)}${v ? `　本回合移動 ${Math.hypot(v.x, v.y).toFixed(1)}` : ''}</div>`;
-  const body = [
-    ['', 'head', ''],
-    ['larm', 'torso', 'rarm'],
-    ['', 'pack', ''],
-    ['', 'legs', ''],
-  ];
-  html += `<div class="body">${body.flat().map((id) => (id ? partCell(u, id) : '<span></span>')).join('')}</div>`;
+  if (isHumanoid(u)) {
+    const body = [
+      ['', 'head', ''],
+      ['larm', 'torso', 'rarm'],
+      ['', 'pack', ''],
+      ['', 'legs', ''],
+    ];
+    html += `<div class="body">${body.flat().map((id) => (id ? partCell(u, id) : '<span></span>')).join('')}</div>`;
+  } else {
+    // 非人形：依序列出所有機體部位
+    html += `<div class="body">${Object.values(u.parts).filter((p) => p.kind === 'body').map((p) => partCell(u, p.id)).join('')}</div>`;
+  }
   const where = { right: '右手', left: '左手', stowed: '收納', mount: '外掛', builtin: '內建', housed: '內藏' };
   html += `<div class="equip">${u.equipment.map((e) => `<span>${where[e.location]} ${gearCell(u, e)}</span>`).join('')}</div>`;
   if (u.status !== 'active') html += `<div class="err">${{ destroyed: '已擊毀', withdrawn: '已脫離戰場', unconscious: '駕駛昏迷', disabled: '停止動作' }[u.status]}</div>`;
@@ -1509,7 +1519,7 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   html += '</div><div>';
   html += '<div class="sec">姿態</div><div class="row">';
   const slow = moveSpeed(plan) <= config.SLOW_MAX_SPEED;
-  html += (['shoot', 'melee'] as Stance[])
+  html += (closeCombatOf(u) ? (['shoot', 'melee'] as Stance[]) : (['shoot'] as Stance[]))
     .map((s) => {
       const now = s === 'melee' ? (slow ? '（目前的機動是慢速：撞上就咬住，被高速衝進來會承受衝擊）' : '（目前的機動是高速：撞上就出刀一擊脫離）') : '';
       return tip(`<button class="${plan.stance === s ? 'on' : ''}" data-stance="${s}">${STANCE_NAMES[s]}</button>`, STANCE_TIPS[s] + now);
@@ -1530,15 +1540,15 @@ interface EquipOption {
   equip?: string;
 }
 
-/** 行動步驟可選的「裝備」：手上的射擊武器、收著的武器、頭部感測器 */
-const HOST_SIDE: Record<string, string> = { rarm: '右', larm: '左' };
+/** 行動步驟可選的「裝備」：手上的射擊武器、收著的武器、感測器 */
 
 function equipOptions(u: UnitView): EquipOption[] {
   const out: EquipOption[] = [];
-  const canHold = (['right', 'left'] as Hand[]).some((h) => !u.parts[h === 'right' ? 'rarm' : 'larm'].destroyed && !handBlocked(u, h));
+  const canHold = (['right', 'left'] as Hand[]).some((h) => handUsable(u, h));
   for (const e of readyRanged(u)) {
     const def = EQUIPMENT[e.defId];
-    const side = alwaysReady(e) && e.host && HOST_SIDE[e.host] ? `（${HOST_SIDE[e.host]}）` : '';
+    const hostHand = alwaysReady(e) && e.host ? handOfPart(u, e.host) : null;
+    const side = hostHand ? `（${hostHand === 'right' ? '右' : '左'}）` : '';
     const notes = [def.arc !== undefined ? `前方±${def.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : ''].filter(Boolean).join('・');
     out.push({ key: `shoot:${e.id}`, label: `${def.name}${side}・射擊${notes ? `（${notes}）` : ''}`, kind: 'shoot', equip: e.id });
   }
@@ -1549,14 +1559,14 @@ function equipOptions(u: UnitView): EquipOption[] {
       out.push({ key: `draw:${e.id}`, label: `${def.name}・拔出${freeDraw(u as unknown as UnitState, e) ? '（不佔行動）' : ''}`, kind: 'draw', equip: e.id });
     }
   }
-  if (!u.parts.head.destroyed) out.push({ key: 'lock', label: '頭部感測器・鎖定', kind: 'lock' });
+  if (!roleLost(u, 'sensor')) out.push({ key: 'lock', label: '感測器・鎖定', kind: 'lock' });
   out.push({ key: 'none', label: '不行動', kind: 'none' });
   return out;
 }
 
 /** 拔出的武器放到哪隻手：先找空手，再找沒拿盾、也不是要射擊的那隻 */
 function drawHand(u: UnitView, keep?: string): Hand {
-  const hands = (['right', 'left'] as Hand[]).filter((h) => !u.parts[h === 'right' ? 'rarm' : 'larm'].destroyed && !handBlocked(u, h));
+  const hands = (['right', 'left'] as Hand[]).filter((h) => handUsable(u, h));
   const held = (h: Hand) => u.equipment.find((e) => e.location === h && equipAlive(u, e));
   return (
     hands.find((h) => !held(h)) ??

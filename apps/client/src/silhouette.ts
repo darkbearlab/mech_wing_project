@@ -1,5 +1,5 @@
 // 機體受損圖：矮方塊拼成的人形，旁邊上下排列推進器和燃料槽，只用顏色表示受傷程度。
-import type { PartState, UnitView } from '@mech/rules';
+import { isHumanoid, type PartState, type UnitView } from '@mech/rules';
 
 type Level = 'ok' | 'light' | 'heavy' | 'broken';
 
@@ -41,7 +41,23 @@ function tank(x: number, y: number, k: Level | null): string {
   return cell(x + 6.5) + cell(x + 19.5);
 }
 
+/** 非人形（戰機、戰艦…）：每個機體部位一條色塊加名稱 */
+function partBars(u: UnitView): string {
+  const body = Object.values(u.parts).filter((p) => p.kind === 'body');
+  const row = 15;
+  const h = Math.max(60, body.length * row + 4);
+  const bars = body
+    .map((p, i) => {
+      const y = 2 + i * row;
+      const name = p.name.replace(/[&<>"]/g, '');
+      return block(2, y, 30, row - 4, damageLevel(p)) + `<text x="38" y="${y + row - 6}" font-size="11" fill="#c8d0da">${name}</text>`;
+    })
+    .join('');
+  return `<svg viewBox="0 0 112 ${h}" width="64" height="${Math.round((h / 112) * 64)}" role="img" aria-label="${u.label} 受損狀況">${bars}</svg>`;
+}
+
 export function mechSilhouette(u: UnitView): string {
+  if (!isHumanoid(u)) return partBars(u);
   const lv = (id: string) => (u.parts[id] ? damageLevel(u.parts[id]) : 'ok');
   const tankEq = u.equipment.find((e) => e.defId === 'fuel_tank');
   const tankLv = tankEq ? damageLevel(u.parts[tankEq.id]) : null;

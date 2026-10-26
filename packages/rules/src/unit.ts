@@ -1,4 +1,5 @@
 import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL } from './config';
+import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
 import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
@@ -12,7 +13,11 @@ export const isActive = (u: UnitState): boolean => u.status === 'active';
 /** 該部位或裝備仍存在 */
 export const partAlive = (u: { parts: Record<string, PartState> }, id: string): boolean => !!u.parts[id] && !u.parts[id].destroyed;
 
-export const armOf = (hand: Hand): 'rarm' | 'larm' => (hand === 'right' ? 'rarm' : 'larm');
+/** 這隻手還在而且能握持（沒有手的機型永遠不行） */
+export function handUsable(u: Gear, hand: Hand): boolean {
+  const p = handPart(u, hand);
+  return !!p && partAlive(u, p) && !handBlocked(u, hand);
+}
 
 type Gear = { parts: Record<string, PartState>; equipment: EquipState[] };
 
@@ -23,7 +28,7 @@ export function equipAlive(u: Gear, e: EquipState): boolean {
 }
 
 /** 這隻手被佔手的內建武器（手指光束砲）佔住，完全不能握持 */
-export const handBlocked = (u: Gear, hand: Hand): boolean => u.equipment.some((e) => EQUIPMENT[e.defId].blocksHand && e.host === armOf(hand));
+export const handBlocked = (u: Gear, hand: Hand): boolean => u.equipment.some((e) => EQUIPMENT[e.defId].blocksHand && !!e.host && handOfPart(u, e.host) === hand);
 
 /** 不用拿在手上、隨時可用的武器（外掛、內建） */
 export const alwaysReady = (e: EquipState): boolean => e.location === 'mount' || e.location === 'builtin';
@@ -33,7 +38,7 @@ export const freeDraw = (u: { pilotId: string }, e: EquipState): boolean =>
   pilotOf(u).abilities.includes('quick_draw') || !!EQUIPMENT[e.defId].tags?.includes('quickDraw');
 
 export function heldItem(u: Gear, hand: Hand): EquipState | null {
-  if (!partAlive(u, armOf(hand)) || handBlocked(u, hand)) return null;
+  if (!handUsable(u, hand)) return null;
   return u.equipment.find((e) => e.location === hand && equipAlive(u, e)) ?? null;
 }
 
@@ -46,7 +51,7 @@ export function heldOfKind(u: UnitState, kind: EquipDef['kind']): EquipState | n
 }
 
 export function hasFreeHand(u: UnitState): boolean {
-  return (['right', 'left'] as Hand[]).some((h) => partAlive(u, armOf(h)) && !handBlocked(u, h) && !heldItem(u, h));
+  return (['right', 'left'] as Hand[]).some((h) => handUsable(u, h) && !heldItem(u, h));
 }
 
 /** 現在能開火的射擊武器：手上的，加上外掛與內建的 */
@@ -85,7 +90,7 @@ export interface ManeuverCost {
 /** 推進背包破壞時：最大加減速只剩 1，而且不能用推進劑 */
 function thrustLimits(u: ManeuverLimits) {
   const ch = CHASSIS[u.chassisId];
-  if (!partAlive(u, 'pack')) return { base: PACK_BROKEN_ACCEL, max: PACK_BROKEN_ACCEL, canBurn: false };
+  if (roleLost(u, 'propulsion')) return { base: PACK_BROKEN_ACCEL, max: PACK_BROKEN_ACCEL, canBurn: false };
   return { base: ch.baseThrust, max: ch.maxAccel, canBurn: true };
 }
 
@@ -118,7 +123,10 @@ export function maneuverCost(u: ManeuverLimits, m: ManeuverSpec, limiter = false
   const stress = Math.max(0, dv - G_FREE_DV) + turn.stress + (limiter ? LIMITER_STRESS : 0);
   const maxDv = lim.max + (limiter ? 1 : 0);
   let blocked: string | null = null;
-  if (m.hard && (!partAlive(u, 'legs') || u.blackout)) blocked = '腿部損壞或黑視，不能急轉、急停';
+  const min = minSpeedOf(u);
+  const slow = m.kind === 'hover' || m.kind === 'kturn' || m.kind === 'reverse' || m.kind === 'rbank' || m.speed < min;
+  if (min > 0 && slow) blocked = `最低速度 ${min}，不能懸停、後退或慢於 ${min}`;
+  else if (m.hard && (roleLost(u, 'legs') || u.blackout)) blocked = '腳部損壞或黑視，不能急轉、急停';
   else if (dv > maxDv) blocked = `速度變化 ${dv} 超過這台機體一回合的極限 ${maxDv}`;
   else if (propellant > 0 && !lim.canBurn) blocked = '推進背包損壞，不能耗用推進劑';
   else if (u.propellant !== undefined && propellant > u.propellant) blocked = '推進劑不足';
@@ -144,7 +152,11 @@ export function planCost(u: ManeuverLimits, plan: Pick<MovePlan, 'maneuver' | 'l
 export function cruiseManeuver(u: ManeuverLimits): string {
   const options = availableManeuvers(u).map((m) => ({ m, c: maneuverCost(u, m) }));
   options.sort((a, b) => a.c.propellant - b.c.propellant || a.c.dv - b.c.dv || Number(b.m.kind === 'straight') - Number(a.m.kind === 'straight'));
-  return options[0]?.m.id ?? 'hover-S-0';
+  if (options[0]) return options[0].m.id;
+  // 什麼都做不到時：會停的懸停，不能停的（戰機）沿機動盤上最接近目前動能的直線滑行
+  const dial = CHASSIS[u.chassisId].dial.map(parseManeuver);
+  if (minSpeedOf(u) === 0 || !dial.some((m) => m.kind === 'straight')) return 'hover-S-0';
+  return dial.filter((m) => m.kind === 'straight').sort((a, b) => Math.abs(a.speed - u.momentum) - Math.abs(b.speed - u.momentum))[0].id;
 }
 
 export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): string[] {
@@ -157,6 +169,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
     }
   }
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
+  else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
   else if (plan.facingOffset !== 0 && !grappled && parseManeuver(plan.maneuver).kind !== 'hover') errors.push(`${u.label}：只有懸停時可以轉身`);
   return errors;

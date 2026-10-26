@@ -3,7 +3,8 @@ import { contentVersion } from './content';
 import { Rng } from './rng';
 import { generateObstacles } from './terrain';
 import { sighting, updateSight } from './visibility';
-import { BODY_PART_NAMES, CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, PILOTS, randomRoster, type RosterEntry } from './data';
+import { chassisParts } from './body';
+import { CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, PILOTS, randomRoster, type RosterEntry } from './data';
 import type { EquipState, GameState, PartState, PlayerId, UnitState } from './types';
 
 export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, pos: { x: number; y: number }, facing: number): UnitState {
@@ -11,8 +12,8 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
   const pilot = PILOTS[entry.pilot];
   const id = `p${owner}u${index}`;
   const parts: Record<string, PartState> = {};
-  for (const [pid, p] of Object.entries(chassis.parts)) {
-    parts[pid] = { id: pid, name: BODY_PART_NAMES[pid], kind: 'body', weight: p.weight, durability: p.durability, damage: 0, destroyed: false };
+  for (const p of chassisParts(chassis)) {
+    parts[p.id] = { id: p.id, name: p.name, kind: 'body', role: p.role, weight: p.weight, durability: p.durability, damage: 0, destroyed: false };
   }
   let fuel = 0;
   const gear: RosterEntry['equipment'] = [...entry.equipment, ...(chassis.builtIn ?? []).map((b) => [b.defId, 'builtin', b.host] as RosterEntry['equipment'][number])];
@@ -36,7 +37,7 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
     pilotId: pilot.id,
     pos,
     facing,
-    momentum: START_MOMENTUM,
+    momentum: Math.max(START_MOMENTUM, chassis.minSpeed ?? 0),
     propellant: chassis.propellant + fuel,
     maxPropellant: chassis.propellant + fuel,
     stress: 0,

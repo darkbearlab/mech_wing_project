@@ -2,6 +2,7 @@
 // 移動：對每個可用機動估算終點，依武器擅長的距離、朝向、邊界、壓力與推進劑打分。
 // 行動：挑期望傷害最高的射擊；沒得打就拔刀、拔槍或鎖定。
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
+import { closeCombatOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { hitChance, relativeSpeed } from './combat';
 import { grappleOptions } from './grapple';
@@ -11,26 +12,25 @@ import { buildPath } from './movement';
 import { MAP_SIZE, FACING_OFFSETS, SLOW_MAX_SPEED } from './config';
 import type { Rng } from './rng';
 import type { ActionPlan, EquipState, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { availableManeuvers, equipAlive, handBlocked, maneuverCost, moveSpeed, readyRanged } from './unit';
+import { availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
 const RANGE_TARGET: Record<1 | 2 | 3, number> = { 1: 2, 2: 4.5, 3: 8 };
 
-const alive = (u: UnitView, id: string) => !!u.parts[id] && !u.parts[id].destroyed;
-const armOk = (u: UnitView, h: Hand) => alive(u, h === 'right' ? 'rarm' : 'larm');
-const heldItems = (u: UnitView) => u.equipment.filter((e) => (e.location === 'right' || e.location === 'left') && armOk(u, e.location) && !handBlocked(u, e.location) && equipAlive(u, e));
+const armOk = (u: Pick<UnitView, "parts" | "equipment">, h: Hand) => handUsable(u, h);
+const heldItems = (u: UnitView) => u.equipment.filter((e) => (e.location === 'right' || e.location === 'left') && armOk(u, e.location) && equipAlive(u, e));
 /** 能用的武器：近戰要拿在手上；射擊包含外掛與內建 */
 const heldOf = (u: UnitView, kind: 'ranged' | 'melee') => (kind === 'ranged' ? readyRanged(u) : heldItems(u).filter((e) => EQUIPMENT[e.defId].kind === kind));
 const stowedOf = (u: UnitView, kind: 'ranged' | 'melee') =>
   u.equipment.filter((e) => (e.location === 'stowed' || e.location === 'housed') && equipAlive(u, e) && EQUIPMENT[e.defId].kind === kind);
-const canHold = (u: UnitView) => (['right', 'left'] as Hand[]).some((h) => armOk(u, h) && !handBlocked(u, h));
+const canHold = (u: UnitView) => (['right', 'left'] as Hand[]).some((h) => armOk(u, h));
 const edge = (a: Vec, b: Vec) => dist(a, b) - 1;
 
 /** 拔出的武器放到哪隻手：先找空手，再找沒拿盾、也不是 keep 的那隻 */
 export function drawHand(u: Pick<UnitView, 'parts' | 'equipment'>, keep?: string): Hand {
   const v = u as UnitView;
-  const hands = (['right', 'left'] as Hand[]).filter((h) => armOk(v, h) && !handBlocked(v, h));
+  const hands = (['right', 'left'] as Hand[]).filter((h) => armOk(v, h));
   const held = (h: Hand) => v.equipment.find((e) => e.location === h && equipAlive(v, e));
   return hands.find((h) => !held(h)) ?? hands.find((h) => EQUIPMENT[held(h)!.defId].kind !== 'shield' && held(h)!.id !== keep) ?? hands[0] ?? 'right';
 }
@@ -121,7 +121,7 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
       continue;
     }
     const options = availableManeuvers(u);
-    let best = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver('hover-S-0') };
+    let best = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver(cruiseManeuver(u)) };
     for (const m of options) {
       const s = scoreManeuver(u, m, enemies, planned, rng, view.state.obstacles);
       if (s.score > best.score) best = { ...s, m };
@@ -141,7 +141,7 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
     let stance: Stance = 'shoot';
     if (heldOf(u, 'melee').length && d < 8) stance = 'melee';
     else if (swordsman && moveSpeed(plan) <= SLOW_MAX_SPEED && rng.next() < braceChance) stance = 'melee';
-    plan.stance = stance;
+    plan.stance = closeCombatOf(u) ? stance : 'shoot';
     out[u.id] = plan;
   }
   return out;
@@ -172,7 +172,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'melee')[0].id };
     } else if (canHold(u) && !heldOf(u, 'ranged').length && !heldOf(u, 'melee').length && stowedOf(u, 'ranged').length) {
       plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'ranged')[0].id };
-    } else if (alive(u, 'head') && near && d <= 10 && u.lockOn !== near.id) {
+    } else if (!roleLost(u, 'sensor') && near && d <= 10 && u.lockOn !== near.id) {
       plan.action = { type: 'lock', target: near.id };
     }
     out[u.id] = plan;

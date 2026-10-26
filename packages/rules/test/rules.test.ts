@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONTENT, contentVersion, useContent, validateContent } from '../src/content';
+import { edgeDistance } from '../src/combat';
+import { grappleOptions, normalizeChoice } from '../src/grapple';
 import { damageUnit, type Ctx } from '../src/damage';
 import { localPose, parseManeuver } from '../src/maneuvers';
 import { Match } from '../src/match';
@@ -454,7 +456,7 @@ describe('整場模擬', () => {
       const weapon = (['right', 'left'] as const).map((h) => heldItem(u, h)).find((e) => e && e.defId !== 'shield' && e.defId !== 'beam_saber' && e.defId !== 'heat_axe');
       const target = enemies[Math.floor(rng.next() * enemies.length)];
       out[u.owner][u.id] = plan({
-        maneuver: opts[Math.floor(rng.next() * opts.length)].id,
+        maneuver: opts.length ? opts[Math.floor(rng.next() * opts.length)].id : defaultMove(u).maneuver,
         stance: stances[Math.floor(rng.next() * 3)],
         action: weapon && target ? { type: 'shoot', weapon: weapon.id, target: target.id } : { type: 'none' },
         grapple: (['slash', 'parry', 'grab', 'push', 'disengage'] as const)[Math.floor(rng.next() * 5)],
@@ -743,5 +745,65 @@ describe('機動盤速度', () => {
     pack.chassis['X-00'].dial.push(`straight-S-${C.MAX_DIAL_SPEED + 1}`, 'bank-L-1.5', 'hover-S-2');
     const errs = validateContent(pack);
     expect(errs.filter((e) => e.includes('的速度要是'))).toHaveLength(3);
+  });
+});
+
+describe('部位配置與戰機', () => {
+  const fighter: RosterEntry = { chassis: 'CF-01', pilot: 'veteran', equipment: [] };
+
+  it('戰機：有最低速度，不能懸停或後退，開場動能不低於最低速度', () => {
+    const st = makeState([{ entry: fighter, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    expect(u.momentum).toBeGreaterThanOrEqual(2);
+    const ids = availableManeuvers(u).map((m) => m.id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.every((id) => Number(id.split('-')[2]) >= 2)).toBe(true);
+    expect(maneuverCost(u, parseManeuver('hover-S-0')).blocked).toMatch(/最低速度/);
+    expect(defaultMove(u).maneuver).not.toBe('hover-S-0');
+  });
+
+  it('戰機：只能選射擊姿態，被纏鬥時只能脫離', () => {
+    const st = makeState([{ entry: fighter, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    expect(validateMove(u, plan({ maneuver: 'straight-S-2', stance: 'melee' }), false).join()).toMatch(/只能選射擊姿態/);
+    expect(validateMove(u, plan({ maneuver: 'straight-S-2' }), false)).toEqual([]);
+    expect(grappleOptions(u)).toEqual(['disengage']);
+    expect(normalizeChoice(u, 'push')).toBe('disengage');
+  });
+
+  it('底座半徑：距離用雙方各自的半徑計算', () => {
+    const st = makeState([
+      { entry: fighter, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 9, y: 10, facingDeg: 180 },
+    ]);
+    expect(edgeDistance(st.units[0], st.units[1])).toBeCloseTo(4 - 0.35 - C.BASE_RADIUS);
+  });
+
+  it('部位功能：核心打壞就退場；沒寫功能的舊資料照人形推斷', () => {
+    const st = makeState([{ entry: fighter, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    expect(u.parts.hull.role).toBe('core');
+    damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 10, 'focused', 'hull');
+    expect(u.status).toBe('destroyed');
+
+    const old = structuredClone(DEFAULT_CONTENT);
+    for (const c of Object.values(old.chassis)) for (const p of Object.values(c.parts)) (delete p.role, delete p.name);
+    delete old.chassis['CF-01'];
+    delete old.loadouts['CF-01'];
+    expect(validateContent(old)).toEqual([]);
+    useContent({ ...old, version: 'old' });
+    const x = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 }]).units[0];
+    expect(x.parts.torso.role).toBe('core');
+    expect(x.parts.rarm.name).toBe('右臂');
+    useContent(DEFAULT_CONTENT);
+  });
+
+  it('檢查：沒有手不能拿手持武器、一定要有核心', () => {
+    const pack = structuredClone(DEFAULT_CONTENT);
+    pack.loadouts['CF-01'] = [[['beam_rifle', 'right']]];
+    pack.chassis['X-00'].parts.torso.role = null;
+    const errs = validateContent(pack);
+    expect(errs.some((e) => e.includes('CF-01') && e.includes('沒有右手'))).toBe(true);
+    expect(errs.some((e) => e.includes('X-00') && e.includes('核心'))).toBe(true);
   });
 });

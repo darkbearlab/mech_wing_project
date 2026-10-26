@@ -6,7 +6,23 @@ export type Hand = 'right' | 'left';
 export type RangeBand = 0 | 1 | 2 | 3;
 export type GrappleChoice = 'slash' | 'parry' | 'grab' | 'push' | 'disengage';
 export type DamageMode = 'focused' | 'scattered';
-export type BodyPartId = 'torso' | 'rarm' | 'larm' | 'pack' | 'legs' | 'head';
+/** 人形範本的部位 id；其他機型可以自訂部位 id */
+export type BodyPartId = string;
+/**
+ * 部位功能：規則只看功能、不看部位名稱。同一個功能可以分給多個部位，全部被打壞效果才發生。
+ * core 核心（壞了整台退場）、rightHand/leftHand 手（壞了不能握持）、propulsion 推進（壞了加速能力降到最低）、
+ * legs 腳（壞了不能急轉急停）、sensor 感測（壞了遠距離命中下降、不能鎖定、視野變短）
+ */
+export type PartRole = 'core' | 'rightHand' | 'leftHand' | 'propulsion' | 'legs' | 'sensor';
+
+export interface ChassisPart {
+  /** 顯示名稱；沒填就用人形範本的名稱或 id */
+  name?: string;
+  /** 沒填時依人形範本的 id 推斷（torso→core…）；null 表示沒有特別功能 */
+  role?: PartRole | null;
+  weight: number;
+  durability: number;
+}
 
 // ---- 靜態資料 ----
 
@@ -62,10 +78,16 @@ export interface ChassisDef {
   power: number;
   aim: number;
   evasion: number;
-  parts: Record<BodyPartId, { weight: number; durability: number }>;
+  parts: Record<BodyPartId, ChassisPart>;
   dial: string[]; // 機動 id
   /** 機型自帶的內建武裝 */
   builtIn?: { defId: string; host: BodyPartId }[];
+  /** 底座半徑；沒填是 config.BASE_RADIUS（MS 大小） */
+  radius?: number;
+  /** 最低速度：動能不能低於這個值（戰機用）；沒填是 0 */
+  minSpeed?: number;
+  /** 能近身戰鬥：false 時只能選射擊姿態，被纏鬥時只能選脫離；沒填是 true */
+  closeCombat?: boolean;
 }
 
 export interface PilotDef {
@@ -83,6 +105,8 @@ export interface PartState {
   id: string;
   name: string;
   kind: 'body' | 'equip';
+  /** 機體部位的功能（裝備沒有） */
+  role?: PartRole | null;
   weight: number;
   durability: number;
   damage: number;
