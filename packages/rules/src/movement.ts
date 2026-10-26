@@ -82,6 +82,22 @@ export function simulateMovement(
       }
     }
 
+    // 撞上大隕石：停在前一步的位置，速度超過安全值的部分化為傷害與壓力
+    for (const m of movers) {
+      if (!m.moving || !m.path || m.unit.status !== 'active') continue;
+      const rock = ctx.state.obstacles.find((o) => o.kind === 'rock' && dist(m.unit.pos, o) < C.BASE_RADIUS + o.r);
+      if (!rock) continue;
+      m.unit.pos = prev.get(m.unit.id)!;
+      stop(m);
+      bumped.add(m.unit.id);
+      const damage = Math.max(0, Math.round(m.path.length) - C.ROCK_SAFE_SPEED);
+      ctx.events.push({ type: 'obstacle', t, unit: m.unit.id, obstacle: rock.id, damage });
+      if (damage) {
+        damageUnit(ctx, m.unit, damage, 'scattered');
+        addStress(ctx, m.unit, damage, '撞上隕石');
+      }
+    }
+
     const live = movers.filter((m) => m.unit.status === 'active');
     const contacts: { a: Mover; b: Mover; d: number }[] = [];
     for (let i = 0; i < live.length; i++) {
@@ -112,6 +128,19 @@ export function simulateMovement(
     }
 
     for (const m of movers) m.samples.push([m.unit.pos.x, m.unit.pos.y, m.unit.facing]);
+  }
+
+  // 高速穿越隕石群：每穿過一片碎石區擲一次，速度越快越容易被打中
+  for (const m of movers) {
+    if (!m.path || m.unit.status !== 'active') continue;
+    const speed = Math.round(m.path.length);
+    if (speed <= C.DEBRIS_SAFE_SPEED) continue;
+    for (const f of ctx.state.obstacles.filter((o) => o.kind === 'field')) {
+      if (!m.samples.some((s) => Math.hypot(s[0] - f.x, s[1] - f.y) <= f.r)) continue;
+      if (ctx.rng.d100() > (speed - C.DEBRIS_SAFE_SPEED) * C.DEBRIS_CHANCE_PER_SPEED) continue;
+      ctx.events.push({ type: 'debris', unit: m.unit.id, obstacle: f.id, damage: 1 });
+      damageUnit(ctx, m.unit, 1, 'scattered');
+    }
   }
 
   // 射擊用的本回合移動向量：中途停下、急停反轉、懸停或纏鬥中都算 0
@@ -245,6 +274,17 @@ function separateOverlaps(ctx: Ctx, movers: Mover[]) {
         const push = (need - d) / 2 + 1e-4;
         a.pos = sub(a.pos, scale(dir, push));
         b.pos = add(b.pos, scale(dir, push));
+        moved = true;
+      }
+    }
+    for (const m of movers) {
+      const u = m.unit;
+      for (const o of ctx.state.obstacles) {
+        if (o.kind !== 'rock') continue;
+        const d = dist(u.pos, o);
+        if (d >= o.r + C.BASE_RADIUS) continue;
+        const dir = d < 1e-6 ? { x: 1, y: 0 } : normalize(sub(u.pos, o));
+        u.pos = add(o, scale(dir, o.r + C.BASE_RADIUS + 1e-3));
         moved = true;
       }
     }

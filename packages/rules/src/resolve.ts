@@ -4,6 +4,8 @@ import { addStress, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
+import { lineOfFire } from './terrain';
+import { updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, Stance, UnitState } from './types';
 import { defaultAction, defaultMove, equipDef, heldItem, partAlive, pilotOf, planCost } from './unit';
@@ -67,6 +69,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
 
   state.phase = 'action';
   state.turnInfo = { stance, velocity, bumped: [...bumped] };
+  updateSight(state);
   checkWinner(ctx, false);
   state.rngState = rng.state;
   return { state, events: ctx.events };
@@ -80,6 +83,8 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
   const turn: TurnInfo = { stance: info.stance, velocity: info.velocity };
   const bumped = new Set(info.bumped);
+  // 開火或鎖定會暴露位置
+  const revealed = new Set<string>();
 
   const order = state.units
     .filter((u) => u.status === 'active')
@@ -103,7 +108,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '換武器用掉了動作' });
       continue;
     }
-    doAction(ctx, turn, u, plan);
+    if (doAction(ctx, turn, u, plan)) revealed.add(u.id);
   }
 
   // 回合結束：壓力分級、恢復
@@ -129,6 +134,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
 
   state.phase = 'move';
   state.turnInfo = null;
+  updateSight(state, revealed);
   if (!checkWinner(ctx, true)) state.turn++;
   state.rngState = rng.state;
   return { state, events: ctx.events };
@@ -170,33 +176,40 @@ function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string 
   ctx.events.push({ type: 'swap', unit: u.id, hand, equip: next?.id ?? null });
 }
 
-function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan) {
+/** 回傳 true 表示有開火或鎖定（會暴露位置） */
+function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boolean {
   const action = plan.action;
-  if (action.type === 'none') return;
+  if (action.type === 'none') return false;
   const target = ctx.state.units.find((x) => x.id === action.target);
   if (!target || target.status !== 'active') {
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標已失去戰鬥能力' });
-    return;
+    return false;
+  }
+  if (!ctx.state.visible[u.owner].includes(target.id)) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '看不到目標' });
+    return false;
   }
   if (action.type === 'lock') {
     if (!partAlive(u, 'head')) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '頭部損壞，無法鎖定' });
-      return;
+      return false;
     }
     const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, relSpeed: null, shooterMelee: false });
     if (!band) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標超出鎖定距離' });
-      return;
+      return false;
     }
     u.lockOn = target.id;
     ctx.events.push({ type: 'lock', unit: u.id, target: target.id });
-    return;
+    return true;
   }
   const weapon = u.equipment.find((e) => e.id === action.weapon);
   const held = weapon && (heldItem(u, 'right')?.id === weapon.id || heldItem(u, 'left')?.id === weapon.id);
   if (!weapon || !held || equipDef(weapon).kind !== 'ranged') {
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '手上沒有可用的射擊武器' });
-    return;
+    return false;
   }
-  if (!shoot(ctx, turn, u, weapon, target)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標不在射程內' });
+  if (shoot(ctx, turn, u, weapon, target)) return true;
+  ctx.events.push({ type: 'actionFail', unit: u.id, reason: lineOfFire(ctx.state.obstacles, u.pos, target.pos) === 'blocked' ? '射擊線被隕石擋住' : '目標不在射程內' });
+  return false;
 }

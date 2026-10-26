@@ -30,7 +30,7 @@ export function buildBeats(events: GameEvent[]): Beat[] {
     if (HEADS.has(e.type)) {
       flush();
       cur = { kind: e.type as BeatKind, events: [e], duration: 0, pauses: [] };
-    } else if ((e.type === 'contact' || e.type === 'move') && cur.kind !== 'move') {
+    } else if ((e.type === 'contact' || e.type === 'move' || e.type === 'obstacle') && cur.kind !== 'move') {
       flush();
       cur = { kind: 'move', events: [e], duration: 0, pauses: [] };
     } else {
@@ -39,7 +39,7 @@ export function buildBeats(events: GameEvent[]): Beat[] {
   }
   flush();
   for (const b of beats) {
-    b.pauses = [...new Set(b.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.t] : [])))].sort((x, y) => x - y);
+    b.pauses = [...new Set(b.events.flatMap((e) => ((e.type === 'contact' && e.result !== 'none') || e.type === 'obstacle' ? [e.t] : [])))].sort((x, y) => x - y);
     b.duration = beatDuration(b);
   }
   return beats;

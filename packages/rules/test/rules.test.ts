@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { damageUnit, type Ctx } from '../src/damage';
 import { localPose, parseManeuver } from '../src/maneuvers';
 import { Match } from '../src/match';
+import { createGame as newGame, pickRosters } from '../src/setup';
+import { lineOfFire } from '../src/terrain';
+import { updateSight, viewState, filterEvents } from '../src/visibility';
+import * as C from '../src/config';
 import { aiActions, aiMoves } from '../src/ai';
 import { resolveMovement, resolveTurn } from '../src/resolve';
 import { hitChance, relativeSpeed } from '../src/combat';
@@ -42,7 +46,7 @@ describe('機動模板', () => {
     const r = resolveTurn(st, [{ [st.units[0].id]: plan({ maneuver: 'hover-S-0', facingOffset: 90 }) }, {}]);
     expect(r.state.units[0].facing).toBeCloseTo(Math.PI / 2);
     const samples = of(r.events, 'move')[0].samples;
-    expect(samples[20][2]).toBeCloseTo(Math.PI / 4, 1);
+    expect(samples[20]![2]).toBeCloseTo(Math.PI / 4, 1);
   });
 
   it('推進背包破壞後：一回合只能改變 1 點速度，而且不能耗推進劑', () => {
@@ -505,5 +509,99 @@ describe('勝負與 AI', () => {
       }
       expect(m.phase).toBe('over');
     }
+  });
+});
+
+describe('地形與視野', () => {
+  it('地形以中心點對稱，而且不壓到部署區', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const st = newGame(seed);
+      expect(st.obstacles.length).toBeGreaterThanOrEqual(2);
+      for (const o of st.obstacles) {
+        expect(o.y - o.r).toBeGreaterThan(3);
+        expect(o.y + o.r).toBeLessThan(C.MAP_SIZE - 3);
+        expect(st.obstacles.some((m) => m.kind === o.kind && Math.abs(m.x - (C.MAP_SIZE - o.x)) < 1e-9 && Math.abs(m.y - (C.MAP_SIZE - o.y)) < 1e-9)).toBe(true);
+      }
+    }
+  });
+
+  it('撞上大隕石：停住、擦撞不能行動、速度超過 2 的部分化為傷害、動能歸零', () => {
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
+    st.obstacles = [{ id: 'o0', kind: 'rock', x: 9, y: 10, r: 1 }];
+    const r = resolveMovement(st, [{ [st.units[0].id]: plan({ maneuver: 'straight-S-4' }) }, {}]);
+    const hit = of(r.events, 'obstacle')[0];
+    expect(hit.damage).toBe(2);
+    expect(r.state.units[0].pos.x).toBeLessThan(7.6);
+    expect(r.state.units[0].momentum).toBe(0);
+    expect(r.state.turnInfo!.bumped).toContain(st.units[0].id);
+  });
+
+  it('射擊線：大隕石擋住打不到，隕石群命中 −20', () => {
+    const obstacles = [
+      { id: 'o0', kind: 'rock' as const, x: 10, y: 10, r: 1 },
+      { id: 'o1', kind: 'field' as const, x: 10, y: 14, r: 1.5 },
+    ];
+    expect(lineOfFire(obstacles, { x: 6, y: 10 }, { x: 14, y: 10 })).toBe('blocked');
+    expect(lineOfFire(obstacles, { x: 6, y: 14 }, { x: 14, y: 14 })).toBe('field');
+    expect(lineOfFire(obstacles, { x: 6, y: 18 }, { x: 14, y: 18 })).toBe('clear');
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 5, y: 14, facingDeg: 0 },
+    ]);
+    const [a, b] = st.units;
+    const base = { attacker: a, attackerSkill: 3, weapon: EQUIPMENT.beam_rifle, target: b, targetSkill: null, relSpeed: 3, shooterMelee: false };
+    expect(hitChance({ ...base, cover: 'clear' })!.chance - hitChance({ ...base, cover: 'field' })!.chance).toBe(20);
+    expect(hitChance({ ...base, cover: 'blocked' })).toBeNull();
+  });
+
+  it('視野：太遠或被隕石擋住就看不到，只剩最後目擊的殘影；不能對看不到的目標開火', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 90 },
+      { entry: rifleX00, owner: 1, x: 5, y: 20, facingDeg: 270 },
+    ]);
+    const [a, b] = st.units;
+    st.visible = [[], []];
+    st.lastSeen[0][b.id] = { turn: 0, pos: { x: 5, y: 22 }, facing: 0, momentum: 2, parts: structuredClone(b.parts), equipment: [], status: 'active' };
+    updateSight(st);
+    expect(st.visible[0]).not.toContain(b.id);
+    const ghost = viewState(st, 0).units.find((u) => u.id === b.id)!;
+    expect(ghost.hidden).toBe(true);
+    expect(ghost.pos.y).toBe(22);
+    const m = new Match(1, st);
+    m.submitMoves(0, { [a.id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitMoves(1, { [b.id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitActions(0, { [a.id]: { action: { type: 'shoot', weapon: a.equipment[0].id, target: b.id } } });
+    m.submitActions(1, {});
+    expect(m.eventsFor(0).some((e) => e.type === 'actionFail' && e.reason === '看不到目標')).toBe(true);
+  });
+
+  it('躲在隕石群裡要很近才看得到；開火會暴露位置', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 90 },
+      { entry: rifleX00, owner: 1, x: 5, y: 12, facingDeg: 270 },
+    ]);
+    st.obstacles = [{ id: 'f', kind: 'field', x: 5, y: 12, r: 2 }];
+    updateSight(st);
+    expect(st.visible[0]).toHaveLength(0);
+    expect(st.visible[1]).toHaveLength(1);
+    updateSight(st, new Set([st.units[1].id]));
+    expect(st.visible[0]).toContain(st.units[1].id);
+  });
+
+  it('移動中看不到的那幾段，敵機的取樣會被遮掉', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 3, y: 3, facingDeg: 90 },
+      { entry: rifleX00, owner: 1, x: 20, y: 6, facingDeg: 90 },
+    ]);
+    const r = resolveMovement(st, [{ [st.units[0].id]: plan({ maneuver: 'hover-S-0' }) }, { [st.units[1].id]: plan({ maneuver: 'straight-S-4' }) }]);
+    const seen = filterEvents(r.events, r.state, 0).find((e) => e.type === 'move' && e.unit === st.units[1].id);
+    expect(seen && seen.type === 'move' && seen.samples.every((x) => x === null)).toBe(true);
+  });
+
+  it('隨機陣容依種子固定，雙方各三台', () => {
+    const [a, b] = pickRosters(42);
+    expect(a).toHaveLength(3);
+    expect(b).toHaveLength(3);
+    expect(JSON.stringify(pickRosters(42))).toBe(JSON.stringify([a, b]));
   });
 });

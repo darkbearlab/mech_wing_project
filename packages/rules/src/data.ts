@@ -46,6 +46,34 @@ export interface RosterEntry {
   equipment: [string, 'right' | 'left' | 'stowed' | 'mount'][];
 }
 
+/** 隨機陣容用的各機型配裝 */
+export const LOADOUTS: Record<string, RosterEntry['equipment'][]> = {
+  'X-00': [
+    [['beam_rifle', 'right'], ['shield', 'left'], ['beam_saber', 'stowed']],
+    [['machine_gun', 'right'], ['beam_saber', 'stowed']],
+    [['beam_saber', 'right'], ['shield', 'left'], ['beam_rifle', 'stowed']],
+    [['bazooka', 'right'], ['shield', 'left']],
+  ],
+  'X-01': [
+    [['beam_saber', 'right'], ['machine_gun', 'stowed']],
+    [['sniper', 'right'], ['beam_saber', 'stowed'], ['fuel_tank', 'mount']],
+    [['machine_gun', 'right'], ['beam_saber', 'stowed'], ['fuel_tank', 'mount']],
+  ],
+  'X-02': [
+    [['bazooka', 'right'], ['shield', 'left'], ['heat_axe', 'stowed'], ['fuel_tank', 'mount']],
+    [['heat_axe', 'right'], ['shield', 'left'], ['machine_gun', 'stowed']],
+    [['machine_gun', 'right'], ['shield', 'left'], ['heat_axe', 'stowed']],
+  ],
+};
+
+export function randomRoster(next: () => number, size = 3): RosterEntry[] {
+  const pick = <T>(xs: readonly T[]) => xs[Math.floor(next() * xs.length)];
+  return Array.from({ length: size }, () => {
+    const chassis = pick(Object.keys(LOADOUTS));
+    return { chassis, pilot: pick(Object.keys(PILOTS)), equipment: pick(LOADOUTS[chassis]).map(([id, loc]) => [id, loc] as [string, typeof loc]) };
+  });
+}
+
 export const DEFAULT_ROSTERS: [RosterEntry[], RosterEntry[]] = [
   [
     { chassis: 'X-00', pilot: 'recruit', equipment: [['beam_rifle', 'right'], ['shield', 'left'], ['beam_saber', 'stowed']] },

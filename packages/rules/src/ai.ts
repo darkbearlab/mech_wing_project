@@ -5,11 +5,12 @@ import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { hitChance, relativeSpeed } from './combat';
 import { grappleOptions } from './grapple';
-import { parseManeuver, worldPose, type ManeuverSpec } from './maneuvers';
+import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
+import { lineOfFire } from './terrain';
 import { buildPath } from './movement';
 import { MAP_SIZE, FACING_OFFSETS, SLOW_MAX_SPEED } from './config';
 import type { Rng } from './rng';
-import type { ActionPlan, EquipState, GrappleChoice, Hand, MovePlan, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
+import type { ActionPlan, EquipState, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { availableManeuvers, maneuverCost, moveSpeed } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
@@ -61,8 +62,10 @@ function nearest(from: Vec, enemies: UnitView[], at: (e: UnitView) => Vec = (e) 
   return best;
 }
 
-function scoreManeuver(u: UnitView, m: ManeuverSpec, enemies: UnitView[], planned: Vec[], rng: Rng): { score: number; end: Vec; facing: number } {
+function scoreManeuver(u: UnitView, m: ManeuverSpec, enemies: UnitView[], planned: Vec[], rng: Rng, obstacles: Obstacle[]): { score: number; end: Vec; facing: number } {
   const path = buildPath(u, { maneuver: m.id, limiter: false });
+  // 路徑會撞上大隕石的機動：撞上會停住還可能受傷
+  const crash = samplePath(path, 12).some((p) => obstacles.some((o) => o.kind === 'rock' && dist(p, o) < o.r + 0.5));
   const end = worldPose(path, 1);
   const pos = end.pos;
   const margin = 1.2;
@@ -88,6 +91,7 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, enemies: UnitView[], planne
   score -= cost.stress * 0.7;
   score -= cost.propellant * ((u.propellant ?? 0) < 6 ? 2 : 0.5);
   for (const p of planned) if (dist(p, pos) < 1.3) score -= 6;
+  if (crash) score -= 25 + Math.max(0, m.speed - 2) * 10;
   score += rng.next() * 1.5;
   return { score, end: pos, facing: end.facing };
 }
@@ -102,7 +106,8 @@ function pickGrapple(u: UnitView, rng: Rng): GrappleChoice {
 
 export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
   const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
-  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active');
+  const seen = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
+  const enemies = seen.length ? seen : view.state.units.filter((u) => u.owner !== view.you && u.status === 'active');
   const grappled = new Set(view.state.grapples.flatMap((g) => [g.a, g.b]));
   const planned: Vec[] = [];
   const out: PlayerMoves = {};
@@ -115,7 +120,7 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
     const options = availableManeuvers(u);
     let best = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver('hover-S-0') };
     for (const m of options) {
-      const s = scoreManeuver(u, m, enemies, planned, rng);
+      const s = scoreManeuver(u, m, enemies, planned, rng, view.state.obstacles);
       if (s.score > best.score) best = { ...s, m };
     }
     planned.push(best.end);
@@ -141,7 +146,7 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
 
 export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
   const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active' && !view.state.bumped.includes(u.id));
-  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active');
+  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
   const out: PlayerActions = {};
   for (const u of own) {
     const skill = PILOTS[u.pilotId!]?.skill ?? 1;
@@ -149,7 +154,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     for (const w of heldOf(u, 'ranged')) {
       const def = EQUIPMENT[w.defId];
       for (const t of enemies) {
-        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee' });
+        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos) });
         if (!h) continue;
         const value = (h.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1) + rng.next() * 0.2;
         if (!shot || value > shot.value) shot = { weapon: w, target: t, value, chance: h.chance };

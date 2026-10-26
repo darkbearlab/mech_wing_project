@@ -4,6 +4,31 @@ export const MAP_SIZE = 24;
 export const BASE_RADIUS = 0.5;
 export const MOVE_STEPS = 40;
 export const TURN_LIMIT = 12;
+
+// 地形（以地圖中心點對稱產生）
+export const ROCK_PAIRS = 2;
+export const FIELD_PAIRS = 1;
+export const ROCK_RADIUS = [1, 2] as const;
+export const FIELD_RADIUS = [2.5, 3.5] as const;
+export const OBSTACLE_GAP = 1.5;
+/** 地形離部署區（地圖上下緣）至少這麼遠 */
+export const DEPLOY_CLEAR = 5;
+/** 撞上大隕石：傷害與壓力 = 速度 − 這個值 */
+export const ROCK_SAFE_SPEED = 2;
+/** 射擊線穿過隕石群或目標在裡面：命中 − */
+export const FIELD_SHOT_PENALTY = 20;
+/** 高速穿越隕石群：速度超過這個值，每多 1 點有這麼多 % 機率被碎石打中 1 點 */
+export const DEBRIS_SAFE_SPEED = 2;
+export const DEBRIS_CHANCE_PER_SPEED = 15;
+
+// 視野（底板邊緣距離）
+export const SENSOR_RANGE = 10;
+export const SENSOR_RANGE_NO_HEAD = 6;
+/** 躲在隕石群裡的機體，要這麼近才看得到 */
+export const FIELD_SPOT_RANGE = 4;
+
+/** 陣容：default 固定、random 雙方各自隨機、mirror 雙方同一套隨機陣容 */
+export const ROSTER_MODE: 'default' | 'random' | 'mirror' = 'random';
 /** 測試用的快速勝負：先失去一台機體（擊毀、昏迷或飛出地圖）的一方輸 */
 export const WIN_ON_FIRST_LOSS = true;
 

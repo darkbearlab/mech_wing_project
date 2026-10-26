@@ -13,5 +13,7 @@ export * from './setup';
 export * from './visibility';
 export * from './match';
 export * from './ai';
+export * from './terrain';
+export * from './vision';
 export { Rng } from './rng';
 export type * from './protocol';

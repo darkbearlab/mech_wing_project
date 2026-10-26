@@ -94,6 +94,26 @@ export interface UnitState {
   blackout: boolean;
 }
 
+/** rock：大隕石；field：隕石群（碎石區） */
+export interface Obstacle {
+  id: string;
+  kind: 'rock' | 'field';
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** 最後一次看到某台敵機時的外觀 */
+export interface SeenRecord {
+  turn: number;
+  pos: Vec;
+  facing: number;
+  momentum: number;
+  parts: Record<string, PartState>;
+  equipment: EquipState[];
+  status: UnitStatus;
+}
+
 export interface GrappleState {
   a: string;
   b: string;
@@ -113,6 +133,11 @@ export interface TurnInfoState {
 
 export interface GameState {
   turn: number;
+  obstacles: Obstacle[];
+  /** 各玩家目前看得到的敵機 */
+  visible: [string[], string[]];
+  /** 各玩家對每台敵機的最後目擊紀錄（看不到時顯示殘影） */
+  lastSeen: [Record<string, SeenRecord>, Record<string, SeenRecord>];
   /** 每回合分兩步：先移動，看到結果後再選動作 */
   phase: TurnPhase;
   turnInfo: TurnInfoState | null;
@@ -153,7 +178,10 @@ export type ContactResult = 'none' | 'bump' | 'clinch' | 'hitrun' | 'ram';
 
 export type GameEvent =
   | { type: 'turnStart'; turn: number }
-  | { type: 'move'; unit: string; samples: [number, number, number][] }
+  /** 對手看不到的那幾個時間點，取樣為 null */
+  | { type: 'move'; unit: string; samples: ([number, number, number] | null)[] }
+  | { type: 'obstacle'; t: number; unit: string; obstacle: string; damage: number }
+  | { type: 'debris'; unit: string; obstacle: string; damage: number }
   | { type: 'contact'; t: number; a: string; b: string; vc: number; result: ContactResult }
   | {
       type: 'clash';

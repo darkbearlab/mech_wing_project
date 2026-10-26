@@ -1,5 +1,6 @@
 import * as C from './config';
 import { damageUnit, type Ctx } from './damage';
+import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
 import { chassisOf, equipDef, heldOfKind, partAlive, pilotOf, shieldHand } from './unit';
@@ -43,6 +44,8 @@ export interface HitInput {
   relSpeed: number | null;
   /** 射擊方是近戰姿態 */
   shooterMelee: boolean;
+  /** 射擊線：被大隕石擋住就打不到，穿過隕石群命中下降；不知道時視為暢通 */
+  cover?: Cover;
 }
 
 export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
@@ -56,6 +59,8 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.targetSkill !== null) chance -= h.targetSkill * C.EVADE_PER_SKILL;
   if (h.relSpeed !== null) chance += relativeSpeedMod(h.relSpeed);
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
+  if (h.cover === 'blocked') return null;
+  if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
   if (band > 0 && relativeAngle(h.attacker, h.target.pos) > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (band === 3 && !partAlive(h.attacker, 'head')) chance -= C.HEAD_LONG_PENALTY;
@@ -98,6 +103,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     targetSkill: pilotOf(target).skill,
     relSpeed: relativeSpeed(turn.velocity, attacker.id, target.id),
     shooterMelee: turn.stance[attacker.id] === 'melee',
+    cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos),
   });
   if (!h) return false;
   if (attacker.lockOn === target.id) attacker.lockOn = null;

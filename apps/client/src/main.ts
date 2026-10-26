@@ -10,6 +10,8 @@ import {
   config,
   grappleOptions,
   hitChance,
+  lineOfFire,
+  sensorRange,
   relativeSpeed,
   moveSpeed,
   parseManeuver,
@@ -24,6 +26,7 @@ import {
   type ClientMessage,
   type ManeuverSpec,
   type MovePlan,
+  type Obstacle,
   type PlayerId,
   type PlayerView,
   type ServerMessage,
@@ -217,7 +220,10 @@ function settleBeat(s: Show, b: Beat) {
   for (const e of b.events) {
     const d = 'unit' in e ? s.display.get(e.unit) : undefined;
     if (!d) continue;
-    if (e.type === 'move') [d.x, d.y, d.f] = e.samples[e.samples.length - 1];
+    if (e.type === 'move') {
+      const last = e.samples[e.samples.length - 1];
+      if (last) [d.x, d.y, d.f] = last;
+    }
     else if (e.type === 'reposition' || e.type === 'knockback') Object.assign(d, e.to);
     else if (e.type === 'status') d.status = e.status;
   }
@@ -365,10 +371,15 @@ resizeCanvas();
 const pr = (x: number, y: number, z = 0) => cam.project(x, y, z);
 
 /** 依世界座標畫折線（看不到的點會斷開） */
-function polyWorld(points: [number, number, number][]) {
+function polyWorld(points: ([number, number, number] | null)[]) {
   g.beginPath();
   let open = false;
-  for (const [x, y, z] of points) {
+  for (const pt of points) {
+    if (!pt) {
+      open = false;
+      continue;
+    }
+    const [x, y, z] = pt;
     const p = pr(x, y, z);
     if (!p.visible) {
       open = false;
@@ -423,7 +434,7 @@ attachCameraControls(canvas, cam, {
     if (!view || !hit || show) return;
     const sel = selected ? unitView(selected) : undefined;
     const plan = sel ? actionDrafts[sel.id] : undefined;
-    if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !view.submitted[view.you]) {
+    if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !hit.hidden && !view.submitted[view.you]) {
       setTarget(sel.id, hit.id);
       return;
     }
@@ -465,7 +476,7 @@ function drawFrame(now: number) {
       const p = sampleAt(e.samples, mp.t);
       if (p) over.set(e.unit, { ...show.display.get(e.unit)!, x: p.x, y: p.y, f: p.f });
       g.strokeStyle = 'rgba(255,255,255,0.14)';
-      polyWorld(e.samples.map(([x, y]) => [x, y, 0]));
+      polyWorld(e.samples.map((smp) => (smp ? [smp[0], smp[1], 0] : null)));
       g.stroke();
     }
     drawShowUnits(over);
@@ -493,7 +504,8 @@ function drawShowUnits(over: Map<string, Disp>) {
   drawUnits(
     show!.prevUnits.map((u) => {
       const d = posOf(u.id, over)!;
-      return { u: { ...u, status: d.status }, pos: d, f: d.f };
+      // 看不到的敵機：移動中被看到的那幾段照常畫，其餘時間是殘影
+      return { u: { ...u, status: d.status, hidden: u.hidden && !over.has(u.id) }, pos: d, f: d.f };
     }),
   );
 }
@@ -556,8 +568,20 @@ function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Dis
   const related: GameEvent[] = [];
   let current = -1;
   for (const e of beat.events) {
-    if (e.type === 'contact') current = e.t;
-    else if (current === pause) related.push(e);
+    if (e.type === 'contact' || e.type === 'obstacle') current = e.t;
+    if (e.type !== 'contact' && current === pause) related.push(e);
+  }
+  // 撞上隕石：橘色衝擊圈
+  for (const e of related) {
+    if (e.type !== 'obstacle') continue;
+    const at = posOf(e.unit, over);
+    if (!at) continue;
+    g.strokeStyle = `rgba(255,138,61,${1 - p})`;
+    g.lineWidth = 4;
+    ringWorld(at.x, at.y, 0.4 + p * 1.2, UNIT_Z);
+    g.stroke();
+    g.lineWidth = 1;
+    drawBanner(describe(e) ?? '');
   }
   const contacts = beat.events.filter((e): e is Extract<GameEvent, { type: 'contact' }> => e.type === 'contact' && e.t === pause && e.result !== 'none');
   for (const c of contacts) {
@@ -700,14 +724,18 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
   }
 }
 
-function sampleAt(samples: [number, number, number][] | undefined, t: number): (Vec & { f: number }) | null {
+function sampleAt(samples: ([number, number, number] | null)[] | undefined, t: number): (Vec & { f: number }) | null {
   if (!samples) return null;
   const idx = Math.min(samples.length - 1, t * (samples.length - 1));
   const i = Math.floor(idx);
   const j = Math.min(samples.length - 1, i + 1);
   const k = idx - i;
-  const [x0, y0, f0] = samples[i];
-  const [x1, y1, f1] = samples[j];
+  const a = samples[i];
+  const b = samples[j];
+  // 這一刻看不到這台敵機
+  if (!a || !b) return null;
+  const [x0, y0, f0] = a;
+  const [x1, y1, f1] = b;
   return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, f: k < 0.5 ? f0 : f1 };
 }
 
@@ -747,6 +775,64 @@ function drawGround() {
   ]);
   g.stroke();
   g.lineWidth = 1;
+  for (const o of view?.state.obstacles ?? []) if (o.kind === 'field') drawField(o);
+  for (const o of view?.state.obstacles ?? []) if (o.kind === 'rock') drawRock(o);
+}
+
+/** 凸包（Andrew 演算法），畫隕石的側面輪廓用 */
+function hull(pts: Vec[]): Vec[] {
+  const p = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o: Vec, a: Vec, b: Vec) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: Vec[] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: Vec[] = [];
+  for (const q of p.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
+/** 大隕石：有高度的岩塊，側面用上下兩圈的凸包填起來 */
+function drawRock(o: Obstacle) {
+  const height = 1.2 + o.r * 0.4;
+  const ring = (z: number) => Array.from({ length: 28 }, (_, i) => pr(o.x + Math.cos((i / 28) * Math.PI * 2) * o.r, o.y + Math.sin((i / 28) * Math.PI * 2) * o.r, z)).filter((q) => q.visible);
+  const body = hull([...ring(0), ...ring(height)]);
+  if (body.length < 3) return;
+  g.fillStyle = '#3d3630';
+  g.strokeStyle = '#5c5048';
+  g.beginPath();
+  body.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+  g.closePath();
+  g.fill();
+  g.stroke();
+  g.fillStyle = '#5e544b';
+  ringWorld(o.x, o.y, o.r * 0.92, height, 0, Math.PI * 2, 28);
+  g.fill();
+}
+
+/** 隕石群：地上一圈虛線，加上散在空中的碎石點（位置由 id 固定） */
+function drawField(o: Obstacle) {
+  g.strokeStyle = 'rgba(180,160,130,0.35)';
+  g.setLineDash([4, 4]);
+  ringWorld(o.x, o.y, o.r, 0, 0, Math.PI * 2, 48);
+  g.stroke();
+  g.setLineDash([]);
+  let seed = [...o.id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7);
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  g.fillStyle = 'rgba(170,150,125,0.75)';
+  for (let i = 0; i < Math.round(o.r * 9); i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = Math.sqrt(rnd()) * o.r;
+    const q = pr(o.x + Math.cos(a) * d, o.y + Math.sin(a) * d, 0.2 + rnd() * 1.1);
+    if (!q.visible) continue;
+    g.beginPath();
+    g.arc(q.x, q.y, Math.max(1, q.k * (0.04 + rnd() * 0.06)), 0, Math.PI * 2);
+    g.fill();
+  }
 }
 
 /** 由遠到近畫，近的蓋在遠的上面 */
@@ -763,6 +849,8 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   const top = pr(pos.x, pos.y, UNIT_Z);
   const base = pr(pos.x, pos.y, 0);
   if (!top.visible || !base.visible) return;
+  // 看不到的敵機：在最後目擊的位置畫成半透明殘影
+  if (u.hidden) g.globalAlpha = 0.35;
   // 地面底板與朝向
   g.fillStyle = out ? 'rgba(80,80,80,0.25)' : color(u.owner, 0.18);
   g.strokeStyle = out ? '#555' : color(u.owner, 0.7);
@@ -817,7 +905,9 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   g.fillStyle = out ? '#777' : '#fff';
   g.font = '11px sans-serif';
   g.textAlign = 'center';
-  g.fillText(u.label.split(' ')[0] + (u.vague === 'sluggish' ? ' ⚠' : ''), top.x, top.y - r - 5);
+  const tag = u.label.split(' ')[0] + (u.hidden ? `? T${u.seenTurn}` : u.vague === 'sluggish' ? ' ⚠' : '');
+  g.fillText(tag, top.x, top.y - r - 5);
+  g.globalAlpha = 1;
 }
 
 function drawRanges() {
@@ -827,6 +917,13 @@ function drawRanges() {
   for (const lim of [config.RANGE_LIMITS.r1, config.RANGE_LIMITS.r2, config.RANGE_LIMITS.r3]) {
     ringWorld(u.pos.x, u.pos.y, lim + 2 * config.BASE_RADIUS, 0, 0, Math.PI * 2, 64);
     g.stroke();
+  }
+  if (u.owner === view!.you) {
+    g.strokeStyle = 'rgba(120,200,255,0.35)';
+    g.setLineDash([2, 6]);
+    ringWorld(u.pos.x, u.pos.y, sensorRange(u) + 2 * config.BASE_RADIUS, 0, 0, Math.PI * 2, 72);
+    g.stroke();
+    g.setLineDash([]);
   }
 }
 
@@ -895,7 +992,7 @@ function drawHoverHint() {
   const sel = selected ? unitView(selected) : undefined;
   const hov = hoverUnit ? unitView(hoverUnit) : undefined;
   const plan = sel ? actionDrafts[sel.id] : undefined;
-  if (!sel || !hov || !plan || plan.action.type === 'none' || hov.owner === view.you || hov.status !== 'active') return;
+  if (!sel || !hov || !plan || plan.action.type === 'none' || hov.owner === view.you || hov.status !== 'active' || hov.hidden) return;
   const text = plan.action.type === 'shoot' ? `點擊設為目標・${estimate(sel, plan, hov)}` : '點擊鎖定';
   const p = fx(hov.pos);
   g.strokeStyle = 'rgba(255,207,74,0.9)';
@@ -1145,7 +1242,7 @@ function updateHoverCard() {
   if (key !== hoverCardKey) {
     hoverCardKey = key;
     const ch = CHASSIS[u.chassisId];
-    const status = u.status !== 'active' ? `<div class="small err">${{ destroyed: '擊毀', withdrawn: '脫離', unconscious: '昏迷', disabled: '停止' }[u.status]}</div>` : u.vague === 'sluggish' ? '<div class="small warn">動作遲鈍</div>' : '';
+    const status = u.hidden ? `<div class="small muted">殘影 T${u.seenTurn}</div>` : u.status !== 'active' ? `<div class="small err">${{ destroyed: '擊毀', withdrawn: '脫離', unconscious: '昏迷', disabled: '停止' }[u.status]}</div>` : u.vague === 'sluggish' ? '<div class="small warn">動作遲鈍</div>' : '';
     el.innerHTML = `<div class="hname" style="color:${color(u.owner)}" title="${esc(ch.name)}">${esc(u.label.split(' ')[0])}</div>${mechSilhouette(u)}${status}`;
   }
   el.hidden = false;
@@ -1285,6 +1382,7 @@ function infoHtml(u: UnitView): string {
   } else {
     html += `<div class="small muted">駕駛：不明${u.vague === 'sluggish' ? '　<span class="warn">動作遲鈍</span>' : ''}</div>`;
   }
+  if (u.hidden) html += `<div class="small warn">目前看不到：以下是第 ${u.seenTurn} 回合最後目擊時的樣子</div>`;
   const v = view!.state.velocity[u.id];
   html += `<div class="small muted">動能 ${signed(u.momentum)}${v ? `　本回合移動 ${Math.hypot(v.x, v.y).toFixed(1)}` : ''}</div>`;
   const body = [
@@ -1458,8 +1556,10 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   if (plan.action.type !== 'shoot') return '';
   const w = u.equipment.find((e) => e.id === (plan.action as { weapon: string }).weapon);
   const relSpeed = relativeSpeed(view!.state.velocity, u.id, t.id);
-  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee' }) : null;
-  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}・約 ${h.chance}%` : '射程外';
+  const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos);
+  if (cover === 'blocked') return '射擊線被隕石擋住';
+  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover }) : null;
+  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・約 ${h.chance}%` : '射程外';
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
@@ -1489,7 +1589,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
   html += '</div>';
   const a = plan.action;
   if (a.type === 'shoot' || a.type === 'lock') {
-    const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active');
+    const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active' && !x.hidden);
     html += `<div class="sec">目標（也可以直接點地圖上的敵機）</div><div class="row">`;
     html += enemies
       .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `鎖定 ${t.label}`))
@@ -1689,6 +1789,10 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 動作落空：${e.reason}`;
     case 'fuelFire':
       return `${L(e.unit)} 燃料槽引燃！`;
+    case 'obstacle':
+      return `${L(e.unit)} 撞上隕石${e.damage ? `，受 ${e.damage} 點衝擊` : ''}`;
+    case 'debris':
+      return `${L(e.unit)} 高速穿越隕石群，被碎石擊中`;
     case 'gameOver':
       return e.winner === 'draw' ? '對戰結束：平手' : `對戰結束：${e.winner === 0 ? 'A' : 'B'} 方勝利`;
     default:
