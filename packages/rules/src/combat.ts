@@ -51,6 +51,10 @@ export interface HitInput {
 export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
   const band = rangeBand(h.attacker, h.target);
   if (band === null) return null;
+  if (band === 0 && h.weapon.pointBlank === false) return null;
+  // 固定射界：射界外打不到
+  const rel = relativeAngle(h.attacker, h.target.pos);
+  if (h.weapon.arc !== undefined && rel > h.weapon.arc * DEG) return null;
   const rangeMod = band === 0 ? C.ZERO_RANGE_BONUS : h.weapon.ranges?.[band];
   if (rangeMod === undefined) return null;
   const atk = chassisOf(h.attacker);
@@ -61,7 +65,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
   if (h.cover === 'blocked') return null;
   if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
-  if (band > 0 && relativeAngle(h.attacker, h.target.pos) > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
+  if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (band === 3 && !partAlive(h.attacker, 'head')) chance -= C.HEAD_LONG_PENALTY;
   return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };
@@ -106,6 +110,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos),
   });
   if (!h) return false;
+  if (weapon.ammo !== undefined) weapon.ammo--;
   if (attacker.lockOn === target.id) attacker.lockOn = null;
   const shots = def.shots ?? 1;
   let hits = 0;
@@ -124,7 +129,9 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance });
   for (const p of pending) p();
-  if (h.band === 0 && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', weapon.id);
+  // 零距離開火可能傷到自己的武器；內建武器沒有自己的部位，傷到宿主
+  const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;
+  if (h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', selfPart);
   return true;
 }
 

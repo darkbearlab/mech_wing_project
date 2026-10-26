@@ -70,6 +70,8 @@ function destroyPart(ctx: Ctx, u: UnitState, partId: string): void {
 }
 
 function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
+  // 掛在這個部位上的外掛武裝一起掉落；內建與內藏的會跟著失效（不需要另外處理）
+  for (const e of u.equipment) if (e.host === partId && u.parts[e.id]) destroyPart(ctx, u, e.id);
   if (partId === 'torso') {
     u.status = 'destroyed';
     ctx.events.push({ type: 'status', unit: u.id, status: 'destroyed' });
@@ -77,7 +79,8 @@ function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
   }
   if (partId === 'rarm' || partId === 'larm') {
     const hand = partId === 'rarm' ? 'right' : 'left';
-    for (const e of u.equipment) if (e.location === hand && armOf(hand) === partId) destroyPart(ctx, u, e.id);
+    // 手上拿的東西一起失效（內藏武器拿在手上時沒有自己的部位，靠宿主判斷存亡）
+    for (const e of u.equipment) if (e.location === hand && armOf(hand) === partId && u.parts[e.id]) destroyPart(ctx, u, e.id);
     return;
   }
   if (partId === 'head') {
@@ -85,13 +88,17 @@ function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
     return;
   }
   const equip = u.equipment.find((e) => e.id === partId);
-  if (equip && equipDef(equip).kind === 'tank') {
-    const fuel = equipDef(equip).fuel ?? 0;
+  if (!equip) return;
+  const def = equipDef(equip);
+  if (def.kind === 'tank') {
+    const fuel = def.fuel ?? 0;
     u.maxPropellant -= fuel;
     if (u.propellant > u.maxPropellant) spendPropellant(ctx, u, u.propellant - u.maxPropellant);
-    if (ctx.rng.d100() <= FUEL_IGNITE_CHANCE) {
-      ctx.events.push({ type: 'fuelFire', unit: u.id });
-      hitPart(ctx, u, 'torso', FUEL_IGNITE_DAMAGE);
-    }
+  }
+  // 燃料槽與標了 volatile 的武裝（飛彈莢艙等）被打壞時可能引爆，傷到宿主部位
+  if ((def.kind === 'tank' || def.tags?.includes('volatile')) && ctx.rng.d100() <= FUEL_IGNITE_CHANCE) {
+    ctx.events.push({ type: 'fuelFire', unit: u.id });
+    const host = equip.host && u.parts[equip.host] && !u.parts[equip.host].destroyed ? equip.host : 'torso';
+    hitPart(ctx, u, host, FUEL_IGNITE_DAMAGE);
   }
 }

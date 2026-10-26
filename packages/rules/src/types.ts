@@ -10,10 +10,32 @@ export type BodyPartId = 'torso' | 'rarm' | 'larm' | 'pack' | 'legs' | 'head';
 
 // ---- 靜態資料 ----
 
+/** 武器標籤：quickDraw 拔出不佔行動；secondary 副武裝（觸發規則之後再定，目前可當一般武器）；volatile 被打壞可能引爆 */
+export type EquipTag = 'quickDraw' | 'secondary' | 'volatile';
+
+/**
+ * 安裝方式：
+ * hand 手持（要拿在手上才能用，本身是命中表裡的部位）；
+ * mounted 外掛（掛在肩、背、腿，不用拿；是命中表裡的部位，宿主破壞就掉落）；
+ * integrated 內建（四肢、頭、軀幹的一部分，不用拿；不在命中表，與宿主共存亡）；
+ * housed 內藏（藏在宿主裡，拔出來拿在手上才能用；不在命中表，與宿主共存亡，第一次拔出前對手看不到）
+ */
+export type EquipMount = 'hand' | 'mounted' | 'integrated' | 'housed';
+
 export interface EquipDef {
   id: string;
   name: string;
   kind: 'ranged' | 'melee' | 'shield' | 'tank';
+  mount?: EquipMount;
+  /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
+  arc?: number;
+  /** false：不能在接觸距離開火 */
+  pointBlank?: boolean;
+  /** 佔手的手臂內建武器：那隻手完全不能握持 */
+  blocksHand?: boolean;
+  tags?: EquipTag[];
+  /** 彈數；沒有就是無限 */
+  ammo?: number;
   weight: number; // 命中部位權重
   durability: number;
   damage?: number;
@@ -42,6 +64,8 @@ export interface ChassisDef {
   evasion: number;
   parts: Record<BodyPartId, { weight: number; durability: number }>;
   dial: string[]; // 機動 id
+  /** 機型自帶的內建武裝 */
+  builtIn?: { defId: string; host: BodyPartId }[];
 }
 
 export interface PilotDef {
@@ -66,9 +90,19 @@ export interface PartState {
 }
 
 export interface EquipState {
-  id: string; // 同時是部位 id
+  /** 手持與外掛裝備的 id 同時是命中表裡的部位 id；內建與內藏沒有自己的部位 */
+  id: string;
   defId: string;
-  location: Hand | 'stowed' | 'mount';
+  /** stowed：收在機體上；mount：外掛；builtin：內建；housed：藏在宿主裡 */
+  location: Hand | 'stowed' | 'mount' | 'builtin' | 'housed';
+  /** 宿主部位（外掛、內建、內藏才有） */
+  host?: string;
+  /** 從手上收起時要放回哪裡（內藏武器放回 housed） */
+  home?: 'stowed' | 'housed';
+  /** 剩餘彈數（有彈數限制的武器才有） */
+  ammo?: number;
+  /** 內藏武器已經被對手看過 */
+  revealed?: boolean;
 }
 
 export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';

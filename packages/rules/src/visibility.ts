@@ -53,7 +53,8 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     pos: { ...u.pos },
     facing: u.facing,
     parts: structuredClone(u.parts),
-    equipment: structuredClone(u.equipment),
+    // 內藏武器第一次拿出來之前，對手看不到
+    equipment: structuredClone(u.owner === viewer ? u.equipment : u.equipment.filter((e) => e.location !== 'housed' || e.revealed)),
     status: u.status === 'unconscious' && u.owner !== viewer ? 'disabled' : u.status,
     momentum: u.momentum,
     vague: u.status === 'active' && u.stress >= u.maxStress ? 'sluggish' : null,

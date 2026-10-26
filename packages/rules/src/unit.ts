@@ -14,9 +14,27 @@ export const partAlive = (u: { parts: Record<string, PartState> }, id: string): 
 
 export const armOf = (hand: Hand): 'rarm' | 'larm' => (hand === 'right' ? 'rarm' : 'larm');
 
-export function heldItem(u: { parts: Record<string, PartState>; equipment: EquipState[] }, hand: Hand): EquipState | null {
-  if (!partAlive(u, armOf(hand))) return null;
-  return u.equipment.find((e) => e.location === hand && partAlive(u, e.id)) ?? null;
+type Gear = { parts: Record<string, PartState>; equipment: EquipState[] };
+
+/** 裝備還能不能用：有自己部位的看部位，沒有的（內建、內藏）看宿主 */
+export function equipAlive(u: Gear, e: EquipState): boolean {
+  if (u.parts[e.id]) return !u.parts[e.id].destroyed && (!e.host || partAlive(u, e.host));
+  return e.host ? partAlive(u, e.host) : true;
+}
+
+/** 這隻手被佔手的內建武器（手指光束砲）佔住，完全不能握持 */
+export const handBlocked = (u: Gear, hand: Hand): boolean => u.equipment.some((e) => EQUIPMENT[e.defId].blocksHand && e.host === armOf(hand));
+
+/** 不用拿在手上、隨時可用的武器（外掛、內建） */
+export const alwaysReady = (e: EquipState): boolean => e.location === 'mount' || e.location === 'builtin';
+
+/** 拔出不佔行動：駕駛有快速拔刀，或武器本身是快速拔出 */
+export const freeDraw = (u: { pilotId: string }, e: EquipState): boolean =>
+  pilotOf(u).abilities.includes('quick_draw') || !!EQUIPMENT[e.defId].tags?.includes('quickDraw');
+
+export function heldItem(u: Gear, hand: Hand): EquipState | null {
+  if (!partAlive(u, armOf(hand)) || handBlocked(u, hand)) return null;
+  return u.equipment.find((e) => e.location === hand && equipAlive(u, e)) ?? null;
 }
 
 export function heldOfKind(u: UnitState, kind: EquipDef['kind']): EquipState | null {
@@ -28,7 +46,14 @@ export function heldOfKind(u: UnitState, kind: EquipDef['kind']): EquipState | n
 }
 
 export function hasFreeHand(u: UnitState): boolean {
-  return (['right', 'left'] as Hand[]).some((h) => partAlive(u, armOf(h)) && !heldItem(u, h));
+  return (['right', 'left'] as Hand[]).some((h) => partAlive(u, armOf(h)) && !handBlocked(u, h) && !heldItem(u, h));
+}
+
+/** 現在能開火的射擊武器：手上的，加上外掛與內建的 */
+export function readyRanged(u: Gear): EquipState[] {
+  const held = (['right', 'left'] as Hand[]).map((h) => heldItem(u, h)).filter((e): e is EquipState => !!e);
+  const fixed = u.equipment.filter((e) => alwaysReady(e) && equipAlive(u, e));
+  return [...held, ...fixed].filter((e) => EQUIPMENT[e.defId].kind === 'ranged');
 }
 
 export function shieldHand(u: UnitState): Hand | null {
@@ -141,7 +166,8 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   const errors: string[] = [];
   if (plan.swap) {
     const target = plan.swap.equip;
-    if (target !== null && !u.equipment.some((e) => e.id === target && e.location !== 'mount')) errors.push(`${u.label}：沒有這件裝備`);
+    if (target !== null && !u.equipment.some((e) => e.id === target && !alwaysReady(e))) errors.push(`${u.label}：沒有這件裝備`);
+    if (handBlocked(u, plan.swap.hand)) errors.push(`${u.label}：這隻手不能握持`);
   }
   return errors;
 }

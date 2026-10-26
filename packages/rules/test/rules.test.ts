@@ -14,7 +14,7 @@ import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
 import type { RosterEntry } from '../src/data';
-import { availableManeuvers, defaultMove, heldItem, maneuverCost, validateMove } from '../src/unit';
+import { availableManeuvers, defaultMove, equipAlive, hasFreeHand, heldItem, maneuverCost, readyRanged, validateMove } from '../src/unit';
 import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
 
 type Plans = Record<string, UnitPlan>;
@@ -603,5 +603,97 @@ describe('地形與視野', () => {
     expect(a).toHaveLength(3);
     expect(b).toHaveLength(3);
     expect(JSON.stringify(pickRosters(42))).toBe(JSON.stringify([a, b]));
+  });
+});
+
+describe('不需要準備的武器', () => {
+  const x04: RosterEntry = { chassis: 'X-04', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso'], ['missile_pod', 'mount', 'legs'], ['beam_rifle', 'right'], ['shield', 'left']] };
+  const x05: RosterEntry = { chassis: 'X-05', pilot: 'veteran', equipment: [] };
+  const byDef = (u: GameState['units'][number], defId: string) => u.equipment.find((e) => e.defId === defId)!;
+  const shootTurn = (st: GameState, weapon: string) => {
+    const [a, b] = st.units;
+    const m = new Match(3, st);
+    m.submitMoves(0, { [a.id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitMoves(1, { [b.id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitActions(0, { [a.id]: { action: { type: 'shoot', weapon, target: b.id } } });
+    m.submitActions(1, {});
+    return m;
+  };
+
+  it('外掛武裝是命中表裡的部位；內建武裝不是，但都不用拿就能開火', () => {
+    const u = makeState([{ entry: x04, owner: 0, x: 5, y: 5, facingDeg: 0 }]).units[0];
+    expect(u.parts[byDef(u, 'shoulder_cannon').id]).toBeDefined();
+    expect(u.parts[byDef(u, 'head_vulcan').id]).toBeUndefined();
+    expect(readyRanged(u).map((e) => e.defId).sort()).toEqual(['beam_rifle', 'head_vulcan', 'missile_pod', 'shoulder_cannon']);
+  });
+
+  it('宿主部位破壞：外掛的一起掉落，內建的一起失效', () => {
+    const st = makeState([{ entry: x04, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
+    const u = st.units[0];
+    const ctx: Ctx = { state: st, rng: new Rng(1), events: [] };
+    damageUnit(ctx, u, 6, 'focused', 'legs');
+    expect(u.parts[byDef(u, 'missile_pod').id].destroyed).toBe(true);
+    damageUnit(ctx, u, 3, 'focused', 'head');
+    expect(equipAlive(u, byDef(u, 'head_vulcan'))).toBe(false);
+    expect(readyRanged(u).map((e) => e.defId).sort()).toEqual(['beam_rifle', 'shoulder_cannon']);
+  });
+
+  it('固定射界外打不到；大型外掛砲不能零距離', () => {
+    const st = makeState([
+      { entry: x04, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 5, y: 15, facingDeg: 0 },
+    ]);
+    const [a, b] = st.units;
+    const base = { attacker: a, attackerSkill: 3, target: b, targetSkill: null, relSpeed: 3, shooterMelee: false };
+    expect(hitChance({ ...base, weapon: EQUIPMENT.shoulder_cannon })).toBeNull();
+    expect(hitChance({ ...base, weapon: EQUIPMENT.beam_rifle })).not.toBeNull();
+    b.pos = { x: 6, y: 10 };
+    expect(hitChance({ ...base, weapon: EQUIPMENT.shoulder_cannon })).toBeNull();
+  });
+
+  it('彈數：飛彈莢艙打兩次就沒彈', () => {
+    const st = makeState([
+      { entry: x04, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 10, y: 10, facingDeg: 180 },
+    ]);
+    const pod = byDef(st.units[0], 'missile_pod').id;
+    let m = shootTurn(st, pod);
+    m = shootTurn(m.state, pod);
+    expect(m.state.units[0].equipment.find((e) => e.id === pod)!.ammo).toBe(0);
+    m = shootTurn(m.state, pod);
+    expect(m.eventsFor(0).some((e) => e.type === 'actionFail' && e.reason === '彈藥耗盡')).toBe(true);
+  });
+
+  it('手指光束砲的手完全不能握持', () => {
+    const st = makeState([{ entry: x05, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
+    const u = st.units[0];
+    expect(hasFreeHand(u)).toBe(false);
+    expect(heldItem(u, 'right')).toBeNull();
+    expect(readyRanged(u).map((e) => e.defId).sort()).toEqual(['finger_beam', 'finger_beam', 'head_vulcan', 'mega_beam']);
+  });
+
+  it('內藏武器：拔出不佔行動，拔出前對手看不到', () => {
+    const sazabi: RosterEntry = { chassis: 'X-01', pilot: 'recruit', equipment: [['machine_gun', 'right'], ['arm_saber', 'housed', 'larm']] };
+    const st = makeState([
+      { entry: sazabi, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 8, y: 10, facingDeg: 180 },
+    ]);
+    const [a, b] = st.units;
+    const saber = byDef(a, 'arm_saber');
+    expect(viewState(st, 1).units.find((u) => u.id === a.id)!.equipment.some((e) => e.defId === 'arm_saber')).toBe(false);
+    const m = new Match(4, st);
+    m.submitMoves(0, { [a.id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitMoves(1, { [b.id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitActions(0, { [a.id]: { swap: { hand: 'left', equip: saber.id }, action: { type: 'shoot', weapon: byDef(a, 'machine_gun').id, target: b.id } } });
+    m.submitActions(1, {});
+    const ev = m.eventsFor(0);
+    expect(ev.some((e) => e.type === 'swap')).toBe(true);
+    expect(ev.some((e) => e.type === 'shot')).toBe(true);
+    expect(viewState(m.state, 1).units.find((u) => u.id === a.id)!.equipment.some((e) => e.defId === 'arm_saber')).toBe(true);
+    // 拿在手上的內藏武器沒有自己的部位：手臂被打爆時跟著失效，不會出錯
+    const ctx: Ctx = { state: m.state, rng: new Rng(2), events: [] };
+    const after = m.state.units[0];
+    damageUnit(ctx, after, 3, 'focused', 'larm');
+    expect(equipAlive(after, byDef(after, 'arm_saber'))).toBe(false);
   });
 });

@@ -10,6 +10,13 @@ import {
   config,
   grappleOptions,
   hitChance,
+  alwaysReady,
+  equipAlive,
+  freeDraw,
+  handBlocked,
+  rangeBand,
+  readyRanged,
+  relativeAngle,
   lineOfFire,
   sensorRange,
   relativeSpeed,
@@ -313,7 +320,7 @@ function equipmentAfterSwap(u: UnitView, plan: ActionPlan | undefined): EquipSta
   const eq = structuredClone(u.equipment);
   if (!plan?.swap) return eq;
   const { hand, equip } = plan.swap;
-  for (const e of eq) if (e.location === hand) e.location = 'stowed';
+  for (const e of eq) if (e.location === hand) e.location = e.home ?? 'stowed';
   const next = eq.find((e) => e.id === equip);
   if (next) next.location = hand;
   return eq;
@@ -321,8 +328,8 @@ function equipmentAfterSwap(u: UnitView, plan: ActionPlan | undefined): EquipSta
 
 function heldAfter(u: UnitView, plan: ActionPlan | undefined, hand: Hand): EquipState | null {
   const arm = hand === 'right' ? 'rarm' : 'larm';
-  if (u.parts[arm].destroyed) return null;
-  return equipmentAfterSwap(u, plan).find((e) => e.location === hand && !u.parts[e.id].destroyed) ?? null;
+  if (u.parts[arm].destroyed || handBlocked(u, hand)) return null;
+  return equipmentAfterSwap(u, plan).find((e) => e.location === hand && equipAlive(u, e)) ?? null;
 }
 
 // ---------- 畫面：地圖（透視相機） ----------
@@ -1363,6 +1370,14 @@ for (const id of FLOATERS) {
 
 // ---- 左欄：機體資料與部位 ----
 
+/** 裝備：有自己部位的顯示耐久；內建與內藏的跟著宿主（宿主壞了就失效） */
+function gearCell(u: UnitView, e: EquipState): string {
+  if (u.parts[e.id]) return partCell(u, e.id) + (e.ammo !== undefined ? `<span class="muted">彈${e.ammo}</span>` : '');
+  const host = e.host ? u.parts[e.host] : undefined;
+  const ok = equipAlive(u, e);
+  return `<span class="${ok ? '' : 'dead'}">${esc(EQUIPMENT[e.defId].name)}${host ? `(${esc(host.name)})` : ''}${ok ? '' : ' 失效'}</span>`;
+}
+
 function partCell(u: UnitView, id: string): string {
   const p = u.parts[id];
   if (!p) return '<span></span>';
@@ -1392,8 +1407,8 @@ function infoHtml(u: UnitView): string {
     ['', 'legs', ''],
   ];
   html += `<div class="body">${body.flat().map((id) => (id ? partCell(u, id) : '<span></span>')).join('')}</div>`;
-  const where = { right: '右手', left: '左手', stowed: '收納', mount: '外掛' };
-  html += `<div class="equip">${u.equipment.map((e) => `<span>${where[e.location]} ${partCell(u, e.id)}</span>`).join('')}</div>`;
+  const where = { right: '右手', left: '左手', stowed: '收納', mount: '外掛', builtin: '內建', housed: '內藏' };
+  html += `<div class="equip">${u.equipment.map((e) => `<span>${where[e.location]} ${gearCell(u, e)}</span>`).join('')}</div>`;
   if (u.status !== 'active') html += `<div class="err">${{ destroyed: '已擊毀', withdrawn: '已脫離戰場', unconscious: '駕駛昏迷', disabled: '停止動作' }[u.status]}</div>`;
   return html;
 }
@@ -1515,25 +1530,33 @@ interface EquipOption {
 }
 
 /** 行動步驟可選的「裝備」：手上的射擊武器、收著的武器、頭部感測器 */
+const HOST_SIDE: Record<string, string> = { rarm: '右', larm: '左' };
+
 function equipOptions(u: UnitView): EquipOption[] {
   const out: EquipOption[] = [];
-  const alive = (id: string) => !u.parts[id].destroyed;
-  const handOk = (h: Hand) => alive(h === 'right' ? 'rarm' : 'larm');
-  for (const e of u.equipment) {
+  const canHold = (['right', 'left'] as Hand[]).some((h) => !u.parts[h === 'right' ? 'rarm' : 'larm'].destroyed && !handBlocked(u, h));
+  for (const e of readyRanged(u)) {
     const def = EQUIPMENT[e.defId];
-    if (!alive(e.id)) continue;
-    if ((e.location === 'right' || e.location === 'left') && handOk(e.location) && def.kind === 'ranged') out.push({ key: `shoot:${e.id}`, label: `${def.name}・射擊`, kind: 'shoot', equip: e.id });
-    if (e.location === 'stowed' && (def.kind === 'melee' || def.kind === 'ranged') && (handOk('right') || handOk('left'))) out.push({ key: `draw:${e.id}`, label: `${def.name}・拔出`, kind: 'draw', equip: e.id });
+    const side = alwaysReady(e) && e.host && HOST_SIDE[e.host] ? `（${HOST_SIDE[e.host]}）` : '';
+    const notes = [def.arc !== undefined ? `前方±${def.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : ''].filter(Boolean).join('・');
+    out.push({ key: `shoot:${e.id}`, label: `${def.name}${side}・射擊${notes ? `（${notes}）` : ''}`, kind: 'shoot', equip: e.id });
   }
-  if (alive('head')) out.push({ key: 'lock', label: '頭部感測器・鎖定', kind: 'lock' });
+  if (canHold) {
+    for (const e of u.equipment) {
+      const def = EQUIPMENT[e.defId];
+      if ((e.location !== 'stowed' && e.location !== 'housed') || !equipAlive(u, e) || (def.kind !== 'melee' && def.kind !== 'ranged')) continue;
+      out.push({ key: `draw:${e.id}`, label: `${def.name}・拔出${freeDraw(u as unknown as UnitState, e) ? '（不佔行動）' : ''}`, kind: 'draw', equip: e.id });
+    }
+  }
+  if (!u.parts.head.destroyed) out.push({ key: 'lock', label: '頭部感測器・鎖定', kind: 'lock' });
   out.push({ key: 'none', label: '不行動', kind: 'none' });
   return out;
 }
 
 /** 拔出的武器放到哪隻手：先找空手，再找沒拿盾、也不是要射擊的那隻 */
 function drawHand(u: UnitView, keep?: string): Hand {
-  const hands = (['right', 'left'] as Hand[]).filter((h) => !u.parts[h === 'right' ? 'rarm' : 'larm'].destroyed);
-  const held = (h: Hand) => u.equipment.find((e) => e.location === h && !u.parts[e.id].destroyed);
+  const hands = (['right', 'left'] as Hand[]).filter((h) => !u.parts[h === 'right' ? 'rarm' : 'larm'].destroyed && !handBlocked(u, h));
+  const held = (h: Hand) => u.equipment.find((e) => e.location === h && equipAlive(u, e));
   return (
     hands.find((h) => !held(h)) ??
     hands.find((h) => EQUIPMENT[held(h)!.defId].kind !== 'shield' && held(h)!.id !== keep) ??
@@ -1558,6 +1581,12 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   const relSpeed = relativeSpeed(view!.state.velocity, u.id, t.id);
   const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos);
   if (cover === 'blocked') return '射擊線被隕石擋住';
+  if (w) {
+    const def = EQUIPMENT[w.defId];
+    if (w.ammo !== undefined && w.ammo <= 0) return '彈藥耗盡';
+    if (def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return '射界外';
+    if (def.pointBlank === false && rangeBand(u, t) === 0) return '太近，不能開火';
+  }
   const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover }) : null;
   return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・約 ${h.chance}%` : '射程外';
 }
@@ -1569,14 +1598,22 @@ function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。`;
   if (o.kind === 'none') return '這回合不行動。';
   const def = EQUIPMENT[u.equipment.find((e) => e.id === o.equip)!.defId];
-  if (o.kind === 'draw') return `把${def.name}換到手上${def.kind === 'melee' ? '，之後突進撞到敵機時才砍得到' : ''}。${quick ? '快速拔刀：不佔行動。' : '會用掉這回合的行動。'}`;
+  const eq = u.equipment.find((e) => e.id === o.equip)!;
+  if (o.kind === 'draw') return `把${def.name}換到手上${def.kind === 'melee' ? '，之後突進撞到敵機時才砍得到' : ''}。${quick || freeDraw(u as unknown as UnitState, eq) ? '不佔行動。' : '會用掉這回合的行動。'}`;
   const ranges = ([1, 2, 3] as const)
     .filter((b) => def.ranges?.[b] !== undefined)
     .map((b) => `${BAND_SHORT[b]} ${def.ranges![b]! >= 0 ? '+' : ''}${def.ranges![b]}`)
     .join('／');
   const best = ([1, 2, 3] as const).filter((b) => def.ranges?.[b] !== undefined).sort((x, y) => def.ranges![y]! - def.ranges![x]!)[0];
   const melee = view!.state.stance[u.id] === 'melee' ? `本回合是近戰姿態，命中 −${config.MELEE_STANCE_SHOT_PENALTY}。` : '';
-  return `${def.name}：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${melee}`;
+  const mountText = { hand: '手持', mounted: '外掛（不用拿；本身會被擊中）', integrated: '內建（不用拿；和所在部位共存亡）', housed: '內藏' }[def.mount ?? 'hand'];
+  const extra = [
+    def.arc !== undefined ? `固定射界：前方 ±${def.arc}°，射界外打不到` : '',
+    def.pointBlank === false ? '不能零距離開火' : '',
+    eq.ammo !== undefined ? `剩 ${eq.ammo} 次` : '',
+    def.tags?.includes('volatile') ? '被打壞可能引爆' : '',
+  ].filter(Boolean).join('；');
+  return `${def.name}（${mountText}）：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${extra ? extra + '。' : ''}${melee}`;
 }
 
 function actionControls(u: UnitView, plan: ActionPlan): string {
@@ -1596,7 +1633,8 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       .join('');
     html += '</div>';
   }
-  if (plan.swap) html += `<div class="small ${quick ? 'muted' : 'warn'}">${quick ? '快速拔刀：拔出不佔行動，還可以再選一件射擊武器或鎖定。' : '拔出武器會用掉這回合的行動。'}</div>`;
+  const drawnFree = plan.swap && (quick || !!EQUIPMENT[u.equipment.find((e) => e.id === plan.swap!.equip)?.defId ?? '']?.tags?.includes('quickDraw'));
+  if (plan.swap) html += `<div class="small ${drawnFree ? 'muted' : 'warn'}">${drawnFree ? '拔出不佔行動，還可以再選一件射擊武器或鎖定。' : '拔出武器會用掉這回合的行動。'}</div>`;
   return html;
 }
 
@@ -1643,20 +1681,25 @@ function bindControls(u: UnitView | undefined) {
   });
   if (!plan) return;
   const quick = PILOTS[u.pilotId!].abilities.includes('quick_draw');
+  const isFreeDraw = (id: string | null) => {
+    const e = u.equipment.find((x) => x.id === id);
+    return quick || (!!e && !!EQUIPMENT[e.defId].tags?.includes('quickDraw'));
+  };
   const target = () => (plan.action.type !== 'none' ? plan.action.target : '');
   ctr.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach((b) => {
     b.onclick = () => {
       const o = equipOptions(u).find((x) => x.key === b.dataset.opt)!;
       if (o.kind === 'shoot') {
         plan.action = { type: 'shoot', weapon: o.equip!, target: target() };
-        if (!quick) plan.swap = undefined;
+        if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
       } else if (o.kind === 'lock') {
         plan.action = { type: 'lock', target: target() };
-        if (!quick) plan.swap = undefined;
+        if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
       } else if (o.kind === 'draw') {
         const keep = plan.action.type === 'shoot' ? plan.action.weapon : undefined;
-        plan.swap = plan.swap?.equip === o.equip && quick ? undefined : { hand: drawHand(u, keep), equip: o.equip! };
-        if (!quick) plan.action = { type: 'none' };
+        const free = isFreeDraw(o.equip!);
+        plan.swap = plan.swap?.equip === o.equip && free ? undefined : { hand: drawHand(u, keep), equip: o.equip! };
+        if (!free) plan.action = { type: 'none' };
       } else {
         plan.action = { type: 'none' };
         plan.swap = undefined;

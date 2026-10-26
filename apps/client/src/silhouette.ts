@@ -45,7 +45,25 @@ export function mechSilhouette(u: UnitView): string {
   const lv = (id: string) => (u.parts[id] ? damageLevel(u.parts[id]) : 'ok');
   const tankEq = u.equipment.find((e) => e.defId === 'fuel_tank');
   const tankLv = tankEq ? damageLevel(u.parts[tankEq.id]) : null;
+  // 外掛武裝：肩上（宿主軀幹）、背上（推進背包）、腿旁（腿部）的小方塊，各自依耐久上色
+  const pods = u.equipment.filter((e) => e.location === 'mount' && e.defId !== 'fuel_tank' && u.parts[e.id]);
+  const slots: Record<string, [number, number, number, number][]> = {
+    torso: [[20, 12, 10, 9], [54, 12, 10, 9]],
+    pack: [[82, 10, 22, 7]],
+    legs: [[57, 70, 9, 12], [18, 70, 9, 12]],
+  };
+  const used: Record<string, number> = {};
+  const podBlocks = pods
+    .map((e) => {
+      const host = e.host ?? 'torso';
+      const n = used[host] ?? 0;
+      used[host] = n + 1;
+      const at = slots[host]?.[n];
+      return at ? block(at[0], at[1], at[2], at[3], damageLevel(u.parts[e.id])) : '';
+    })
+    .join('');
   return `<svg viewBox="0 0 112 104" width="64" height="60" role="img" aria-label="${u.label} 受損狀況">
+    ${podBlocks}
     ${block(34, 4, 16, 14, lv('head'))}
     ${block(28, 21, 28, 36, lv('torso'))}
     ${block(14, 28, 11, 32, lv('larm'))}

@@ -3,7 +3,7 @@ import { Rng } from './rng';
 import { generateObstacles } from './terrain';
 import { sighting, updateSight } from './visibility';
 import { BODY_PART_NAMES, CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, PILOTS, randomRoster, type RosterEntry } from './data';
-import type { GameState, PartState, PlayerId, UnitState } from './types';
+import type { EquipState, GameState, PartState, PlayerId, UnitState } from './types';
 
 export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, pos: { x: number; y: number }, facing: number): UnitState {
   const chassis = CHASSIS[entry.chassis];
@@ -14,12 +14,18 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
     parts[pid] = { id: pid, name: BODY_PART_NAMES[pid], kind: 'body', weight: p.weight, durability: p.durability, damage: 0, destroyed: false };
   }
   let fuel = 0;
-  const equipment = entry.equipment.map(([defId, location], i) => {
+  const gear: RosterEntry['equipment'] = [...entry.equipment, ...(chassis.builtIn ?? []).map((b) => [b.defId, 'builtin', b.host] as RosterEntry['equipment'][number])];
+  const equipment = gear.map(([defId, location, host], i): EquipState => {
     const def = EQUIPMENT[defId];
     const eid = `${id}e${i}`;
-    parts[eid] = { id: eid, name: def.name, kind: 'equip', weight: def.weight, durability: def.durability, damage: 0, destroyed: false };
+    // 內建與內藏的武器沒有自己的部位，和宿主共存亡
+    if (location !== 'builtin' && location !== 'housed') parts[eid] = { id: eid, name: def.name, kind: 'equip', weight: def.weight, durability: def.durability, damage: 0, destroyed: false };
     fuel += def.fuel ?? 0;
-    return { id: eid, defId, location };
+    const e: EquipState = { id: eid, defId, location };
+    if (host) e.host = host;
+    if (location === 'housed') e.home = 'housed';
+    if (def.ammo !== undefined) e.ammo = def.ammo;
+    return e;
   });
   return {
     id,

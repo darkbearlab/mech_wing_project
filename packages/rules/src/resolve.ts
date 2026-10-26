@@ -8,7 +8,7 @@ import { lineOfFire } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, Stance, UnitState } from './types';
-import { defaultAction, defaultMove, equipDef, heldItem, partAlive, pilotOf, planCost } from './unit';
+import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handBlocked, heldItem, partAlive, pilotOf, planCost, readyRanged } from './unit';
 
 export interface TurnResult {
   state: GameState;
@@ -100,8 +100,9 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
     }
     let actionUsed = false;
     if (plan.swap) {
+      const drawn = u.equipment.find((e) => e.id === plan.swap!.equip);
       doSwap(ctx, u, plan.swap.hand, plan.swap.equip);
-      actionUsed = !pilotOf(u).abilities.includes('quick_draw');
+      actionUsed = !(drawn ? freeDraw(u, drawn) : pilotOf(u).abilities.includes('quick_draw'));
     }
     if (plan.action.type === 'none') continue;
     if (actionUsed) {
@@ -163,16 +164,19 @@ export function resolveTurn(input: GameState, moves: [PlayerMoves, PlayerMoves],
 
 function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string | null) {
   const arm = hand === 'right' ? 'rarm' : 'larm';
-  if (!partAlive(u, arm)) return;
+  if (!partAlive(u, arm) || handBlocked(u, hand)) return;
   const current = heldItem(u, hand);
   if (current?.id === equipId) return;
-  const next = equipId ? u.equipment.find((e) => e.id === equipId && partAlive(u, e.id) && e.location !== 'mount') : null;
+  const next = equipId ? u.equipment.find((e) => e.id === equipId && !alwaysReady(e) && equipAlive(u, e)) : null;
   if (equipId && !next) {
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '裝備已損壞，無法換上' });
     return;
   }
-  if (current) current.location = 'stowed';
-  if (next) next.location = hand;
+  if (current) current.location = current.home ?? 'stowed';
+  if (next) {
+    next.location = hand;
+    next.revealed = true;
+  }
   ctx.events.push({ type: 'swap', unit: u.id, hand, equip: next?.id ?? null });
 }
 
@@ -203,10 +207,13 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boo
     ctx.events.push({ type: 'lock', unit: u.id, target: target.id });
     return true;
   }
-  const weapon = u.equipment.find((e) => e.id === action.weapon);
-  const held = weapon && (heldItem(u, 'right')?.id === weapon.id || heldItem(u, 'left')?.id === weapon.id);
-  if (!weapon || !held || equipDef(weapon).kind !== 'ranged') {
-    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '手上沒有可用的射擊武器' });
+  const weapon = readyRanged(u).find((e) => e.id === action.weapon);
+  if (!weapon) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '沒有可用的射擊武器' });
+    return false;
+  }
+  if (weapon.ammo !== undefined && weapon.ammo <= 0) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '彈藥耗盡' });
     return false;
   }
   if (shoot(ctx, turn, u, weapon, target)) return true;
