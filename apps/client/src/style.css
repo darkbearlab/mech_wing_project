@@ -52,13 +52,16 @@ canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 
 /* 浮動卡片 */
 #leftCol { position: absolute; left: 10px; top: 10px; z-index: 3; display: flex; flex-direction: column; gap: 6px; width: 140px; }
+#submitBox { position: absolute; left: 10px; top: 200px; z-index: 3; width: 140px; }
+.dragHead { cursor: grab; user-select: none; font-size: 11px; color: var(--muted); padding: 0 2px 3px; text-shadow: 0 0 3px #000; }
+.dragHead:active { cursor: grabbing; }
 #unitList { position: static; }
 #submitCol { display: flex; flex-direction: column; gap: 6px; }
 #submitCol .big { width: 100%; padding: 9px 0; font-size: 15px; }
 #submitCol h3 { margin: 4px 0; text-align: center; }
 .fcard { position: absolute; z-index: 4; background: rgba(24, 32, 41, 0.95); border: 1px solid #3a4a5c; border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); }
 .fcard[hidden] { display: none; }
-#infoCard { right: 10px; top: 76px; width: 230px; max-height: calc(100% - 140px); overflow: auto; }
+#infoCard { left: 0; top: 76px; width: 230px; max-height: calc(100% - 140px); overflow: auto; }
 #cmdCard { width: 236px; left: 0; top: 0; }
 #cmdHead { display: flex; align-items: center; gap: 6px; margin: -2px 0 6px; cursor: grab; user-select: none; }
 #cmdHead .grip { color: var(--muted); }

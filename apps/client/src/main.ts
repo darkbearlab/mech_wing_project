@@ -1071,6 +1071,7 @@ const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: numb
 
 /** 在機體的右、左、上、下挑一個最不擋到其他機體與浮層、也不超出畫面的位置 */
 function placeCard() {
+  layoutFloaters();
   const card = $('cmdCard');
   if (card.hidden) {
     cardRect = null;
@@ -1094,8 +1095,8 @@ function placeCard() {
       { x: p.x - w / 2, y: p.y - gap - h },
       { x: p.x - w / 2, y: p.y + gap },
     ];
-    const blockers = [$('leftCol'), $('viewCtl'), $('log')].map((el) => relRect(el, stage));
-    if (!$('infoCard').hidden) blockers.push(relRect($('infoCard'), stage));
+    const blockers = [$('leftCol'), $('submitBox'), $('viewCtl'), $('log')].map((el) => relRect(el, stage));
+      if (!$('infoCard').hidden) blockers.push(relRect($('infoCard'), stage));
     const others = view!.state.units.filter((x) => x.id !== u.id).map((x) => fx(x.pos));
     let best = 0;
     let bestScore = Infinity;
@@ -1118,18 +1119,92 @@ function placeCard() {
   cardRect = { x: pos.x, y: pos.y, w, h };
 }
 
-/** 卡片與機體之間的細線 */
+/** 指令卡與機體資料卡之間的細線 */
 function drawCardLink() {
-  const u = selected ? unitView(selected) : undefined;
-  if (!cardRect || !u || show) return;
-  const p = fx(u.pos);
-  const x = Math.max(cardRect.x, Math.min(cardRect.x + cardRect.w, p.x));
-  const y = Math.max(cardRect.y, Math.min(cardRect.y + cardRect.h, p.y));
-  g.strokeStyle = 'rgba(255,207,74,0.55)';
+  const info = $('infoCard');
+  if (!cardRect || show || info.hidden) return;
+  const r = relRect(info, $('stage').getBoundingClientRect());
+  const inside = (p: { x: number; y: number }, q: { x: number; y: number; w: number; h: number }) => ({
+    x: Math.max(q.x, Math.min(q.x + q.w, p.x)),
+    y: Math.max(q.y, Math.min(q.y + q.h, p.y)),
+  });
+  const a = inside({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, cardRect);
+  const b = inside({ x: cardRect.x + cardRect.w / 2, y: cardRect.y + cardRect.h / 2 }, r);
+  if (Math.hypot(a.x - b.x, a.y - b.y) < 4) return;
+  g.strokeStyle = 'rgba(255,207,74,0.6)';
+  g.setLineDash([4, 3]);
   g.beginPath();
-  g.moveTo(p.x, p.y);
-  g.lineTo(x, y);
+  g.moveTo(a.x, a.y);
+  g.lineTo(b.x, b.y);
   g.stroke();
+  g.setLineDash([]);
+  for (const p of [a, b]) {
+    g.fillStyle = 'rgba(255,207,74,0.9)';
+    g.beginPath();
+    g.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+    g.fill();
+  }
+}
+
+// ---- 可拖曳的浮層：機體清單、送出指令、機體資料卡（位置記在瀏覽器裡，雙擊標題恢復原位） ----
+
+type Pin = { x: number; y: number };
+const PIN_KEY = 'mech-wing-pins';
+const FLOATERS = ['leftCol', 'submitBox', 'infoCard'];
+const pins: Record<string, Pin | null> = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(PIN_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+})();
+const savePins = () => {
+  try {
+    localStorage.setItem(PIN_KEY, JSON.stringify(pins));
+  } catch {}
+};
+
+function defaultPos(id: string, el: HTMLElement): Pin {
+  if (id === 'submitBox') {
+    const list = $('leftCol');
+    return { x: list.offsetLeft, y: list.offsetTop + list.offsetHeight + 6 };
+  }
+  if (id === 'infoCard') return { x: W - el.offsetWidth - 10, y: 76 };
+  return { x: 10, y: 10 };
+}
+
+function layoutFloaters() {
+  for (const id of FLOATERS) {
+    const el = $(id);
+    if (el.hidden) continue;
+    const p = pins[id] ?? defaultPos(id, el);
+    el.style.left = `${Math.max(0, Math.min(W - el.offsetWidth, p.x))}px`;
+    el.style.top = `${Math.max(0, Math.min(H - 24, p.y))}px`;
+  }
+}
+
+for (const id of FLOATERS) {
+  const el = $(id);
+  const head = el.querySelector<HTMLElement>('.dragHead')!;
+  let drag: { mx: number; my: number; x: number; y: number } | null = null;
+  head.addEventListener('mousedown', (e) => {
+    drag = { mx: e.clientX, my: e.clientY, x: el.offsetLeft, y: el.offsetTop };
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    pins[id] = { x: drag.x + e.clientX - drag.mx, y: drag.y + e.clientY - drag.my };
+    layoutFloaters();
+  });
+  window.addEventListener('mouseup', () => {
+    if (drag) savePins();
+    drag = null;
+  });
+  head.addEventListener('dblclick', () => {
+    pins[id] = null;
+    savePins();
+    layoutFloaters();
+  });
 }
 
 {

@@ -22,11 +22,18 @@
     </header>
     <div id="stage">
       <canvas id="map"></canvas>
-      <div id="leftCol">
+      <div id="leftCol" class="floater">
+        <div class="dragHead" title="拖曳移動，雙擊恢復原位">⠿ 機體</div>
         <div id="unitList"></div>
+      </div>
+      <div id="submitBox" class="floater">
+        <div class="dragHead" title="拖曳移動，雙擊恢復原位">⠿</div>
         <div id="submitCol"></div>
       </div>
-      <div id="infoCard" class="fcard" hidden><div id="info"></div></div>
+      <div id="infoCard" class="fcard floater" hidden>
+        <div class="dragHead" title="拖曳移動，雙擊恢復原位">⠿ 機體資料</div>
+        <div id="info"></div>
+      </div>
       <div id="cmdCard" class="fcard" hidden>
         <div id="cmdHead" title="拖曳移動卡片，雙擊恢復自動擺放"><span class="grip">⠿</span><b id="cmdTitle"></b><span class="pin" id="cmdPin"></span></div>
         <div id="controls"></div>
