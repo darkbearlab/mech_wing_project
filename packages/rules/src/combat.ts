@@ -120,6 +120,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   if (weapon.ammo !== undefined) weapon.ammo--;
   if (attacker.lockOn === target.id) attacker.lockOn = null;
   const shots = def.shots ?? 1;
+  const overflow = !!def.tags?.includes('overflow');
   let hits = 0;
   let blocked = 0;
   const pending: (() => void)[] = [];
@@ -129,9 +130,9 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     const shield = coveringShield(target, attacker.pos)?.id;
     if (shield && ctx.rng.d100() <= blockChance(target)) {
       blocked++;
-      pending.push(() => damageUnit(ctx, target, def.damage ?? 1, 'focused', shield));
+      pending.push(() => damageUnit(ctx, target, def.damage ?? 1, 'focused', shield, overflow));
     } else {
-      pending.push(() => damageUnit(ctx, target, def.damage ?? 1, def.mode ?? 'focused'));
+      pending.push(() => damageUnit(ctx, target, def.damage ?? 1, def.mode ?? 'focused', undefined, overflow));
     }
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance });

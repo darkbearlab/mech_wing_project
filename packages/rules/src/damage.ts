@@ -34,17 +34,20 @@ export function rollPart(rng: Rng, u: UnitState): string {
   return rng.pickWeighted(candidates, (p) => p.weight).id;
 }
 
-export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string): void {
+/** overflow：打壞部位後多出來的傷害，每 1 點再擲一次命中部位、各造成 1 點（火箭砲的爆風） */
+export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string, overflow = false): void {
   if (amount <= 0) return;
   if (mode === 'focused') {
-    hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u), amount);
+    const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u), amount);
+    if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u), 1);
   } else {
     for (let i = 0; i < amount; i++) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u), 1);
   }
 }
 
-function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): void {
-  if (u.status === 'destroyed') return;
+/** 回傳打壞部位後多出來的傷害 */
+function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): number {
+  if (u.status === 'destroyed') return 0;
   let part = u.parts[partId];
   if (part.kind === 'body' && part.destroyed) part = u.parts[corePart(u)];
   // 打到持盾那隻手的傷害先由盾牌承受
@@ -53,6 +56,7 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): void {
     const held = heldItem(u, shieldHand);
     if (held && equipDef(held).kind === 'shield') part = u.parts[held.id];
   }
+  const spill = Math.max(0, amount - (part.durability - part.damage));
   part.damage = Math.min(part.durability, part.damage + amount);
   const destroyed = part.damage >= part.durability;
   const newlyDestroyed = destroyed && !part.destroyed;
@@ -60,6 +64,7 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): void {
   ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed });
   if (part.role === 'core') addStress(ctx, u, amount, `${part.name}受創`);
   if (newlyDestroyed) onDestroyed(ctx, u, part.id);
+  return spill;
 }
 
 function destroyPart(ctx: Ctx, u: UnitState, partId: string): void {

@@ -842,3 +842,20 @@ describe('固定盾與肩部尖刺（薩克 II）', () => {
     expect(grappleOptions(u)).toContain('slash');
   });
 });
+
+describe('溢出傷害標籤', () => {
+  it('打壞部位後多出的傷害，每點再擲一次部位、各 1 點', () => {
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    const ctx: Ctx = { state: st, rng: new Rng(3), events: [] };
+    damageUnit(ctx, u, 7, 'focused', 'larm', true); // 左臂耐久 4，溢出 3
+    const dmg = ctx.events.filter((e) => e.type === 'damage') as Extract<GameEvent, { type: 'damage' }>[];
+    expect(dmg[0]).toMatchObject({ part: 'larm', amount: 7, destroyed: true });
+    expect(dmg.slice(1).map((e) => e.amount)).toEqual([1, 1, 1]);
+
+    const st2 = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
+    const ctx2: Ctx = { state: st2, rng: new Rng(3), events: [] };
+    damageUnit(ctx2, st2.units[0], 7, 'focused', 'larm');
+    expect(ctx2.events.filter((e) => e.type === 'damage')).toHaveLength(1);
+  });
+});

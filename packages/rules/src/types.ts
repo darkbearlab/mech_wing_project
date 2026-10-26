@@ -26,8 +26,11 @@ export interface ChassisPart {
 
 // ---- 靜態資料 ----
 
-/** 武器標籤：quickDraw 拔出不佔行動；secondary 副武裝（觸發規則之後再定，目前可當一般武器）；volatile 被打壞可能引爆 */
-export type EquipTag = 'quickDraw' | 'secondary' | 'volatile';
+/**
+ * 武器標籤：quickDraw 拔出不佔行動；secondary 副武裝（觸發規則之後再定，目前可當一般武器）；volatile 被打壞可能引爆；
+ * overflow 溢出傷害（打壞部位後多出來的傷害，每 1 點再擲一次命中部位、造成 1 點傷害，例如火箭砲）
+ */
+export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow';
 
 /**
  * 安裝方式：
