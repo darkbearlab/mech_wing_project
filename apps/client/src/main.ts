@@ -9,6 +9,7 @@ import {
   config,
   grappleOptions,
   hitChance,
+  relativeSpeed,
   moveSpeed,
   parseManeuver,
   planCost,
@@ -291,7 +292,7 @@ const equipName = (u: UnitView | undefined, eqId: string | null) => {
 function initialMove(u: UnitView): MovePlan {
   const opts = availableManeuvers(u);
   const pick = opts.find((m) => m.id === 'straight-S-2') ?? opts.find((m) => m.propellant === 0) ?? opts[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, grapple: 'push' };
+  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
 }
 
 /** 套用規劃中的換武器後，手上會拿著什麼 */
@@ -1249,6 +1250,8 @@ function infoHtml(u: UnitView): string {
   } else {
     html += `<div class="small muted">駕駛：不明${u.vague === 'sluggish' ? '　<span class="warn">動作遲鈍</span>' : ''}</div>`;
   }
+  const v = view!.state.velocity[u.id];
+  if (v) html += `<div class="small muted">本回合移動速度 ${Math.hypot(v.x, v.y).toFixed(1)}</div>`;
   const body = [
     ['', 'head', ''],
     ['larm', 'torso', 'rarm'],
@@ -1305,13 +1308,18 @@ function dialHtml(u: UnitView, plan: MovePlan): string {
   return html + '</div>';
 }
 
+const speedTable = () =>
+  config.RELATIVE_SPEED_HIT.map(([max, mod], k) => {
+    const lo = k === 0 ? 0 : config.RELATIVE_SPEED_HIT[k - 1][0] + 1;
+    const range = max === Infinity ? `${lo} 以上` : lo === max ? `${max}` : `${lo}–${max}`;
+    return `${range}：${mod >= 0 ? '+' : ''}${mod}`;
+  }).join('、');
+
 const STANCE_TIPS: Record<Stance, string> = {
-  normal: '撞到其他機體只算擦撞：雙方停在接觸點、本回合不能行動，但不受傷。',
-  charge: '撞到敵機時出手。相對速度 0–2：纏在一起（纏鬥）。3 以上：一擊脫離，雙方擲骰比近戰（駕駛技能越高骰越多），贏越多傷害越大；速度 5 以上出手會加壓力（王牌 6 以上）。手上沒有近戰武器則是撞擊：速度越快傷害越大，自己也吃一半。',
-  evade: '底板判定變小，比較不容易被撞到；被射擊時命中率 −15%。撞到別人時效果同「一般」。',
-  brace: `承受衝擊：站穩等對方撞上來（這回合速度要在 ${config.BRACE_MAX_SPEED} 以下）。敵機突進一擊脫離時，你的近戰骰 +${config.BRACE_DIE}、再加雙方重量級差；贏或平手就把對方拖進纏鬥。被撞擊時傷害和被撞開的距離減半。不管成不成功都會吃「相對速度 ÷ 2」的壓力；對方沒衝過來就白選了。`,
+  shoot: `射擊姿態：撞到其他機體只是擦撞（雙方停住、本回合不能行動，不受傷）。射擊命中看雙方本回合移動的相對速度，並行或一起慢下來最好打（相對速度 ${speedTable()}）。`,
+  melee: `近戰姿態：撞到就出手。相對速度 ${config.CLINCH_MAX_VC} 以下咬住對方進入纏鬥；自己速度 ${config.SLOW_MAX_SPEED + 1} 以上且相對速度更高時一擊脫離，雙方擲骰比近戰（手上沒近戰武器則是撞擊）。自己慢速（${config.SLOW_MAX_SPEED} 以下）時不主動出刀，被高速衝進來就承受衝擊：骰數 +${config.BRACE_DIE} 再加重量差，贏或平手把對方拖住。這回合射擊命中 −${config.MELEE_STANCE_SHOT_PENALTY}（發數多的武器比較划算）。`,
 };
-const STANCE_NAMES: Record<Stance, string> = { normal: '一般', charge: '突進', evade: '迴避', brace: '承受衝擊' };
+const STANCE_NAMES: Record<Stance, string> = { shoot: '射擊', melee: '近戰' };
 const GRAPPLE_TIPS: Record<GrappleChoice, string> = {
   slash: '用手上的近戰武器攻擊。會被「架」擋下，但能打斷「抓」。',
   parry: '用近戰武器或盾牌擋下「斬」並取得優勢；擋不住「抓」，也會被「推」壓制。',
@@ -1339,13 +1347,11 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   html += dialHtml(u, plan);
   html += '</div><div>';
   html += '<div class="sec">姿態</div><div class="row">';
-  const tooFast = moveSpeed(plan) > config.BRACE_MAX_SPEED;
-  html += (['normal', 'charge', 'evade', 'brace'] as Stance[])
+  const slow = moveSpeed(plan) <= config.SLOW_MAX_SPEED;
+  html += (['shoot', 'melee'] as Stance[])
     .map((s) => {
-      const off = s === 'brace' && tooFast;
-      const text = off ? `${STANCE_TIPS[s]}（目前的機動太快，選速度 ${config.BRACE_MAX_SPEED} 以下才能用）` : STANCE_TIPS[s];
-      // 不用 disabled：停用的按鈕收不到滑鼠事件，說明區就看不到原因
-      return tip(`<button class="${plan.stance === s ? 'on' : ''}${off ? ' dis' : ''}" data-stance="${s}" ${off ? 'data-off="1"' : ''}>${STANCE_NAMES[s]}</button>`, text);
+      const now = s === 'melee' ? (slow ? '（目前的機動是慢速：撞上就咬住，被高速衝進來會承受衝擊）' : '（目前的機動是高速：撞上就出刀一擊脫離）') : '';
+      return tip(`<button class="${plan.stance === s ? 'on' : ''}" data-stance="${s}">${STANCE_NAMES[s]}</button>`, STANCE_TIPS[s] + now);
     })
     .join('');
   html += '</div>';
@@ -1405,11 +1411,13 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   if (plan.action.type === 'lock') return '';
   if (plan.action.type !== 'shoot') return '';
   const w = u.equipment.find((e) => e.id === (plan.action as { weapon: string }).weapon);
-  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, targetStance: null, targetHovered: false }) : null;
-  return h ? `${bandName(h.band)}・約 ${h.chance}%` : '射程外';
+  const relSpeed = relativeSpeed(view!.state.velocity, u.id, t.id);
+  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee' }) : null;
+  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}・約 ${h.chance}%` : '射程外';
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
+const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離' } as const;
 
 function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。`;
@@ -1420,7 +1428,9 @@ function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
     .filter((b) => def.ranges?.[b] !== undefined)
     .map((b) => `${BAND_SHORT[b]} ${def.ranges![b]! >= 0 ? '+' : ''}${def.ranges![b]}`)
     .join('／');
-  return `${def.name}：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。距離修正 ${ranges}。`;
+  const best = ([1, 2, 3] as const).filter((b) => def.ranges?.[b] !== undefined).sort((x, y) => def.ranges![y]! - def.ranges![x]!)[0];
+  const melee = view!.state.stance[u.id] === 'melee' ? `本回合是近戰姿態，命中 −${config.MELEE_STANCE_SHOT_PENALTY}。` : '';
+  return `${def.name}：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${melee}`;
 }
 
 function actionControls(u: UnitView, plan: ActionPlan): string {
@@ -1460,7 +1470,6 @@ function bindControls(u: UnitView | undefined) {
       move.maneuver = b.dataset.m!;
       if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
       else move.facingOffset = 0;
-      if (move.stance === 'brace' && moveSpeed(move) > config.BRACE_MAX_SPEED) move.stance = 'normal';
       hoverManeuver = null;
       changed();
     };
@@ -1479,7 +1488,6 @@ function bindControls(u: UnitView | undefined) {
       const v = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
       if (el.dataset.f === 'facingOffset') move.facingOffset = Number(v);
       if (el.dataset.f === 'limiter') move.limiter = v as boolean;
-      if (move.stance === 'brace' && moveSpeed(move) > config.BRACE_MAX_SPEED) move.stance = 'normal';
       changed();
     };
   });

@@ -1,7 +1,7 @@
 export type Vec = { x: number; y: number };
 export type PlayerId = 0 | 1;
-/** brace：承受衝擊，站穩等對方撞上來，有機會把一擊脫離拖進纏鬥 */
-export type Stance = 'normal' | 'charge' | 'evade' | 'brace';
+/** shoot：射擊姿態，撞到別人只是擦撞；melee：近戰姿態，接觸就出手（慢咬住、快一擊脫離），射擊命中下降 */
+export type Stance = 'shoot' | 'melee';
 export type Hand = 'right' | 'left';
 export type RangeBand = 0 | 1 | 2 | 3;
 export type GrappleChoice = 'slash' | 'parry' | 'grab' | 'push' | 'disengage';
@@ -99,7 +99,8 @@ export type TurnPhase = 'move' | 'action';
 /** 移動結算後、動作結算前要保留的本回合資訊 */
 export interface TurnInfoState {
   stance: Record<string, Stance>;
-  hovered: string[];
+  /** 本回合的移動向量（終點 − 起點，每回合單位）；中途停下、急停反轉或纏鬥中為 0。射擊用來算相對速度 */
+  velocity: Record<string, Vec>;
   /** 擦撞的機體本回合不能執行動作 */
   bumped: string[];
 }

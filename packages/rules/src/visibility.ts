@@ -1,4 +1,4 @@
-import type { EquipState, GameEvent, GameState, GrappleState, PartState, PlayerId, UnitState, UnitStatus, Vec } from './types';
+import type { EquipState, GameEvent, GameState, GrappleState, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
 
 /** 對手看得到機體，看不到駕駛 */
 export interface UnitView {
@@ -27,6 +27,10 @@ export interface StateView {
   turn: number;
   /** 本回合擦撞、不能執行動作的機體（動作階段才有） */
   bumped: string[];
+  /** 本回合各機的移動向量（看得到，動作階段才有） */
+  velocity: Record<string, Vec>;
+  /** 自己機體本回合的姿態（動作階段才有） */
+  stance: Record<string, Stance>;
   units: UnitView[];
   grapples: GrappleState[];
   winner: GameState['winner'];
@@ -50,7 +54,9 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
 }
 
 export function viewState(s: GameState, viewer: PlayerId): StateView {
-  return { turn: s.turn, bumped: s.turnInfo?.bumped ?? [], units: s.units.map((u) => viewUnit(u, viewer)), grapples: structuredClone(s.grapples), winner: s.winner };
+  const stance: Record<string, Stance> = {};
+  for (const u of s.units) if (u.owner === viewer && s.turnInfo?.stance[u.id]) stance[u.id] = s.turnInfo.stance[u.id];
+  return { turn: s.turn, bumped: s.turnInfo?.bumped ?? [], velocity: structuredClone(s.turnInfo?.velocity ?? {}), stance, units: s.units.map((u) => viewUnit(u, viewer)), grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 export function filterEvents(events: GameEvent[], state: GameState, viewer: PlayerId): GameEvent[] {

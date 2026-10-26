@@ -3,7 +3,9 @@ import { damageUnit, type Ctx } from '../src/damage';
 import { localPose, parseManeuver } from '../src/maneuvers';
 import { Match } from '../src/match';
 import { aiActions, aiMoves } from '../src/ai';
-import { resolveTurn } from '../src/resolve';
+import { resolveMovement, resolveTurn } from '../src/resolve';
+import { hitChance, relativeSpeed } from '../src/combat';
+import { EQUIPMENT } from '../src/data';
 import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
@@ -68,7 +70,7 @@ describe('同時移動與接觸', () => {
       { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 6.5, y: 10, facingDeg: 0 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-4', stance: 'charge' }), plan({ maneuver: 'straight-S-3' }), st);
+    const r = duel(plan({ maneuver: 'straight-S-4', stance: 'melee' }), plan({ maneuver: 'straight-S-3' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('clinch');
     expect(r.state.grapples).toHaveLength(1);
   });
@@ -78,7 +80,7 @@ describe('同時移動與接觸', () => {
       { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('hitrun');
     const clash = of(r.events, 'clash')[0];
     // 老兵：2 + 技能 3 + 突進 1
@@ -90,7 +92,7 @@ describe('同時移動與接觸', () => {
     expect(r.state.units[0].pos.x).toBeGreaterThan(7.4);
   });
 
-  it('雙方都拿刀時對砍，贏的一方造成傷害，差距越大傷害越高', () => {
+  it('雙方都拿刀時比一次骰池，贏的一方造成傷害，差距越大傷害越高', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const st = makeState(
         [
@@ -99,7 +101,7 @@ describe('同時移動與接觸', () => {
         ],
         seed,
       );
-      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0' }), st);
       const c = of(r.events, 'clash')[0];
       expect(c.defense).toBe('blade');
       const margin = Math.abs(c.attHits - c.defHits);
@@ -113,7 +115,7 @@ describe('同時移動與接觸', () => {
       { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: saberX00, owner: 1, x: 8.5, y: 10, facingDeg: 0 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0' }), st);
     const c = of(r.events, 'clash')[0];
     expect(c.defense).toBe('none');
     expect(c.winner).toBe(st.units[0].id);
@@ -125,7 +127,7 @@ describe('同時移動與接觸', () => {
         { entry: { ...saberX00, pilot }, owner: 0, x: 5, y: 10, facingDeg: 0 },
         { entry: rifleX00, owner: 1, x: 11, y: 10, facingDeg: 180 },
       ]);
-    const charge = plan({ maneuver: 'straight-S-4', stance: 'charge' });
+    const charge = plan({ maneuver: 'straight-S-4', stance: 'melee' });
     const rush = plan({ maneuver: 'straight-S-2' });
     const speedStress = (events: GameEvent[]) => of(events, 'stress').find((e) => e.reason === '高速出刀')?.amount ?? 0;
     expect(speedStress(duel(charge, rush, mk('veteran')).events)).toBe(2);
@@ -133,11 +135,31 @@ describe('同時移動與接觸', () => {
 
   });
 
-  it('承受衝擊：速度 2 以下才能選', () => {
-    const u = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]).units[0];
-    expect(validateMove(u, plan({ maneuver: 'straight-S-2', stance: 'brace' }), false)).toEqual([]);
-    expect(validateMove(u, plan({ maneuver: 'straight-S-2', stance: 'brace', limiter: true }), false)).toHaveLength(1);
-    expect(validateMove(u, plan({ maneuver: 'straight-S-3', stance: 'brace' }), false)).toHaveLength(1);
+  it('慢速近戰不主動出刀：撞上別人或被高速撞上都是咬住（纏鬥）', () => {
+    const st = makeState([
+      { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 9, y: 10, facingDeg: 180 },
+    ]);
+    // A 慢速近戰（速度 2），B 射擊姿態高速衝過來（速度 4）：相對速度 6，但沒有高速的近戰方 → 咬住
+    const r = duel(plan({ maneuver: 'straight-S-2', stance: 'melee' }), plan({ maneuver: 'straight-S-4' }), st);
+    expect(of(r.events, 'contact')[0].result).toBe('clinch');
+    expect(of(r.events, 'clash')).toHaveLength(0);
+  });
+
+  it('射擊命中依雙方移動向量差：並行最好打，交錯越快越難打', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 5, y: 14, facingDeg: 0 },
+    ]);
+    const [a, b] = st.units;
+    const chance = (relSpeed: number, shooterMelee = false) =>
+      hitChance({ attacker: a, attackerSkill: 3, weapon: EQUIPMENT.beam_rifle, target: b, targetSkill: null, relSpeed, shooterMelee })!.chance;
+    expect(chance(0) - chance(3)).toBe(15);
+    expect(chance(3) - chance(6)).toBe(20);
+    expect(chance(3) - chance(3, true)).toBe(20);
+    // 實際結算：雙方都直線 3 並行 → 相對速度 0
+    const mv = resolveMovement(st, [{ [a.id]: plan({ maneuver: 'straight-S-3' }) }, { [b.id]: plan({ maneuver: 'straight-S-3' }) }]);
+    expect(relativeSpeed(mv.state.turnInfo!.velocity, a.id, b.id)).toBeCloseTo(0);
   });
 
   it('承受衝擊：對決贏或平手就把一擊脫離拖進纏鬥，輸了照常被砍', () => {
@@ -152,7 +174,7 @@ describe('同時移動與接觸', () => {
         ],
         seed,
       );
-      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0', stance: 'brace' }), st);
+      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0', stance: 'melee' }), st);
       const c = of(r.events, 'clash')[0];
       // 重裝老兵：2 + 3 + 承受 1 + 重量差 1
       expect(c.defDice).toHaveLength(7);
@@ -171,16 +193,16 @@ describe('同時移動與接觸', () => {
   });
 
   it('承受衝擊：被撞擊時傷害減半', () => {
-    const mk = (stance: 'normal' | 'brace') => {
+    const mk = (stance: 'shoot' | 'melee') => {
       const st = makeState([
         { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
         { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
       ]);
-      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0', stance }), st);
+      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0', stance }), st);
       return of(r.events, 'damage').filter((e) => e.unit === st.units[1].id).reduce((t, e) => t + e.amount, 0);
     };
-    expect(mk('normal')).toBe(3);
-    expect(mk('brace')).toBe(1);
+    expect(mk('shoot')).toBe(3);
+    expect(mk('melee')).toBe(1);
   });
 
   it('突進但手上沒有近戰武器 → 撞擊，被撞的一方傷得比較重', () => {
@@ -188,7 +210,7 @@ describe('同時移動與接觸', () => {
       { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('ram');
     const dmg = (id: string) => of(r.events, 'damage').filter((e) => e.unit === id).reduce((t, e) => t + e.amount, 0);
     expect(dmg(st.units[1].id)).toBe(3);
@@ -200,7 +222,7 @@ describe('同時移動與接觸', () => {
       { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 6.5, y: 10, facingDeg: 0 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-4', stance: 'charge' }), plan({ maneuver: 'straight-S-3' }), st);
+    const r = duel(plan({ maneuver: 'straight-S-4', stance: 'melee' }), plan({ maneuver: 'straight-S-3' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('clinch');
   });
 
@@ -356,7 +378,7 @@ describe('回合分兩步', () => {
 describe('整場模擬', () => {
   function randomPlans(st: GameState, rng: Rng): [Plans, Plans] {
     const out: [Plans, Plans] = [{}, {}];
-    const stances = ['normal', 'charge', 'evade'] as const;
+    const stances = ['shoot', 'melee', 'shoot'] as const;
     for (const u of st.units) {
       if (u.status !== 'active') continue;
       const opts = availableManeuvers(u);

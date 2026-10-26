@@ -29,13 +29,11 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
 
   const frozen = new Set(state.grapples.flatMap((g) => [g.a, g.b]));
   const stance: Record<string, Stance> = {};
-  const hovered: string[] = [];
   for (const u of state.units) {
     const plan = plans[u.id];
     if (!plan) continue;
-    stance[u.id] = frozen.has(u.id) ? 'normal' : plan.stance;
+    stance[u.id] = frozen.has(u.id) ? 'shoot' : plan.stance;
     if (frozen.has(u.id)) continue;
-    if (parseManeuver(plan.maneuver).kind === 'hover') hovered.push(u.id);
     const cost = planCost(plan);
     spendPropellant(ctx, u, Math.min(cost.propellant, u.propellant));
     addStress(ctx, u, cost.stress, plan.limiter ? '機動負荷（限制器解除）' : '機動負荷');
@@ -53,7 +51,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   }
 
   // 2. 同時移動
-  const { bumped } = simulateMovement(ctx, plans, stance, frozen);
+  const { bumped, velocity } = simulateMovement(ctx, plans, stance, frozen);
   for (const u of state.units) {
     if (u.status === 'active' && (u.pos.x < 0 || u.pos.y < 0 || u.pos.x > C.MAP_SIZE || u.pos.y > C.MAP_SIZE)) {
       u.status = 'withdrawn';
@@ -62,7 +60,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   }
 
   state.phase = 'action';
-  state.turnInfo = { stance, hovered, bumped: [...bumped] };
+  state.turnInfo = { stance, velocity, bumped: [...bumped] };
   checkWinner(ctx, false);
   state.rngState = rng.state;
   return { state, events: ctx.events };
@@ -73,8 +71,8 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   const state: GameState = structuredClone(input);
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [] };
-  const info = state.turnInfo ?? { stance: {}, hovered: [], bumped: [] };
-  const turn: TurnInfo = { stance: info.stance, hovered: new Set(info.hovered) };
+  const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
+  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity };
   const bumped = new Set(info.bumped);
 
   const order = state.units
@@ -179,7 +177,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '頭部損壞，無法鎖定' });
       return;
     }
-    const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, targetStance: null, targetHovered: false });
+    const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, relSpeed: null, shooterMelee: false });
     if (!band) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標超出鎖定距離' });
       return;

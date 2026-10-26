@@ -1,4 +1,4 @@
-import { BRACE_MAX_SPEED, FACING_OFFSETS, LIMITER_STRESS } from './config';
+import { FACING_OFFSETS, LIMITER_STRESS } from './config';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
 import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
@@ -76,8 +76,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
     if (!availableManeuvers({ ...u, propellant: undefined }).some((m) => m.id === plan.maneuver)) errors.push(`${u.label}：無法使用機動 ${plan.maneuver}`);
     else if (planCost(plan).propellant > u.propellant) errors.push(`${u.label}：推進劑不足`);
   }
-  if (!['normal', 'charge', 'evade', 'brace'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
-  else if (plan.stance === 'brace' && !grappled && moveSpeed(plan) > BRACE_MAX_SPEED) errors.push(`${u.label}：承受衝擊時速度不能超過 ${BRACE_MAX_SPEED}`);
+  if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
   else if (plan.facingOffset !== 0 && !grappled && parseManeuver(plan.maneuver).kind !== 'hover') errors.push(`${u.label}：只有懸停時可以轉身`);
   return errors;
@@ -95,7 +94,7 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
 export function defaultMove(u: UnitState): MovePlan {
   const options = availableManeuvers(u);
   const pick = options.find((m) => m.propellant === 0) ?? options[0];
-  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false, grapple: 'push' };
+  return { maneuver: pick?.id ?? 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
 }
 
 export const defaultAction = (): ActionPlan => ({ action: { type: 'none' } });

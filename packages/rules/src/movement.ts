@@ -4,7 +4,7 @@ import { addStress, damageUnit, type Ctx } from './damage';
 import { DEG, add, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
 import type { ContactResult, MovePlan, Stance, UnitState, Vec } from './types';
-import { chassisOf, heldOfKind, pilotOf } from './unit';
+import { chassisOf, heldOfKind, moveSpeed, pilotOf } from './unit';
 
 interface Mover {
   unit: UnitState;
@@ -18,6 +18,7 @@ interface Mover {
 
 export interface MoveResult {
   bumped: Set<string>;
+  velocity: Record<string, Vec>;
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -27,8 +28,8 @@ export function buildPath(u: { pos: Vec; facing: number }, plan: Pick<MovePlan, 
   return { spec, start: { ...u.pos }, startFacing: u.facing, length: pathLength(spec, plan.limiter) };
 }
 
-export function contactRadius(stance: Stance | undefined): number {
-  return C.BASE_RADIUS - (stance === 'evade' ? C.EVADE_RADIUS_REDUCTION : 0);
+export function contactRadius(_stance?: Stance): number {
+  return C.BASE_RADIUS;
 }
 
 /**
@@ -108,6 +109,13 @@ export function simulateMovement(
     for (const m of movers) m.samples.push([m.unit.pos.x, m.unit.pos.y, m.unit.facing]);
   }
 
+  // 射擊用的本回合移動向量：中途停下、急停反轉、懸停或纏鬥中都算 0
+  const moved: Record<string, Vec> = {};
+  for (const m of movers) {
+    const start = m.samples[0];
+    const kept = m.path && m.moving && m.path.spec.kind !== 'kturn';
+    moved[m.unit.id] = kept ? { x: m.unit.pos.x - start[0], y: m.unit.pos.y - start[1] } : { x: 0, y: 0 };
+  }
   separateOverlaps(ctx, movers);
   for (const m of movers) {
     const last = m.samples[m.samples.length - 1];
@@ -115,7 +123,7 @@ export function simulateMovement(
     last[1] = m.unit.pos.y;
     ctx.events.push({ type: 'move', unit: m.unit.id, samples: m.samples.map(([x, y, f]) => [round(x), round(y), round(f)]) });
   }
-  return { bumped };
+  return { bumped, velocity: moved };
 
   function resolveContact(
     ctx: Ctx,
@@ -136,7 +144,10 @@ export function simulateMovement(
       return 'none';
     }
     const vc = Math.round(vcRaw);
-    const attackers = [a, b].filter((m) => stance[m.unit.id] === 'charge');
+    // 近戰姿態：自己高速的是出手方，自己慢速的會咬住或承受衝擊
+    const melee = [a, b].filter((m) => stance[m.unit.id] === 'melee');
+    const fast = (m: Mover) => (m.plan ? moveSpeed(m.plan) : 0) > C.SLOW_MAX_SPEED;
+    const attackers = melee.filter(fast);
     const halt = (...ms: Mover[]) => {
       for (const m of ms) {
         if (m.moving) m.unit.pos = prev.get(m.unit.id)!;
@@ -144,15 +155,15 @@ export function simulateMovement(
       }
     };
 
-    // 沒人突進：只算擦撞。突進：相對速度低就纏鬥，高就一擊脫離（沒拿近戰武器則是撞擊）
+    // 沒人近戰：擦撞。近戰：相對速度低就咬住（纏鬥），高速出手方一擊脫離（沒拿近戰武器則撞擊），只有慢速的一方也咬住
     const bladed = attackers.filter((m) => heldOfKind(m.unit, 'melee'));
     let result: ContactResult;
-    if (attackers.length === 0) result = 'bump';
-    else if (vc <= C.CLINCH_MAX_VC) result = 'clinch';
+    if (melee.length === 0) result = 'bump';
+    else if (vc <= C.CLINCH_MAX_VC || attackers.length === 0) result = 'clinch';
     else result = bladed.length ? 'hitrun' : 'ram';
     emit(vc, result);
-    // 承受衝擊：被突進撞上的一方站穩硬吃，壓力 +相對速度 ÷ 2
-    const bracer = [a, b].find((m) => !attackers.includes(m) && stance[m.unit.id] === 'brace');
+    // 承受衝擊：慢速近戰被高速衝進來，站穩硬吃，壓力 +相對速度 ÷ 2
+    const bracer = [a, b].find((m) => melee.includes(m) && !attackers.includes(m));
     if (bracer && (result === 'hitrun' || result === 'ram')) addStress(ctx, bracer.unit, Math.floor(vc / 2), '承受衝擊');
 
     switch (result) {
@@ -172,7 +183,7 @@ export function simulateMovement(
         }
         const att = bladed[0];
         const def = att === a ? b : a;
-        const caught = meleeClash(ctx, att.unit, def.unit, t, stance[def.unit.id] === 'charge', def === bracer);
+        const caught = meleeClash(ctx, att.unit, def.unit, t, attackers.includes(def), def === bracer);
         if (caught) {
           halt(a, b);
           ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: null });

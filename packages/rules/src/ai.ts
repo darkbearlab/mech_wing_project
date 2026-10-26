@@ -3,11 +3,11 @@
 // 行動：挑期望傷害最高的射擊；沒得打就拔刀、拔槍或鎖定。
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
-import { hitChance } from './combat';
+import { hitChance, relativeSpeed } from './combat';
 import { grappleOptions } from './grapple';
 import { parseManeuver, worldPose, type ManeuverSpec } from './maneuvers';
 import { buildPath } from './movement';
-import { BRACE_MAX_SPEED, MAP_SIZE, FACING_OFFSETS } from './config';
+import { MAP_SIZE, FACING_OFFSETS, SLOW_MAX_SPEED } from './config';
 import type { Rng } from './rng';
 import type { ActionPlan, EquipState, GrappleChoice, Hand, MovePlan, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { availableManeuvers, moveSpeed } from './unit';
@@ -102,7 +102,7 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
   const planned: Vec[] = [];
   const out: PlayerMoves = {};
   for (const u of own) {
-    const base: MovePlan = { maneuver: 'hover-S-0', stance: 'normal', facingOffset: 0, limiter: false };
+    const base: MovePlan = { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false };
     if (grappled.has(u.id)) {
       out[u.id] = { ...base, grapple: pickGrapple(u, rng) };
       continue;
@@ -122,13 +122,12 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
       const want = angleOf(sub(target.pos, u.pos));
       plan.facingOffset = [...FACING_OFFSETS].sort((a, b) => Math.abs(angleDiff(want, u.facing + a * DEG)) - Math.abs(angleDiff(want, u.facing + b * DEG)))[0];
     }
-    // 拿刀就衝；沒拿刀、附近有拿刀的敵人、而且這回合走得慢，就有機會站穩承受衝擊（重機比較愛用）
+    // 拿刀且敵人在 8 格內就近戰；沒拿刀、附近有拿刀的敵人、而且這回合走得慢，有機會改近戰姿態站穩承受衝擊（重機比較愛用）
     const swordsman = enemies.some((e) => heldOf(e, 'melee').length && edge(u.pos, e.pos) < 8);
-    const braceChance = 0.45 + 0.15 * (CHASSIS[u.chassisId].weightClass - 2);
-    let stance: Stance = 'normal';
-    if (heldOf(u, 'melee').length && d < 8) stance = 'charge';
-    else if (swordsman && moveSpeed(plan) <= BRACE_MAX_SPEED && rng.next() < braceChance) stance = 'brace';
-    else if (d < 10 && rng.next() < 0.35) stance = 'evade';
+    const braceChance = 0.35 + 0.15 * (CHASSIS[u.chassisId].weightClass - 2);
+    let stance: Stance = 'shoot';
+    if (heldOf(u, 'melee').length && d < 8) stance = 'melee';
+    else if (swordsman && moveSpeed(plan) <= SLOW_MAX_SPEED && rng.next() < braceChance) stance = 'melee';
     plan.stance = stance;
     out[u.id] = plan;
   }
@@ -145,7 +144,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     for (const w of heldOf(u, 'ranged')) {
       const def = EQUIPMENT[w.defId];
       for (const t of enemies) {
-        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, targetStance: null, targetHovered: false });
+        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee' });
         if (!h) continue;
         const value = (h.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1) + rng.next() * 0.2;
         if (!shot || value > shot.value) shot = { weapon: w, target: t, value, chance: h.chance };

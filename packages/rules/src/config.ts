@@ -2,7 +2,6 @@
 
 export const MAP_SIZE = 24;
 export const BASE_RADIUS = 0.5;
-export const EVADE_RADIUS_REDUCTION = 0.15;
 export const MOVE_STEPS = 40;
 export const TURN_LIMIT = 12;
 /** 測試用的快速勝負：先失去一台機體（擊毀、昏迷或飛出地圖）的一方輸 */
@@ -14,19 +13,19 @@ export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;
 // 機動
 /** 懸停時可原地轉身的角度（不另外消耗推進劑） */
 export const FACING_OFFSETS = [0, 45, -45, 90, -90, 180] as const;
-export const HOVER_EVASION_PENALTY = 10;
 export const LIMITER_STRESS = 2;
 /** 技能達到此值的駕駛算王牌（高速出刀的負荷門檻較高） */
 export const ACE_SKILL = 5;
 
 // 接觸
-/** 突進接觸：相對速度 2 以下纏鬥，3 以上一擊脫離（沒拿近戰武器則是撞擊） */
+/** 近戰姿態的接觸：相對接近速度 ≤ 這個值就咬住（纏鬥），以上是一擊脫離（沒拿近戰武器則是撞擊） */
 export const CLINCH_MAX_VC = 2;
+/** 自己這回合的速度 ≤ 這個值算慢速：近戰姿態慢速時不主動出刀，被高速衝進來就承受衝擊 */
+export const SLOW_MAX_SPEED = 2;
 /** 一擊脫離的高速負荷：相對速度達到這個值起，每多 1 點出手方壓力 +1（王牌門檻較高） */
 export const HIGH_SPEED_FROM = 5;
 export const ACE_HIGH_SPEED_FROM = 6;
-/** 承受衝擊：機動速度上限；對決時骰數 +1 再加重量差；撞擊傷害與被撞開距離減半 */
-export const BRACE_MAX_SPEED = 2;
+/** 承受衝擊（慢速近戰被高速衝進來）：對決時骰數 +1 再加重量差；撞擊傷害與被撞開距離減半 */
 export const BRACE_DIE = 1;
 // 近戰對決（骰池，D6 擲出 5 以上算成功）
 export const MELEE_BASE_DICE = 2;
@@ -43,7 +42,16 @@ export const BACK_ARC_DEG = 120;
 export const HIT_BASE = 60;
 export const HIT_PER_SKILL = 3;
 export const EVADE_PER_SKILL = 2;
-export const EVADE_STANCE_BONUS = 15;
+/** 射擊的相對速度修正：雙方本回合移動向量差的長度 ≤ 第一個數字時，命中 + 第二個數字 */
+export const RELATIVE_SPEED_HIT: [number, number][] = [
+  [1, 15],
+  [2, 5],
+  [3, 0],
+  [4, -10],
+  [Infinity, -20],
+];
+/** 近戰姿態下射擊的命中懲罰 */
+export const MELEE_STANCE_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;

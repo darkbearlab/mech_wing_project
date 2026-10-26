@@ -16,7 +16,7 @@ function randomPlans(st: GameState, rng: Rng): [Plans, Plans] {
     const target = enemies[Math.floor(rng.next() * enemies.length)];
     out[u.owner][u.id] = {
       maneuver: opts[Math.floor(rng.next() * opts.length)].id,
-      stance: (['normal', 'charge', 'evade'] as const)[Math.floor(rng.next() * 3)],
+      stance: (['shoot', 'melee'] as const)[Math.floor(rng.next() * 2)],
       facingOffset: 0,
       limiter: false,
       action: weapon && target ? { type: 'shoot', weapon: weapon.id, target: target.id } : { type: 'none' },

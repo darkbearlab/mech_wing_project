@@ -39,8 +39,10 @@ export interface HitInput {
   target: Positioned;
   /** 未知時（對手視角）為 null */
   targetSkill: number | null;
-  targetStance: Stance | null;
-  targetHovered: boolean;
+  /** 雙方本回合移動向量差的長度；不知道時（例如移動步驟）為 null */
+  relSpeed: number | null;
+  /** 射擊方是近戰姿態 */
+  shooterMelee: boolean;
 }
 
 export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
@@ -52,8 +54,8 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   const def = chassisOf(h.target);
   let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - def.evasion;
   if (h.targetSkill !== null) chance -= h.targetSkill * C.EVADE_PER_SKILL;
-  if (h.targetStance === 'evade') chance -= C.EVADE_STANCE_BONUS;
-  if (h.targetHovered) chance += C.HOVER_EVASION_PENALTY;
+  if (h.relSpeed !== null) chance += relativeSpeedMod(h.relSpeed);
+  if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
   if (band > 0 && relativeAngle(h.attacker, h.target.pos) > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (band === 3 && !partAlive(h.attacker, 'head')) chance -= C.HEAD_LONG_PENALTY;
@@ -73,9 +75,17 @@ function shieldPart(def: UnitState): string | null {
 
 const blockChance = (def: UnitState): number => C.SHIELD_BLOCK_BASE + pilotOf(def).skill * C.SHIELD_BLOCK_PER_SKILL;
 
+export const relativeSpeedMod = (r: number): number => C.RELATIVE_SPEED_HIT.find(([max]) => r <= max)![1];
+
+export function relativeSpeed(velocity: Record<string, Vec>, a: string, b: string): number {
+  const va = velocity[a] ?? { x: 0, y: 0 };
+  const vb = velocity[b] ?? { x: 0, y: 0 };
+  return Math.hypot(va.x - vb.x, va.y - vb.y);
+}
+
 export interface TurnInfo {
   stance: Record<string, Stance>;
-  hovered: Set<string>;
+  velocity: Record<string, Vec>;
 }
 
 export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState): boolean {
@@ -86,8 +96,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     weapon: def,
     target,
     targetSkill: pilotOf(target).skill,
-    targetStance: turn.stance[target.id] ?? 'normal',
-    targetHovered: turn.hovered.has(target.id),
+    relSpeed: relativeSpeed(turn.velocity, attacker.id, target.id),
+    shooterMelee: turn.stance[attacker.id] === 'melee',
   });
   if (!h) return false;
   if (attacker.lockOn === target.id) attacker.lockOn = null;
