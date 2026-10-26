@@ -1146,14 +1146,14 @@ function updateHoverCard() {
   if (key !== hoverCardKey) {
     hoverCardKey = key;
     const ch = CHASSIS[u.chassisId];
-    const status = u.status !== 'active' ? `<div class="small err">${{ destroyed: '已擊毀', withdrawn: '已脫離戰場', unconscious: '駕駛昏迷', disabled: '停止動作' }[u.status]}</div>` : u.vague === 'sluggish' ? '<div class="small warn">動作遲鈍</div>' : '';
-    el.innerHTML = `<div class="hname" style="color:${color(u.owner)}">${esc(u.label.split(' ')[0])} <span class="hsub">${esc(ch.name.replace(/^X-\d+ /, ''))}</span></div>${mechSilhouette(u)}${status}`;
+    const status = u.status !== 'active' ? `<div class="small err">${{ destroyed: '擊毀', withdrawn: '脫離', unconscious: '昏迷', disabled: '停止' }[u.status]}</div>` : u.vague === 'sluggish' ? '<div class="small warn">動作遲鈍</div>' : '';
+    el.innerHTML = `<div class="hname" style="color:${color(u.owner)}" title="${esc(ch.name)}">${esc(u.label.split(' ')[0])}</div>${mechSilhouette(u)}${status}`;
   }
   el.hidden = false;
   const p = fx(u.pos);
   const w = el.offsetWidth;
   const h = el.offsetHeight;
-  const x = p.x + 22 + w > W ? p.x - 22 - w : p.x + 22;
+  const x = p.x + 16 + w > W ? p.x - 16 - w : p.x + 16;
   el.style.left = `${Math.max(4, x)}px`;
   el.style.top = `${Math.max(4, Math.min(H - h - 4, p.y - h / 2))}px`;
 }

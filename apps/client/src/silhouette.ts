@@ -45,7 +45,7 @@ export function mechSilhouette(u: UnitView): string {
   const lv = (id: string) => (u.parts[id] ? damageLevel(u.parts[id]) : 'ok');
   const tankEq = u.equipment.find((e) => e.defId === 'fuel_tank');
   const tankLv = tankEq ? damageLevel(u.parts[tankEq.id]) : null;
-  return `<svg viewBox="0 0 112 104" width="128" height="119" role="img" aria-label="${u.label} 受損狀況">
+  return `<svg viewBox="0 0 112 104" width="64" height="60" role="img" aria-label="${u.label} 受損狀況">
     ${block(34, 4, 16, 14, lv('head'))}
     ${block(28, 21, 28, 36, lv('torso'))}
     ${block(14, 28, 11, 32, lv('larm'))}
