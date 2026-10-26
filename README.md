@@ -28,11 +28,17 @@ npm run dev
 
 推到 `main` 後，[.github/workflows/pages.yml](.github/workflows/pages.yml) 會跑測試、建置 `apps/client` 並發佈。第一次需要在 repo 的 Settings → Pages 把 Source 設成 **GitHub Actions**。
 
+## 機庫（內容編輯器）
+
+遊戲右上角的「機庫」連到 `editor.html`：左邊選分類與項目，中間編輯，右邊看檢查結果、命中試算、被誰使用、和線上版的差異。不輸入管理金鑰只能瀏覽；輸入後每次修改會自動存進草稿（D1）。「用草稿試玩」開一場用草稿資料的對戰（`?content=draft`），檢查通過後按「發佈」變成新版本。
+
+本機開發：`npm run migrate:local -w @mech/api` 後同時跑 `npm run dev -w @mech/api` 和 `npm run dev`，並在 `apps/client/.env.development.local` 寫 `VITE_CONTENT_API=http://localhost:8788`。本機 API 用 `apps/api/.dev.vars` 裡另一把測試金鑰的雜湊（`ADMIN_TOKEN_SHA256=...`），不要拿正式金鑰在本機測。
+
 ## 內容 API（Cloudflare）
 
 `apps/api` 是部署在 https://mech-wing-api.darkbearlab.workers.dev 的 Worker：D1 存編輯中的草稿，發佈時用規則引擎檢查、打包成不會再變的版本（`v1`、`v2`…）存進 KV。GitHub Pages 版開場時抓最新版，抓不到就用內建資料；網址加 `?content=builtin` 強制用內建資料，`?content=v1` 指定版本。畫面右上角會顯示目前用的資料版本。
 
-- 讀取：`GET /packs/latest`、`GET /packs/v1`、`GET /packs`（發佈紀錄）、`GET /draft`（草稿與檢查結果）
+- 讀取：`GET /packs/latest`、`GET /packs/v1`、`GET /packs`（發佈紀錄）、`GET /draft`（草稿與檢查結果）、`GET /auth`（確認金鑰）
 - 寫入（要管理金鑰）：`PUT|DELETE /draft/:kind/:id`、`POST /draft/import`、`POST /publish`
 - 管理金鑰存在 `apps/api/.admin-token`（不進 git），設定檔裡只有它的 SHA-256。換金鑰：產生新金鑰寫進該檔，把雜湊更新到 `wrangler.jsonc`
 - 管理指令：`npm run admin -w @mech/api -- status | import [資料包.json] | publish [備註]`

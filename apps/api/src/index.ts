@@ -3,6 +3,7 @@
 //   GET    /packs/latest       最新發佈的資料包
 //   GET    /packs/:version     指定版本的資料包
 //   GET    /draft              草稿（組成資料包）與檢查結果
+//   GET    /auth               確認管理金鑰（200／401）
 //   PUT    /draft/:kind/:id    新增／修改一筆（需管理金鑰）
 //   DELETE /draft/:kind/:id    刪除一筆（需管理金鑰）
 //   POST   /draft/import       用整個資料包取代草稿（需管理金鑰）
@@ -98,6 +99,8 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const pack = await loadDraft(env);
     return json({ pack, errors: validateContent(pack) });
   }
+
+  if (parts[0] === 'auth' && method === 'GET') return (await isAdmin(req, env)) ? json({ ok: true }) : fail(401, '管理金鑰不正確');
 
   // 以下都要管理金鑰
   const writes = (parts[0] === 'draft' && ['PUT', 'DELETE', 'POST'].includes(method)) || (parts[0] === 'publish' && method === 'POST');

@@ -3,3 +3,5 @@ dist/
 .wrangler/
 .dev.vars
 apps/api/.admin-token
+*.local
+apps/api/.dev-admin-token

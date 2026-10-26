@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>機庫</title>
+    <link rel="stylesheet" href="/src/editor/editor.css" />
+  </head>
+  <body>
+    <header>
+      <strong>機庫</strong>
+      <a href="./index.html">回到遊戲</a>
+      <span id="pills"></span>
+      <span class="spacer"></span>
+      <span id="saveState"></span>
+      <button id="playBtn" title="用目前的草稿開一場本機對戰（新分頁）">用草稿試玩</button>
+      <button id="historyBtn">版本紀錄</button>
+      <button id="publishBtn" class="primary">發佈</button>
+      <button id="lockBtn" title="管理金鑰"></button>
+    </header>
+    <div id="popup" hidden></div>
+    <div id="banner" hidden></div>
+    <main>
+      <nav id="left">
+        <div id="tabs"></div>
+        <input id="search" placeholder="搜尋" />
+        <div id="list"></div>
+        <div id="listActions"></div>
+      </nav>
+      <section id="form"></section>
+      <aside id="side"></aside>
+    </main>
+    <script type="module" src="/src/editor/main.ts"></script>
+  </body>
+</html>
