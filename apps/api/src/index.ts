@@ -7,7 +7,8 @@
 //   PUT    /draft/:kind/:id    新增／修改一筆（需管理金鑰）
 //   DELETE /draft/:kind/:id    刪除一筆（需管理金鑰）
 //   POST   /draft/import       用整個資料包取代草稿（需管理金鑰）
-//   POST   /publish            檢查草稿後發佈成新版本（需管理金鑰）
+//   POST   /publish            檢查草稿後發佈成新版本（需管理金鑰）；body { note?, bump?: 'patch' | 'minor' | 'major' }
+// 版本號是「大.小.修」（例如 0.1.4）；最早的 v1…v5 已改名為 0.1.0…0.1.4
 import { validateContent, type ContentPack } from '@mech/rules';
 
 export interface Env {
@@ -67,6 +68,34 @@ function rowsOf(pack: ContentPack): [Kind, string, string][] {
   return rows;
 }
 
+/** 舊版號 vN 換成新版號 0.1.(N-1) */
+const fromLegacy = (v: string): string => {
+  const m = /^v(\d+)$/.exec(v);
+  return m ? `0.1.${Number(m[1]) - 1}` : v;
+};
+/** 0.1.N 在 KV 裡可能還是舊鍵 v(N+1) */
+const legacyKey = (v: string): string | null => {
+  const m = /^0\.1\.(\d+)$/.exec(v);
+  return m ? `v${Number(m[1]) + 1}` : null;
+};
+
+async function readPack(env: Env, version: string): Promise<string | null> {
+  const body = await env.PACKS.get(`pack:${version}`);
+  if (body) return body;
+  const old = legacyKey(version);
+  const legacy = old && (await env.PACKS.get(`pack:${old}`));
+  return legacy ? JSON.stringify({ ...JSON.parse(legacy), version }) : null;
+}
+
+const BUMPS = ['patch', 'minor', 'major'] as const;
+function nextVersion(last: string | null, bump: (typeof BUMPS)[number]): string {
+  const [major, minor, patch] = (last ?? '').split('.').map(Number);
+  if (!last || [major, minor, patch].some((n) => !Number.isInteger(n))) return '0.1.0';
+  if (bump === 'major') return `${major + 1}.0.0`;
+  if (bump === 'minor') return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
+}
+
 async function readBody(req: Request): Promise<unknown> {
   try {
     return await req.json();
@@ -81,15 +110,19 @@ async function handle(req: Request, env: Env): Promise<Response> {
   const method = req.method;
   if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
-  if (method === 'GET' && parts.length === 0) return json({ name: 'mech-wing content api', latest: await env.PACKS.get('latest') });
+  const latest = async () => {
+    const v = await env.PACKS.get('latest');
+    return v && fromLegacy(v);
+  };
+  if (method === 'GET' && parts.length === 0) return json({ name: 'mech-wing content api', latest: await latest() });
 
   if (parts[0] === 'packs' && method === 'GET') {
     if (parts.length === 1) {
       const { results } = await env.DB.prepare('SELECT version, note, created_at FROM releases ORDER BY seq DESC').all();
       return json(results);
     }
-    const version = parts[1] === 'latest' ? await env.PACKS.get('latest') : parts[1];
-    const body = version && (await env.PACKS.get(`pack:${version}`));
+    const version = parts[1] === 'latest' ? await latest() : fromLegacy(parts[1]);
+    const body = version && (await readPack(env, version));
     if (!body) return fail(404, '找不到這個版本');
     const cache = parts[1] === 'latest' ? 'public, max-age=30' : 'public, max-age=31536000, immutable';
     return new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache, ...CORS } });
@@ -138,10 +171,12 @@ async function handle(req: Request, env: Env): Promise<Response> {
   }
 
   if (parts[0] === 'publish') {
-    const body = ((await readBody(req)) ?? {}) as { note?: string };
-    const last = await env.DB.prepare('SELECT MAX(seq) AS seq FROM releases').first<{ seq: number | null }>();
+    const body = ((await readBody(req)) ?? {}) as { note?: string; bump?: string };
+    const bump = BUMPS.find((b) => b === (body.bump ?? 'patch'));
+    if (!bump) return fail(400, `bump 要是 ${BUMPS.join('／')}`);
+    const last = await env.DB.prepare('SELECT version, seq FROM releases ORDER BY seq DESC LIMIT 1').first<{ version: string; seq: number }>();
     const seq = (last?.seq ?? 0) + 1;
-    const version = `v${seq}`;
+    const version = nextVersion(last ? fromLegacy(last.version) : null, bump);
     const pack = await loadDraft(env, version);
     const errors = validateContent(pack);
     if (errors.length) return fail(422, '草稿有問題，不能發佈', { errors });

@@ -1973,7 +1973,7 @@ try {
 }
 
 if (mode === 'local') {
-  // ?content=builtin 用內建資料，?content=v3 指定版本，預設抓線上最新版
+  // ?content=builtin 用內建資料，?content=0.1.4 指定版本，預設抓線上最新版
   void loadContent(params.get('content')).then(({ version, note }) => {
     const tag = $('contentTag');
     tag.textContent = `資料 ${version}`;

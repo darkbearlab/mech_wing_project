@@ -258,6 +258,13 @@ function publishPopup() {
     );
   }
   const note = h('input', { placeholder: '這次改了什麼（可留空）' });
+  // 版本號「大.小.修」：平常只加修訂號
+  const next = (bump: string) => {
+    const [ma, mi, pa] = (pub?.version ?? '').split('.').map(Number);
+    if (![ma, mi, pa].every(Number.isInteger)) return '0.1.0';
+    return bump === 'major' ? `${ma + 1}.0.0` : bump === 'minor' ? `${ma}.${mi + 1}.0` : `${ma}.${mi}.${pa + 1}`;
+  };
+  const bump = h('select', {}, ...([['patch', '修正'], ['minor', '小改版'], ['major', '大改版']] as const).map(([v, t]) => h('option', { value: v }, `${t}（→ ${next(v)}）`)));
   const msg = h('div', { class: 'msg' }, '發佈後，遊戲下次開場就會用新版本。');
   const go = h('button', { class: 'primary' }, '發佈');
   go.onclick = async () => {
@@ -265,7 +272,7 @@ function publishPopup() {
     msg.textContent = '發佈中…';
     try {
       await flush();
-      const r = await api<{ version: string }>('POST', '/publish', { note: note.value.trim() || undefined });
+      const r = await api<{ version: string }>('POST', '/publish', { note: note.value.trim() || undefined, bump: bump.value });
       pub = await api<ContentPack>('GET', `/packs/${r.version}`);
       msg.className = 'msg ok';
       msg.textContent = `已發佈 ${r.version}。`;
@@ -276,7 +283,7 @@ function publishPopup() {
       go.disabled = false;
     }
   };
-  popup(h('h4', {}, '發佈草稿'), h('div', { class: 'row' }, note), msg, h('div', { class: 'row' }, go, h('button', { onclick: closePopup }, '關閉')));
+  popup(h('h4', {}, '發佈草稿'), h('div', { class: 'row' }, note), h('div', { class: 'row' }, bump), msg, h('div', { class: 'row' }, go, h('button', { onclick: closePopup }, '關閉')));
   note.focus();
 }
 
