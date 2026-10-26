@@ -2,7 +2,7 @@ import { radiusOf } from './body';
 import * as C from './config';
 import { meleeClash } from './melee';
 import { addStress, damageUnit, type Ctx } from './damage';
-import { DEG, add, dist, dot, normalize, scale, sub } from './geometry';
+import { DEG, add, angleDiff, angleOf, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
 import type { ContactResult, MovePlan, Stance, UnitState, Vec } from './types';
 import { chassisOf, moveSpeed, pilotOf, readyMelee } from './unit';
@@ -93,6 +93,15 @@ export function simulateMovement(
       bumped.add(m.unit.id);
       const damage = Math.max(0, Math.round(m.path.length) - C.ROCK_SAFE_SPEED);
       ctx.events.push({ type: 'obstacle', t, unit: m.unit.id, obstacle: rock.id, damage });
+      // 彈開一點，機頭偏向隕石表面（擦過去的方向），下回合才轉得出來；不能停的戰機尤其需要
+      const away = sub(m.unit.pos, rock);
+      const n = Math.hypot(away.x, away.y) < 1e-6 ? { x: Math.cos(m.unit.facing + Math.PI), y: Math.sin(m.unit.facing + Math.PI) } : normalize(away);
+      const clear = rock.r + radiusOf(m.unit) + C.ROCK_BOUNCE_GAP;
+      if (dist(m.unit.pos, rock) < clear) m.unit.pos = add(rock, scale(n, clear));
+      const normal = angleOf(n);
+      const tangents = [normal + Math.PI / 2, normal - Math.PI / 2];
+      m.unit.facing = Math.abs(angleDiff(tangents[0], m.unit.facing)) <= Math.abs(angleDiff(tangents[1], m.unit.facing)) ? tangents[0] : tangents[1];
+      ctx.events.push({ type: 'reposition', unit: m.unit.id, to: { ...m.unit.pos } });
       if (damage) {
         damageUnit(ctx, m.unit, damage, 'scattered');
         addStress(ctx, m.unit, damage, '撞上隕石');
@@ -179,8 +188,9 @@ export function simulateMovement(
       return 'none';
     }
     const vc = Math.round(vcRaw);
-    // 近戰姿態：自己高速的是出手方，自己慢速的會咬住或承受衝擊
-    const melee = [a, b].filter((m) => stance[m.unit.id] === 'melee');
+    // 近戰姿態：自己高速的是出手方，自己慢速的會咬住或承受衝擊；隊友之間只會擦撞
+    const allies = a.unit.owner === b.unit.owner;
+    const melee = allies ? [] : [a, b].filter((m) => stance[m.unit.id] === 'melee');
     const fast = (m: Mover) => (m.plan ? moveSpeed(m.plan) : 0) > C.SLOW_MAX_SPEED;
     const attackers = melee.filter(fast);
     const halt = (...ms: Mover[]) => {

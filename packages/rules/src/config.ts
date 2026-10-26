@@ -15,6 +15,8 @@ export const OBSTACLE_GAP = 1.5;
 export const DEPLOY_CLEAR = 5;
 /** 撞上大隕石：傷害與壓力 = 速度 − 這個值 */
 export const ROCK_SAFE_SPEED = 2;
+/** 撞上大隕石後被彈開，和隕石表面留這麼多空隙（才轉得出來） */
+export const ROCK_BOUNCE_GAP = 0.3;
 /** 射擊線穿過隕石群或目標在裡面：命中 − */
 export const FIELD_SHOT_PENALTY = 20;
 /** 高速穿越隕石群：速度超過這個值，每多 1 點有這麼多 % 機率被碎石打中 1 點 */

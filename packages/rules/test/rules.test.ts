@@ -894,3 +894,30 @@ describe('眩光標籤', () => {
     expect(dazzledSeen).toBeGreaterThan(0);
   });
 });
+
+describe('隕石彈開與隊友接觸', () => {
+  it('撞上大隕石後彈開留空隙，機頭偏向隕石表面', () => {
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
+    st.obstacles = [{ id: 'r1', kind: 'rock', x: 9, y: 10.3, r: 1.5 }];
+    const r = resolveTurn(st, [{ [st.units[0].id]: plan({ maneuver: 'straight-S-4' }) }, {}]);
+    const u = r.state.units[0];
+    expect(r.events.some((e) => e.type === 'obstacle')).toBe(true);
+    expect(Math.hypot(u.pos.x - 9, u.pos.y - 10.3)).toBeGreaterThanOrEqual(1.5 + C.BASE_RADIUS + C.ROCK_BOUNCE_GAP - 1e-6);
+    // 機頭大致沿著隕石表面（和指向隕石中心的方向差約 90 度）
+    const toRock = Math.atan2(10.3 - u.pos.y, 9 - u.pos.x);
+    const diff = Math.abs(((u.facing - toRock + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+    expect(Math.abs(diff - Math.PI / 2)).toBeLessThan(0.01);
+  });
+
+  it('隊友之間就算是近戰姿態也只會擦撞', () => {
+    const st = makeState([
+      { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: saberX00, owner: 0, x: 8, y: 10, facingDeg: 180 },
+    ]);
+    const [a, b] = st.units;
+    const r = resolveTurn(st, [{ [a.id]: plan({ maneuver: 'straight-S-3', stance: 'melee' }), [b.id]: plan({ maneuver: 'hover-S-0', stance: 'melee' }) }, {}]);
+    const contact = r.events.find((e) => e.type === 'contact') as Extract<GameEvent, { type: 'contact' }>;
+    expect(contact.result).toBe('bump');
+    expect(r.events.some((e) => e.type === 'clash' || e.type === 'grapple')).toBe(false);
+  });
+});

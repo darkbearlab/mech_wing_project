@@ -21,6 +21,7 @@ npm run dev
 - `npm test`：規則引擎測試
 - `npm run sim -- 500`：批次隨機對戰，粗看數值分布
 - `npm run aisim -- 200`：批次 AI 對 AI，看勝負與退場原因
+- `npm run battle -- 7 mirror`：印出一場 AI 對戰的逐回合紀錄；`npm run battle -- --stats 300 mirror` 統計撞隕石、友軍互撞、集火等問題（`PACK=資料包.json` 可指定資料）
 - `npm run content:check [資料包.json]`：檢查機型／武器／駕駛／配裝資料
 - `TURN_SECONDS=60 npm run dev`：開啟回合計時
 
