@@ -22,7 +22,16 @@
     </header>
     <div id="stage">
       <canvas id="map"></canvas>
-      <div id="unitList"></div>
+      <div id="leftCol">
+        <div id="unitList"></div>
+        <div id="submitCol"></div>
+      </div>
+      <div id="infoCard" class="fcard" hidden><div id="info"></div></div>
+      <div id="cmdCard" class="fcard" hidden>
+        <div id="cmdHead" title="拖曳移動卡片，雙擊恢復自動擺放"><span class="grip">⠿</span><b id="cmdTitle"></b><span class="pin" id="cmdPin"></span></div>
+        <div id="controls"></div>
+        <div id="tipBox"></div>
+      </div>
       <div id="phaseHint"></div>
       <div id="viewCtl">
         <button data-view="left" title="向左旋轉（Q）">⟲</button>
@@ -37,11 +46,6 @@
       </div>
       <div id="confirm" hidden></div>
     </div>
-    <section id="panel">
-      <div id="info"></div>
-      <div id="controls"></div>
-      <div id="submitCol"></div>
-    </section>
     <div id="cover" hidden></div>
     <div id="help" hidden>
       <div class="helpBox">
@@ -54,7 +58,7 @@
           <li><b>行動</b>：看到移動後的實際位置，替每台機體選一件裝備（射擊武器、要拔出的武器或頭部感測器），再點地圖上的敵機當目標，按「送出指令」。駕駛技能高的先結算。</li>
         </ol>
         <p><b>射擊</b>：所選機體周圍的淡圈是射程（由內而外：近／中／遠距離），超過最外圈打不到。開場雙方相距很遠，要先靠近幾回合。滑鼠移到敵機上會顯示估計命中率。</p>
-        <p><b>近戰</b>：手上拿光劍或熱能斧、姿態選「突進」，移動時撞上敵機就會出手。滑鼠停在姿態按鈕上可以看各種接觸的結果。武器收著的話，要先在行動步驟「拔出」。</p>
+        <p><b>近戰</b>：姿態選「突進」，移動時撞上敵機就會出手。相對速度 2 以下會纏在一起；3 以上是一擊脫離，雙方擲骰比近戰技巧（D6 擲出 5 以上算成功，駕駛技能越高骰越多），贏越多傷害越大。手上沒有近戰武器的突進則是撞擊。武器收著的話，要先在行動步驟「拔出」。</p>
         <p><b>資源</b>：推進劑是整場的預算，用完只能慢慢飛。壓力是駕駛的負荷，超過上限會黑視、受傷，甚至昏迷。高速和急轉都會加壓力。</p>
         <p><b>隱藏資訊</b>：對手看得到你的機體和受損部位，看不到你的駕駛、壓力和推進劑。本機模式下換人時畫面會先蓋住。</p>
         <p><b>視角</b>：左鍵拖曳平移、右鍵拖曳（或 Shift＋左鍵拖曳）旋轉與傾斜、滾輪縮放。鍵盤 Q／E 旋轉、T 切換俯視、R 重置。</p>

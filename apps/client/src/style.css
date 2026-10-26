@@ -27,7 +27,7 @@ canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 #viewCtl { position: absolute; right: 10px; top: 10px; z-index: 3; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 300px; }
 #viewCtl button { font-size: 13px; padding: 3px 9px; opacity: 0.9; }
 #viewCtl .small { width: 100%; text-align: right; text-shadow: 0 0 3px #000; }
-#unitList { position: absolute; left: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
+#unitList { display: flex; flex-direction: column; gap: 6px; }
 .ucard { width: 140px; background: rgba(24, 32, 41, 0.92); border: 1px solid var(--line); border-left: 4px solid var(--a); border-radius: 6px; padding: 5px 8px; cursor: pointer; font-size: 12.5px; }
 .ucard.enemy { border-left-color: var(--b); }
 .ucard.sel { outline: 2px solid var(--accent); }
@@ -50,20 +50,29 @@ canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 .dlg { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; width: 340px; }
 .dlg h3 { margin: 0 0 6px; }
 
-/* 下方指令面板 */
-#panel { flex: none; height: 210px; display: grid; grid-template-columns: 250px minmax(0, 1fr) 150px; border-top: 1px solid var(--line); background: var(--panel); }
-#panel > div { padding: 10px 12px; overflow: auto; }
-#info, #controls { border-right: 1px solid var(--line); }
-#submitCol { display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; }
-#submitCol .big { width: 100%; padding: 10px 0; font-size: 15px; }
+/* 浮動卡片 */
+#leftCol { position: absolute; left: 10px; top: 10px; z-index: 3; display: flex; flex-direction: column; gap: 6px; width: 140px; }
+#unitList { position: static; }
+#submitCol { display: flex; flex-direction: column; gap: 6px; }
+#submitCol .big { width: 100%; padding: 9px 0; font-size: 15px; }
+#submitCol h3 { margin: 4px 0; text-align: center; }
+.fcard { position: absolute; z-index: 4; background: rgba(24, 32, 41, 0.95); border: 1px solid #3a4a5c; border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); }
+.fcard[hidden] { display: none; }
+#infoCard { right: 10px; top: 76px; width: 230px; max-height: calc(100% - 140px); overflow: auto; }
+#cmdCard { width: 236px; left: 0; top: 0; }
+#cmdHead { display: flex; align-items: center; gap: 6px; margin: -2px 0 6px; cursor: grab; user-select: none; }
+#cmdHead .grip { color: var(--muted); }
+#cmdHead .pin { margin-left: auto; font-size: 11px; color: var(--muted); }
+#tipBox { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; font-size: 12px; line-height: 1.5; color: #b9c4d0; min-height: 54px; }
 .uname { font-size: 15px; font-weight: bold; }
 .body { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 1px 8px; margin: 6px 0 4px; font-size: 12.5px; text-align: center; }
-.equip > span { white-space: nowrap; margin-right: 8px; display: inline-block; }
 .equip { font-size: 12.5px; line-height: 1.5; }
+.equip > span { white-space: nowrap; margin-right: 8px; display: inline-block; }
 .hurt { color: var(--accent); }
 .dead { color: var(--b); }
-.ctrlRow { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
-.sec { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.sec { font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
+.optList { display: flex; flex-direction: column; gap: 3px; }
+.optList button { text-align: left; }
 
 button { background: #24303c; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; font: inherit; }
 button:hover { background: #2d3b4a; }
@@ -86,10 +95,6 @@ select, input { background: #0f1419; color: var(--text); border: 1px solid var(-
 .mv.fuel { box-shadow: inset 0 -3px 0 #d9b23a; }
 .mv:disabled { opacity: 0.22; }
 
-/* 滑鼠停留說明 */
-.tip { position: relative; display: inline-block; }
-.tip .pop { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; width: 260px; background: #222d38; border: 1px solid #3a4a5c; border-radius: 6px; padding: 6px 9px; font-size: 12.5px; line-height: 1.55; z-index: 10; pointer-events: none; }
-.tip:hover .pop { display: block; }
 
 /* 換手遮罩與說明 */
 #cover { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; text-align: center; font-size: 18px; z-index: 30; }

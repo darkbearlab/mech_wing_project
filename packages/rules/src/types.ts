@@ -20,6 +20,8 @@ export interface EquipDef {
   mode?: DamageMode;
   /** 各距離帶的命中修正；沒有列出的距離帶不能射擊。Range 0 一律可用（零距離射擊）。 */
   ranges?: Partial<Record<1 | 2 | 3, number>>;
+  /** 近戰對決的額外骰數（重武器較多） */
+  meleeDice?: number;
   fuel?: number;
 }
 
@@ -147,7 +149,21 @@ export type GameEvent =
   | { type: 'turnStart'; turn: number }
   | { type: 'move'; unit: string; samples: [number, number, number][] }
   | { type: 'contact'; t: number; a: string; b: string; vc: number; result: ContactResult }
-  | { type: 'strike'; t: number; attacker: string; defender: string; weapon: string; outcome: 'hit' | 'parried' | 'blocked'; angle: 'front' | 'side' | 'back'; chance?: number }
+  | {
+      type: 'clash';
+      t: number;
+      attacker: string;
+      defender: string;
+      angle: 'front' | 'side' | 'back';
+      /** blade：雙方對砍；shield：用盾格擋；dodge：只能閃避；none：被從背後砍中 */
+      defense: 'blade' | 'shield' | 'dodge' | 'none';
+      attDice: number[];
+      defDice: number[];
+      attHits: number;
+      defHits: number;
+      winner: string | null;
+      damage: number;
+    }
   | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number }
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }

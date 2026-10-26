@@ -1,7 +1,6 @@
 import * as C from './config';
-import { addStress, damageUnit, type Ctx } from './damage';
+import { damageUnit, type Ctx } from './damage';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
-import { EQUIPMENT } from './data';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
 import { chassisOf, equipDef, heldOfKind, partAlive, pilotOf, shieldHand } from './unit';
 
@@ -120,31 +119,4 @@ export function contactAngle(def: UnitState, from: Vec): AngleClass {
   if (rel <= C.FRONT_ARC_DEG * DEG) return 'front';
   if (rel >= C.BACK_ARC_DEG * DEG) return 'back';
   return 'side';
-}
-
-/** 一擊脫離的斬擊（含防守方的自動反應） */
-export function strike(ctx: Ctx, attacker: UnitState, defender: UnitState, t: number): void {
-  const blade = heldOfKind(attacker, 'melee');
-  if (!blade) return;
-  const def = EQUIPMENT[blade.defId];
-  const angle = contactAngle(defender, attacker.pos);
-  if (angle === 'front' && heldOfKind(defender, 'melee')) {
-    const chance = C.PARRY_BASE + pilotOf(defender).skill * C.PARRY_PER_SKILL;
-    if (ctx.rng.d100() <= chance) {
-      ctx.events.push({ type: 'strike', t, attacker: attacker.id, defender: defender.id, weapon: def.id, outcome: 'parried', angle, chance });
-      return;
-    }
-  }
-  const shield = shieldPart(defender);
-  if (shield && angle !== 'back' && inShieldArc(defender, attacker.pos)) {
-    const chance = blockChance(defender);
-    if (ctx.rng.d100() <= chance) {
-      ctx.events.push({ type: 'strike', t, attacker: attacker.id, defender: defender.id, weapon: def.id, outcome: 'blocked', angle, chance });
-      damageUnit(ctx, defender, def.damage ?? 1, 'focused', shield);
-      return;
-    }
-  }
-  ctx.events.push({ type: 'strike', t, attacker: attacker.id, defender: defender.id, weapon: def.id, outcome: 'hit', angle });
-  if (angle === 'back') addStress(ctx, defender, C.BACKSTAB_STRESS, '背後偷襲');
-  damageUnit(ctx, defender, def.damage ?? 1, 'focused');
 }

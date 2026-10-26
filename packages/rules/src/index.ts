@@ -5,6 +5,7 @@ export * from './geometry';
 export * from './maneuvers';
 export * from './unit';
 export * from './combat';
+export * from './melee';
 export * from './grapple';
 export * from './movement';
 export * from './resolve';

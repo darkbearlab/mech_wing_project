@@ -16,16 +16,23 @@ export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;
 export const FACING_OFFSETS = [0, 45, -45, 90, -90, 180] as const;
 export const HOVER_EVASION_PENALTY = 10;
 export const LIMITER_STRESS = 2;
-/** 技能達到此值的駕駛，一擊脫離的 Vc 上限 +1 */
+/** 技能達到此值的駕駛算王牌（高速出刀的負荷門檻較高） */
 export const ACE_SKILL = 5;
 
 // 接觸
-export const CLINCH_MAX_VC = 1;
-export const HIT_RUN_MAX_VC = 3;
-export const RAM_MIN_VC = 4;
+/** 突進接觸：相對速度 2 以下纏鬥，3 以上一擊脫離（沒拿近戰武器則是撞擊） */
+export const CLINCH_MAX_VC = 2;
+/** 一擊脫離的高速負荷：相對速度達到這個值起，每多 1 點出手方壓力 +1（王牌門檻較高） */
+export const HIGH_SPEED_FROM = 5;
+export const ACE_HIGH_SPEED_FROM = 6;
 export const SOFTEN_STRESS = 1;
-export const PARRY_BASE = 30;
-export const PARRY_PER_SKILL = 5;
+// 近戰對決（骰池，D6 擲出 5 以上算成功）
+export const MELEE_BASE_DICE = 2;
+export const MELEE_CHARGE_DIE = 1;
+export const MELEE_SIDE_PENALTY = 1;
+export const MELEE_SLUGGISH_PENALTY = 2;
+export const MELEE_SUCCESS_ON = 5;
+export const MELEE_TIE_STRESS = 1;
 export const BACKSTAB_STRESS = 2;
 export const FRONT_ARC_DEG = 60;
 export const BACK_ARC_DEG = 120;

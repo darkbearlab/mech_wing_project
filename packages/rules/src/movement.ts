@@ -1,5 +1,5 @@
 import * as C from './config';
-import { strike } from './combat';
+import { meleeClash } from './melee';
 import { addStress, damageUnit, type Ctx } from './damage';
 import { DEG, add, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
@@ -144,22 +144,16 @@ export function simulateMovement(
       }
     };
 
+    // 沒人突進：只算擦撞。突進：相對速度低就纏鬥，高就一擊脫離（沒拿近戰武器則是撞擊）
+    const bladed = attackers.filter((m) => heldOfKind(m.unit, 'melee'));
     let result: ContactResult;
-    if (attackers.length === 0) {
-      result = vc >= C.RAM_MIN_VC ? 'ram' : 'bump';
-    } else {
-      const bands = attackers.map((m) => {
-        const hitRunMax = C.HIT_RUN_MAX_VC + (pilotOf(m.unit).skill >= C.ACE_SKILL ? 1 : 0);
-        let band = vc <= C.CLINCH_MAX_VC ? 0 : vc <= hitRunMax ? 1 : 2;
-        if (m.plan?.soften && band > 0) {
-          band--;
-          addStress(ctx, m.unit, C.SOFTEN_STRESS, '收刀');
-        }
-        return band;
-      });
-      const band = Math.min(...bands);
-      result = band === 0 ? 'clinch' : band === 1 ? 'hitrun' : 'ram';
-      if (result === 'hitrun' && !attackers.some((m) => heldOfKind(m.unit, 'melee'))) result = vc >= C.RAM_MIN_VC ? 'ram' : 'bump';
+    if (attackers.length === 0) result = 'bump';
+    else if (vc <= C.CLINCH_MAX_VC) result = 'clinch';
+    else {
+      result = bladed.length ? 'hitrun' : 'ram';
+      const softeners = attackers.filter((m) => m.plan?.soften);
+      for (const m of softeners) addStress(ctx, m.unit, C.SOFTEN_STRESS, '收刀');
+      if (softeners.length) result = 'clinch';
     }
     emit(vc, result);
 
@@ -173,27 +167,35 @@ export function simulateMovement(
         halt(a, b);
         ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: null });
         break;
-      case 'hitrun':
-        for (const m of attackers) {
-          const other = m === a ? b : a;
-          if (heldOfKind(m.unit, 'melee')) strike(ctx, m.unit, other.unit, t);
+      case 'hitrun': {
+        for (const m of bladed) {
+          const from = pilotOf(m.unit).skill >= C.ACE_SKILL ? C.ACE_HIGH_SPEED_FROM : C.HIGH_SPEED_FROM;
+          if (vc >= from) addStress(ctx, m.unit, vc - from + 1, '高速出刀');
         }
+        const att = bladed[0];
+        const def = att === a ? b : a;
+        meleeClash(ctx, att.unit, def.unit, t, stance[def.unit.id] === 'charge');
         break;
+      }
       case 'ram':
         halt(a, b);
-        ram(ctx, a, b, vc);
+        ram(ctx, attackers, a, b, vc);
         break;
     }
     return result;
   }
 
-  function ram(ctx: Ctx, a: Mover, b: Mover, vc: number) {
+  /** 撞擊：被撞的一方受「相對速度＋重量差」傷害，撞人的一方自己承受一半；雙方都突進則各自吃對方的撞擊 */
+  function ram(ctx: Ctx, rammers: Mover[], a: Mover, b: Mover, vc: number) {
     const wa = chassisOf(a.unit).weightClass;
     const wb = chassisOf(b.unit).weightClass;
-    damageUnit(ctx, a.unit, Math.max(1, vc + wb - wa), 'scattered');
-    damageUnit(ctx, b.unit, Math.max(1, vc + wa - wb), 'scattered');
-    addStress(ctx, a.unit, vc + Math.max(0, wb - wa), '撞擊');
-    addStress(ctx, b.unit, vc + Math.max(0, wa - wb), '撞擊');
+    const hitA = Math.max(1, vc + wb - wa);
+    const hitB = Math.max(1, vc + wa - wb);
+    const both = rammers.length === 2;
+    damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered');
+    damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered');
+    addStress(ctx, a.unit, Math.floor(vc / 2), '撞擊');
+    addStress(ctx, b.unit, Math.floor(vc / 2), '撞擊');
     if (wa === wb) return;
     const [heavy, light] = wa > wb ? [a, b] : [b, a];
     const dir = normalize(sub(light.unit.pos, heavy.unit.pos));

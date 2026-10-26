@@ -6,7 +6,7 @@ export const EQUIPMENT: Record<string, EquipDef> = {
   sniper: { id: 'sniper', name: '狙擊步槍', kind: 'ranged', weight: 2, durability: 2, damage: 4, shots: 1, mode: 'focused', ranges: { 2: -10, 3: 10 } },
   bazooka: { id: 'bazooka', name: '火箭砲', kind: 'ranged', weight: 2, durability: 2, damage: 5, shots: 1, mode: 'focused', ranges: { 1: 0, 2: -5 } },
   beam_saber: { id: 'beam_saber', name: '光劍', kind: 'melee', weight: 1, durability: 1, damage: 3, mode: 'focused' },
-  heat_axe: { id: 'heat_axe', name: '熱能斧', kind: 'melee', weight: 1, durability: 2, damage: 4, mode: 'focused' },
+  heat_axe: { id: 'heat_axe', name: '熱能斧', kind: 'melee', weight: 1, durability: 2, damage: 4, mode: 'focused', meleeDice: 1 },
   shield: { id: 'shield', name: '盾牌', kind: 'shield', weight: 4, durability: 6 },
   fuel_tank: { id: 'fuel_tank', name: '外掛燃料槽', kind: 'tank', weight: 2, durability: 1, fuel: 4 },
 };

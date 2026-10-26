@@ -50,20 +50,19 @@ describe('機動模板', () => {
 });
 
 describe('同時移動與接觸', () => {
-  it('高速對衝且無人突進 → 撞擊，同重量雙方停住', () => {
+  it('沒人突進的接觸不管多快都只是擦撞', () => {
     const st = makeState([
       { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 10, y: 10, facingDeg: 180 },
     ]);
     const r = duel(plan({ maneuver: 'straight-S-3' }), plan({ maneuver: 'straight-S-3' }), st);
     const c = of(r.events, 'contact')[0];
-    expect(c.result).toBe('ram');
     expect(c.vc).toBe(6);
-    expect(r.state.units[0].pos.x).toBeLessThan(8);
-    expect(of(r.events, 'stress').filter((e) => e.reason === '撞擊').map((e) => e.amount)).toEqual([6, 6]);
+    expect(c.result).toBe('bump');
+    expect(of(r.events, 'damage')).toHaveLength(0);
   });
 
-  it('同向追上、相對速度低 → 纏鬥', () => {
+  it('突進：相對速度 2 以下纏鬥', () => {
     const st = makeState([
       { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 6.5, y: 10, facingDeg: 0 },
@@ -73,42 +72,86 @@ describe('同時移動與接觸', () => {
     expect(r.state.grapples).toHaveLength(1);
   });
 
-  it('突進撞上懸停目標 → 一擊脫離，攻擊方走完路徑', () => {
+  it('突進：相對速度 3 以上一擊脫離，用骰池比成功數，攻擊方走完路徑', () => {
     const st = makeState([
       { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
     ]);
     const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('hitrun');
-    expect(of(r.events, 'strike')[0].outcome).toBe('hit');
+    const clash = of(r.events, 'clash')[0];
+    // 老兵：2 + 技能 3 + 突進 1
+    expect(clash.attDice).toHaveLength(6);
+    // 防守方只拿步槍：一半骰數閃避（2 + 3 = 5 → 2）
+    expect(clash.defense).toBe('dodge');
+    expect(clash.defDice).toHaveLength(2);
     expect(r.state.grapples).toHaveLength(0);
     expect(r.state.units[0].pos.x).toBeGreaterThan(7.4);
   });
 
-  it('王牌在 Vc 4 仍能一擊脫離；老兵則是撞擊，收刀可降一檔', () => {
+  it('雙方都拿刀時對砍，贏的一方造成傷害，差距越大傷害越高', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const st = makeState(
+        [
+          { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+          { entry: saberX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
+        ],
+        seed,
+      );
+      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+      const c = of(r.events, 'clash')[0];
+      expect(c.defense).toBe('blade');
+      const margin = Math.abs(c.attHits - c.defHits);
+      if (c.winner === null) expect(margin).toBe(0);
+      else expect(c.damage).toBe(3 + margin - 1);
+    }
+  });
+
+  it('從背後砍：防守方不擲骰，直接中刀', () => {
+    const st = makeState([
+      { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: saberX00, owner: 1, x: 8.5, y: 10, facingDeg: 0 },
+    ]);
+    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+    const c = of(r.events, 'clash')[0];
+    expect(c.defense).toBe('none');
+    expect(c.winner).toBe(st.units[0].id);
+  });
+
+  it('高速出刀加壓力，王牌門檻較高；收刀改成纏鬥', () => {
     const mk = (pilot: string) =>
       makeState([
         { entry: { ...saberX00, pilot }, owner: 0, x: 5, y: 10, facingDeg: 0 },
-        { entry: rifleX00, owner: 1, x: 9, y: 10, facingDeg: 180 },
+        { entry: rifleX00, owner: 1, x: 11, y: 10, facingDeg: 180 },
       ]);
     const charge = plan({ maneuver: 'straight-S-4', stance: 'charge' });
-    const hover = plan({ maneuver: 'hover-S-0' });
-    expect(of(duel(charge, hover, mk('ace')).events, 'contact')[0].result).toBe('hitrun');
-    expect(of(duel(charge, hover, mk('veteran')).events, 'contact')[0].result).toBe('ram');
-    const soft = duel({ ...charge, soften: true }, hover, mk('veteran'));
-    expect(of(soft.events, 'contact')[0].result).toBe('hitrun');
-    expect(of(soft.events, 'stress').some((e) => e.reason === '收刀')).toBe(true);
+    const rush = plan({ maneuver: 'straight-S-2' });
+    const speedStress = (events: GameEvent[]) => of(events, 'stress').find((e) => e.reason === '高速出刀')?.amount ?? 0;
+    expect(speedStress(duel(charge, rush, mk('veteran')).events)).toBe(2);
+    expect(speedStress(duel(charge, rush, mk('ace')).events)).toBe(1);
+    const soft = duel({ ...charge, soften: true }, rush, mk('veteran'));
+    expect(of(soft.events, 'contact')[0].result).toBe('clinch');
   });
 
-  it('沒拿刃類武器的突進 → 擦撞，該回合無法行動', () => {
+  it('突進但手上沒有近戰武器 → 撞擊，被撞的一方傷得比較重', () => {
     const st = makeState([
       { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge', action: { type: 'shoot', weapon: st.units[0].equipment[0].id, target: st.units[1].id } }), plan({ maneuver: 'hover-S-0' }), st);
-    expect(of(r.events, 'contact')[0].result).toBe('bump');
-    expect(of(r.events, 'shot')).toHaveLength(0);
-    expect(of(r.events, 'actionFail')[0].reason).toContain('擦撞');
+    const r = duel(plan({ maneuver: 'straight-S-3', stance: 'charge' }), plan({ maneuver: 'hover-S-0' }), st);
+    expect(of(r.events, 'contact')[0].result).toBe('ram');
+    const dmg = (id: string) => of(r.events, 'damage').filter((e) => e.unit === id).reduce((t, e) => t + e.amount, 0);
+    expect(dmg(st.units[1].id)).toBe(3);
+    expect(dmg(st.units[0].id)).toBe(1);
+  });
+
+  it('沒拿刃類武器的突進慢速接觸 → 纏鬥', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 6.5, y: 10, facingDeg: 0 },
+    ]);
+    const r = duel(plan({ maneuver: 'straight-S-4', stance: 'charge' }), plan({ maneuver: 'straight-S-3' }), st);
+    expect(of(r.events, 'contact')[0].result).toBe('clinch');
   });
 
   it('移動結果與機體在陣列中的順序無關', () => {
@@ -254,7 +297,7 @@ describe('回合分兩步', () => {
       { entry: rifleX00, owner: 1, x: 8.5, y: 10, facingDeg: 180 },
     ]);
     const m = new Match(1, st);
-    m.submitMoves(0, { [st.units[0].id]: plan({ maneuver: 'straight-S-3', stance: 'charge' }) });
+    m.submitMoves(0, { [st.units[0].id]: plan({ maneuver: 'straight-S-3' }) });
     m.submitMoves(1, { [st.units[1].id]: plan({ maneuver: 'hover-S-0' }) });
     expect(m.viewFor(1).state.bumped).toContain(st.units[0].id);
   });
@@ -321,9 +364,11 @@ describe('勝負與 AI', () => {
           const errors = m.phase === 'move' ? m.submitMoves(p, aiMoves(v, rng)) : m.submitActions(p, aiActions(v, rng));
           expect(errors).toEqual([]);
         }
+        // 飛出地圖只能是被甩開或撞開，不能是自己開出去
+        const ev = m.turnResolvedEvents;
+        for (const e of ev) if (e.type === 'status' && e.status === 'withdrawn') expect(ev.some((x) => (x.type === 'reposition' || x.type === 'knockback') && x.unit === e.unit)).toBe(true);
       }
       expect(m.phase).toBe('over');
-      expect(m.state.units.some((u) => u.status === 'withdrawn')).toBe(false);
     }
   });
 });

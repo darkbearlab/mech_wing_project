@@ -441,6 +441,8 @@ function drawFrame(now: number) {
     drawPreviews();
     drawUnits(view.state.units.map((u) => ({ u, pos: u.pos, f: u.facing })));
     drawHoverHint();
+    placeCard();
+    drawCardLink();
     return;
   }
   const beat = show.beats[show.index];
@@ -553,7 +555,14 @@ function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Dis
     const b = posOf(c.b, over)!;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     if (c.result === 'hitrun') {
-      for (const st of related) if (st.type === 'strike') drawSlash(posOf(st.defender, over)!, posOf(st.attacker, over)!, p, st.outcome);
+      for (const cl of related) {
+        if (cl.type !== 'clash') continue;
+        const att = posOf(cl.attacker, over)!;
+        const def = posOf(cl.defender, over)!;
+        if (cl.winner === cl.attacker) drawSlash(def, att, p, 'hit');
+        else if (cl.winner && cl.damage) drawSlash(att, def, p, 'counter');
+        else drawSlash(def, att, p, cl.winner ? (cl.defense === 'shield' ? 'blocked' : 'dodged') : 'tie');
+      }
     } else {
       const colour = { ram: '255,138,61', clinch: '190,150,255', bump: '200,200,200', hitrun: '', none: '' }[c.result];
       g.strokeStyle = `rgba(${colour},${1 - p})`;
@@ -563,12 +572,14 @@ function drawContact(beat: Beat, pause: number, p: number, over: Map<string, Dis
       g.lineWidth = 1;
     }
     const title = { ram: '撞擊！', clinch: '纏鬥！', bump: '擦撞', hitrun: '一擊脫離！', none: '' }[c.result];
-    drawBanner(`${labelOf(c.a)} × ${labelOf(c.b)}（相對速度 ${c.vc}）：${title}`);
+    const clash = related.find((e): e is Extract<GameEvent, { type: 'clash' }> => e.type === 'clash');
+    drawBanner(clash && p > 0.25 ? clashText(clash) : `${labelOf(c.a)} × ${labelOf(c.b)}（相對速度 ${c.vc}）：${title}`);
   }
   drawDamageFloats(related, 250, p * 900, over);
 }
 
-function drawSlash(def: Vec, att: Vec, p: number, outcome: 'hit' | 'parried' | 'blocked') {
+/** 斬擊弧線畫在被砍的一方身上；counter 時 def 其實是被反斬的攻擊方 */
+function drawSlash(def: Vec, att: Vec, p: number, outcome: 'hit' | 'counter' | 'blocked' | 'dodged' | 'tie') {
   const base = Math.atan2(att.y - def.y, att.x - def.x);
   const sweep = Math.min(1, p * 2.5);
   g.strokeStyle = `rgba(255,255,255,${p < 0.6 ? 1 : (1 - p) / 0.4})`;
@@ -576,8 +587,9 @@ function drawSlash(def: Vec, att: Vec, p: number, outcome: 'hit' | 'parried' | '
   ringWorld(def.x, def.y, 0.9, UNIT_Z, base - 1.3, base - 1.3 + 2.6 * sweep, 20);
   g.stroke();
   g.lineWidth = 1;
-  if (outcome !== 'hit' && p > 0.3) dotAt(fx({ x: (def.x + att.x) / 2, y: (def.y + att.y) / 2 }), 8 + p * 10, `rgba(150,220,255,${1 - p})`);
-  drawFloat(def, { hit: '斬！', parried: '架開', blocked: '盾擋' }[outcome], outcome === 'hit' ? '#ffffff' : '#9fe0ff', p * 0.9, 2);
+  const struck = outcome === 'hit' || outcome === 'counter';
+  if (!struck && p > 0.3) dotAt(fx({ x: (def.x + att.x) / 2, y: (def.y + att.y) / 2 }), 8 + p * 10, `rgba(150,220,255,${1 - p})`);
+  drawFloat(def, { hit: '斬！', counter: '反斬！', blocked: '盾擋', dodged: '閃開', tie: '刀刃相抵' }[outcome], struck ? '#ffffff' : '#9fe0ff', p * 0.9, 2);
 }
 
 const WEAPON_STYLE: Record<string, { colour: string; size: number; beam: boolean }> = {
@@ -986,22 +998,160 @@ function renderUnitList() {
 
 function renderPanel() {
   if (!view) {
-    $('info').innerHTML = '';
-    $('controls').innerHTML = '';
+    $('infoCard').hidden = true;
+    $('cmdCard').hidden = true;
     $('submitCol').innerHTML = '';
     return;
   }
   $('phaseHint').textContent = replayNow
-    ? `重播中：第 ${replayNow.turn} 回合・${replayNow.phase === 'move' ? '移動' : '行動'}`
-    : show || view.submitted[view.you] || local?.opponent === 'aivai'
-      ? ''
-      : PHASE_HINT[view.phase];
+    ? `重播中：第 ${replayNow.turn} 回合・${replayNow.phase === 'move' ? '移動' : '行動'}（剩 ${replayQueue?.length ?? 0} 段）`
+    : local?.opponent === 'aivai' && view.phase !== 'over'
+      ? '觀戰中：雙方都由電腦操作，會自動進行到分出勝負'
+      : show || view.submitted[view.you]
+        ? ''
+        : PHASE_HINT[view.phase];
   const u = selected ? unitView(selected) : undefined;
-  $('info').innerHTML = u ? infoHtml(u) : '<span class="muted">點左側或地圖上的機體</span>';
-  $('controls').innerHTML = controlsHtml(u);
+  $('info').innerHTML = u ? infoHtml(u) : '';
+  $('infoCard').hidden = !u;
+  const ctrl = controlsHtml(u);
+  $('controls').innerHTML = ctrl;
+  $('cmdCard').hidden = !ctrl;
+  if (ctrl && u) {
+    $('cmdTitle').textContent = `${u.label.split(' ')[0]}・${view.phase === 'move' ? (inGrapple(u.id) ? '纏鬥' : '移動') : '行動'}`;
+    $('cmdPin').textContent = cardPinned ? '已固定・雙擊還原' : '';
+    defaultTip = defaultTipFor(u);
+    $('tipBox').textContent = defaultTip;
+  }
   bindControls(u);
+  bindTips();
   renderSubmit();
   renderUnitList();
+  placeCard();
+}
+
+// ---- 指令卡：說明區、自動擺放與拖曳 ----
+
+let defaultTip = '';
+/** 拖曳過的卡片會固定在那個位置，雙擊標題列恢復自動擺放 */
+let cardPinned: { x: number; y: number } | null = null;
+let cardSide = -1;
+let cardRect: { x: number; y: number; w: number; h: number } | null = null;
+
+function defaultTipFor(u: UnitView): string {
+  if (view!.phase === 'move') {
+    if (inGrapple(u.id)) return '纏鬥中：本回合不移動。滑鼠停在選項上看說明。';
+    const m = parseManeuver(moveDrafts[u.id].maneuver);
+    const c = planCost(moveDrafts[u.id]);
+    return `已選 ${m.name}：推進劑 −${c.propellant}、壓力 +${c.stress}。滑鼠停在按鈕上可預覽路徑與看說明；紅字會加壓力，黃底線會耗推進劑。`;
+  }
+  const plan = actionDrafts[u.id];
+  const a = plan?.action;
+  if (!a || a.type === 'none') return plan?.swap ? '拔出武器。' : '選一件裝備，再點地圖上的敵機當目標。';
+  if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
+  const t = unitView(a.target);
+  return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。命中率是估計值，看不到對手的駕駛與姿態。`;
+}
+
+function bindTips() {
+  const box = $('tipBox');
+  $('cmdCard')
+    .querySelectorAll<HTMLElement>('[data-tip]')
+    .forEach((el) => {
+      el.addEventListener('mouseenter', () => (box.textContent = el.dataset.tip!));
+      el.addEventListener('mouseleave', () => (box.textContent = defaultTip));
+    });
+}
+
+const relRect = (el: HTMLElement, stage: DOMRect) => {
+  const r = el.getBoundingClientRect();
+  return { x: r.left - stage.left, y: r.top - stage.top, w: r.width, h: r.height };
+};
+const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) =>
+  Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+/** 在機體的右、左、上、下挑一個最不擋到其他機體與浮層、也不超出畫面的位置 */
+function placeCard() {
+  const card = $('cmdCard');
+  if (card.hidden) {
+    cardRect = null;
+    return;
+  }
+  const u = selected ? unitView(selected) : undefined;
+  if (!u) return;
+  const stage = $('stage').getBoundingClientRect();
+  const w = card.offsetWidth;
+  const h = card.offsetHeight;
+  const clamp = (x: number, y: number) => ({ x: Math.max(4, Math.min(W - w - 4, x)), y: Math.max(4, Math.min(H - h - 4, y)) });
+  let pos: { x: number; y: number };
+  if (cardPinned) {
+    pos = clamp(cardPinned.x, cardPinned.y);
+  } else {
+    const p = fx(u.pos);
+    const gap = 34;
+    const cands = [
+      { x: p.x + gap, y: p.y - h / 2 },
+      { x: p.x - gap - w, y: p.y - h / 2 },
+      { x: p.x - w / 2, y: p.y - gap - h },
+      { x: p.x - w / 2, y: p.y + gap },
+    ];
+    const blockers = [$('leftCol'), $('viewCtl'), $('log')].map((el) => relRect(el, stage));
+    if (!$('infoCard').hidden) blockers.push(relRect($('infoCard'), stage));
+    const others = view!.state.units.filter((x) => x.id !== u.id).map((x) => fx(x.pos));
+    let best = 0;
+    let bestScore = Infinity;
+    cands.forEach((c, i) => {
+      const r = { x: c.x, y: c.y, w, h };
+      const off = Math.max(0, -c.x) + Math.max(0, c.x + w - W) + Math.max(0, -c.y) + Math.max(0, c.y + h - H);
+      let score = off * 8 + (i === cardSide ? 0 : 40);
+      for (const o of others) if (o.visible && o.x > c.x - 14 && o.x < c.x + w + 14 && o.y > c.y - 14 && o.y < c.y + h + 14) score += 400;
+      for (const b of blockers) score += overlap(r, b) / 40;
+      if (score < bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    });
+    cardSide = best;
+    pos = clamp(cands[best].x, cands[best].y);
+  }
+  card.style.left = `${pos.x}px`;
+  card.style.top = `${pos.y}px`;
+  cardRect = { x: pos.x, y: pos.y, w, h };
+}
+
+/** 卡片與機體之間的細線 */
+function drawCardLink() {
+  const u = selected ? unitView(selected) : undefined;
+  if (!cardRect || !u || show) return;
+  const p = fx(u.pos);
+  const x = Math.max(cardRect.x, Math.min(cardRect.x + cardRect.w, p.x));
+  const y = Math.max(cardRect.y, Math.min(cardRect.y + cardRect.h, p.y));
+  g.strokeStyle = 'rgba(255,207,74,0.55)';
+  g.beginPath();
+  g.moveTo(p.x, p.y);
+  g.lineTo(x, y);
+  g.stroke();
+}
+
+{
+  const head = $('cmdHead');
+  let drag: { mx: number; my: number; x: number; y: number } | null = null;
+  head.addEventListener('mousedown', (e) => {
+    const card = $('cmdCard');
+    drag = { mx: e.clientX, my: e.clientY, x: card.offsetLeft, y: card.offsetTop };
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    cardPinned = { x: drag.x + e.clientX - drag.mx, y: drag.y + e.clientY - drag.my };
+    $('cmdPin').textContent = '已固定・雙擊還原';
+    placeCard();
+  });
+  window.addEventListener('mouseup', () => (drag = null));
+  head.addEventListener('dblclick', () => {
+    cardPinned = null;
+    $('cmdPin').textContent = '';
+    placeCard();
+  });
 }
 
 // ---- 左欄：機體資料與部位 ----
@@ -1048,16 +1198,8 @@ function resultText(): string {
 }
 
 function controlsHtml(u: UnitView | undefined): string {
-  if (replayNow) return `<span class="muted">重播第 ${replayNow.turn} 回合的${replayNow.phase === 'move' ? '移動' : '行動'}結算（共 ${replays[seat].length} 段，剩 ${replayQueue?.length ?? 0} 段）</span>`;
-  if (show) return '<span class="muted">結算演出中…</span>';
-  if (view!.phase === 'over') {
-    return `<h3>${resultText()}</h3><div class="row"><button class="primary" id="replayBtn" ${replays[seat].length ? '' : 'disabled'}>重播整場戰鬥</button><button id="againBtn">再來一場</button></div><div class="small muted">重播只播每回合的結算演出，可以逐段跳過。</div>`;
-  }
-  if (local?.opponent === 'aivai') return '<span class="muted">觀戰中：雙方都由電腦操作，會自動進行到分出勝負。</span>';
-  if (!u) return '';
-  if (u.owner !== view!.you) return '<span class="muted">敵方機體：只能查看外觀與受損部位，看不到駕駛、壓力與推進劑。</span>';
-  if (u.status !== 'active') return '<span class="muted">這台機體已經不能行動。</span>';
-  if (view!.submitted[view!.you]) return '<span class="muted">已送出，等待對手…</span>';
+  if (replayNow || show || !u || view!.phase === 'over' || local?.opponent === 'aivai') return '';
+  if (u.owner !== view!.you || u.status !== 'active' || view!.submitted[view!.you]) return '';
   return view!.phase === 'move' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]);
 }
 
@@ -1073,7 +1215,7 @@ function dialHtml(u: UnitView, plan: MovePlan): string {
     const ok = usable.has(m.id);
     const cls = ['mv', m.id === plan.maneuver ? 'on' : '', m.stress > 0 ? 'hard' : '', m.propellant > 0 ? 'fuel' : ''].join(' ');
     const title = `${m.name}：推進劑 −${m.propellant}／壓力 +${m.stress}${ok ? '' : '（目前不能用：推進劑不足、部位損壞或黑視）'}`;
-    return `<button class="${cls}" data-m="${m.id}" title="${title}" ${ok ? '' : 'disabled'}>${GLYPH[dialKey(m)]}<small>${m.kind === 'hover' ? '' : m.speed}</small></button>`;
+    return `<button class="${cls}" data-m="${m.id}" data-tip="${esc(title)}" ${ok ? '' : 'disabled'}>${GLYPH[dialKey(m)]}<small>${m.kind === 'hover' ? '' : m.speed}</small></button>`;
   };
   const basic = dial.filter((m) => DIAL_COLUMNS.includes(dialKey(m)));
   const speeds = [...new Set(basic.map((m) => m.speed))].sort((a, b) => b - a);
@@ -1090,8 +1232,8 @@ function dialHtml(u: UnitView, plan: MovePlan): string {
 }
 
 const STANCE_TIPS: Record<Stance, string> = {
-  normal: '撞到其他機體只算碰撞：相對速度 3 以下是擦撞，雙方停在接觸點、本回合不能行動；4 以上是撞擊，雙方都受傷，較輕的一方被撞開。',
-  charge: '撞到敵機時出手。相對速度 0–1：纏在一起（纏鬥）；2–3：砍一刀就走（一擊脫離，手上要有光劍或熱能斧，王牌到 4 都行）；4 以上：撞擊，雙方受傷。',
+  normal: '撞到其他機體只算擦撞：雙方停在接觸點、本回合不能行動，但不受傷。',
+  charge: '撞到敵機時出手。相對速度 0–2：纏在一起（纏鬥）。3 以上：一擊脫離，雙方擲骰比近戰（駕駛技能越高骰越多），贏越多傷害越大；速度 5 以上出手會加壓力（王牌 6 以上）。手上沒有近戰武器則是撞擊：速度越快傷害越大，自己也吃一半。',
   evade: '底板判定變小，比較不容易被撞到；被射擊時命中率 −15%。撞到別人時效果同「一般」。',
 };
 const STANCE_NAMES: Record<Stance, string> = { normal: '一般', charge: '突進', evade: '迴避' };
@@ -1103,12 +1245,13 @@ const GRAPPLE_TIPS: Record<GrappleChoice, string> = {
   disengage: '花 1 壓力離開纏鬥；對方選「抓」就會脫離失敗。',
 };
 
-const tip = (inner: string, text: string) => `<span class="tip">${inner}<span class="pop">${text}</span></span>`;
+/** 在按鈕上掛說明文字，滑鼠停留時顯示在卡片下方的說明區 */
+const tip = (button: string, text: string) => button.replace(/^<button /, `<button data-tip="${esc(text)}" `);
 
 function moveControls(u: UnitView, plan: MovePlan): string {
   if (inGrapple(u.id)) {
     const opts = grappleOptions(u as unknown as UnitState);
-    return `<div class="sec">纏鬥中：本回合不移動，選一個纏鬥動作（滑鼠停留看說明）</div><div class="row">${opts
+    return `<div class="sec">選一個纏鬥動作</div><div class="row">${opts
       .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, GRAPPLE_TIPS[o]))
       .join('')}</div>`;
   }
@@ -1117,10 +1260,10 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   const m = parseManeuver(plan.maneuver);
   const cost = planCost(plan);
   let html = '<div class="ctrlRow"><div>';
-  html += `<div class="sec">機動（滑鼠停留預覽）：<b style="color:var(--text)">${m.name}</b>　推進劑 −${cost.propellant}　壓力 +${cost.stress}</div>`;
+  html += `<div class="sec">機動：<b style="color:var(--text)">${m.name}</b>　推 −${cost.propellant}　壓 +${cost.stress}</div>`;
   html += dialHtml(u, plan);
   html += '</div><div>';
-  html += '<div class="sec">姿態（滑鼠停留看說明）</div><div class="row">';
+  html += '<div class="sec">姿態</div><div class="row">';
   html += (['normal', 'charge', 'evade'] as Stance[]).map((s) => tip(`<button class="${plan.stance === s ? 'on' : ''}" data-stance="${s}">${STANCE_NAMES[s]}</button>`, STANCE_TIPS[s])).join('');
   html += '</div>';
   if (m.kind === 'hover') {
@@ -1129,7 +1272,6 @@ function moveControls(u: UnitView, plan: MovePlan): string {
     html += `<div class="row small"><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（多走 1 格，壓力 +${config.LIMITER_STRESS}）</label></div>`;
   }
   html += `<div class="row small"><label><input type="checkbox" data-f="soften" ${plan.soften ? 'checked' : ''}> 收刀（接觸時花 1 壓力降一檔）</label></div>`;
-  html += '<div class="small muted">紅字：會增加壓力　黃底線：消耗推進劑</div>';
   return html + '</div></div>';
 }
 
@@ -1185,31 +1327,42 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   return h ? `${bandName(h.band)}・約 ${h.chance}%` : '射程外';
 }
 
+const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
+
+function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
+  if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。`;
+  if (o.kind === 'none') return '這回合不行動。';
+  const def = EQUIPMENT[u.equipment.find((e) => e.id === o.equip)!.defId];
+  if (o.kind === 'draw') return `把${def.name}換到手上${def.kind === 'melee' ? '，之後突進撞到敵機時才砍得到' : ''}。${quick ? '快速拔刀：不佔行動。' : '會用掉這回合的行動。'}`;
+  const ranges = ([1, 2, 3] as const)
+    .filter((b) => def.ranges?.[b] !== undefined)
+    .map((b) => `${BAND_SHORT[b]} ${def.ranges![b]! >= 0 ? '+' : ''}${def.ranges![b]}`)
+    .join('／');
+  return `${def.name}：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。距離修正 ${ranges}。`;
+}
+
 function actionControls(u: UnitView, plan: ActionPlan): string {
   if (view!.state.bumped.includes(u.id)) return '<div class="warn">這台機體在移動時擦撞，本回合不能行動。</div>';
   const quick = PILOTS[u.pilotId!].abilities.includes('quick_draw');
-  let html = '<div class="sec">選一件裝備</div><div class="row">';
+  let html = '<div class="sec">選一件裝備</div><div class="optList">';
   html += equipOptions(u)
-    .map((o) => `<button class="${optionOn(o, plan, u) ? 'on' : ''}" data-opt="${o.key}">${esc(o.label)}</button>`)
+    .map((o) => tip(`<button class="${optionOn(o, plan, u) ? 'on' : ''}" data-opt="${o.key}">${esc(o.label)}</button>`, optionTip(u, o, quick)))
     .join('');
   html += '</div>';
   const a = plan.action;
   if (a.type === 'shoot' || a.type === 'lock') {
     const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active');
-    html += `<div class="sec" style="margin-top:6px">${a.type === 'shoot' ? '點地圖上的敵機當目標' : '點地圖上的敵機鎖定（下次射擊 +' + config.LOCK_BONUS + '%）'}，或從這裡選：</div><div class="row">`;
-    html += enemies.map((t) => `<button class="${a.target === t.id ? 'on' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}${a.type === 'shoot' ? `　${estimate(u, plan, t)}` : ''}</button>`).join('');
+    html += `<div class="sec">目標（也可以直接點地圖上的敵機）</div><div class="row">`;
+    html += enemies
+      .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `鎖定 ${t.label}`))
+      .join('');
     html += '</div>';
-    if (a.type === 'shoot') html += '<div class="small muted">命中率是估計值：看不到對手的駕駛技能與姿態，實際通常會再低一些。</div>';
   }
   if (plan.swap) html += `<div class="small ${quick ? 'muted' : 'warn'}">${quick ? '快速拔刀：拔出不佔行動，還可以再選一件射擊武器或鎖定。' : '拔出武器會用掉這回合的行動。'}</div>`;
   return html;
 }
 
 function bindControls(u: UnitView | undefined) {
-  const replayBtn = document.getElementById('replayBtn');
-  if (replayBtn) replayBtn.onclick = startReplay;
-  const againBtn = document.getElementById('againBtn');
-  if (againBtn) againBtn.onclick = () => restart();
   if (!u || u.owner !== view!.you) return;
   const ctr = $('controls');
   const move = moveDrafts[u.id];
@@ -1289,7 +1442,13 @@ function renderSubmit() {
     $('skipBtn').onclick = skipShow;
     return;
   }
-  if (!view || view.phase === 'over' || local?.opponent === 'aivai') {
+  if (view?.phase === 'over') {
+    col.innerHTML = `<h3>${resultText()}</h3><button class="primary big" id="replayBtn" ${replays[seat].length ? '' : 'disabled'}>重播整場戰鬥</button><button class="big" id="againBtn">再來一場</button>`;
+    $('replayBtn').onclick = startReplay;
+    $('againBtn').onclick = () => restart();
+    return;
+  }
+  if (!view || local?.opponent === 'aivai') {
     col.innerHTML = '';
     return;
   }
@@ -1327,7 +1486,21 @@ function submitOrders() {
 // ---------- 事件紀錄 ----------
 
 const RESULT_NAMES = { none: '擦身而過', bump: '擦撞', clinch: '纏鬥', hitrun: '一擊脫離', ram: '撞擊' };
-const ANGLE_NAMES = { front: '正面', side: '側面', back: '背後' };
+
+const DIE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+const DEFENSE_NAMES = { blade: '迎擊', shield: '舉盾', dodge: '閃避', none: '背後中刀' };
+
+function clashText(e: Extract<GameEvent, { type: 'clash' }>): string {
+  const dice = (d: number[]) => d.map((x) => DIE_FACES[x]).join('');
+  const side = `${labelOf(e.attacker)} 突進出刀 ${dice(e.attDice)}（${e.attHits} 成功）`;
+  const def = e.defense === 'none' ? `${labelOf(e.defender)} 背後中刀` : `${labelOf(e.defender)} ${DEFENSE_NAMES[e.defense]} ${dice(e.defDice)}（${e.defHits} 成功）`;
+  let result: string;
+  if (e.winner === null) result = '刀刃相抵，雙方錯身而過';
+  else if (e.winner === e.attacker) result = `${labelOf(e.attacker)} 斬中，${e.damage} 點傷害`;
+  else if (e.damage) result = `${labelOf(e.defender)} 反斬，${e.damage} 點傷害`;
+  else result = `${labelOf(e.defender)} ${e.defense === 'shield' ? '擋下' : '閃開'}了`;
+  return `${side} vs ${def}：${result}`;
+}
 
 function partName(unitId: string, part: string): string {
   const u = unitView(unitId) ?? show?.prevUnits.find((x) => x.id === unitId);
@@ -1341,8 +1514,8 @@ function describe(e: GameEvent): string | null {
       return `── 第 ${e.turn} 回合 ──`;
     case 'contact':
       return e.result === 'none' ? null : `${L(e.a)} 與 ${L(e.b)} 接觸（Vc ${e.vc}）：${RESULT_NAMES[e.result]}`;
-    case 'strike':
-      return `${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}斬向 ${L(e.defender)}（${ANGLE_NAMES[e.angle]}${e.chance !== undefined ? `，防禦機率 ${e.chance}%` : ''}）：${{ hit: '命中', parried: '被架開', blocked: '被盾擋下' }[e.outcome]}`;
+    case 'clash':
+      return clashText(e);
     case 'shot':
       return `${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
     case 'damage':

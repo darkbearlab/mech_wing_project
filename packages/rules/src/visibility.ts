@@ -73,11 +73,6 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
         out.push(mine(e.attacker) && mine(e.target) ? e : rest);
         break;
       }
-      case 'strike': {
-        const { chance, ...rest } = e;
-        out.push(mine(e.attacker) && mine(e.defender) ? e : rest);
-        break;
-      }
       default:
         out.push(e);
     }
