@@ -59,6 +59,10 @@ export interface EquipDef {
   mode?: DamageMode;
   /** 各距離帶的命中修正；沒有列出的距離帶不能射擊。Range 0 一律可用（零距離射擊）。 */
   ranges?: Partial<Record<1 | 2 | 3, number>>;
+  /** 盾牌的防護範圍：中心相對機體正面的角度（度，負＝左、正＝右）；手持盾沒填就照持盾那隻手的側面 */
+  shieldOffset?: number;
+  /** 盾牌防護範圍的半角（度）；沒填是 config.SHIELD_ARC_HALF_DEG */
+  shieldArc?: number;
   /** 近戰對決的額外骰數（重武器較多） */
   meleeDice?: number;
   fuel?: number;

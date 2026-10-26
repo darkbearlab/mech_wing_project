@@ -16,7 +16,7 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
     parts[p.id] = { id: p.id, name: p.name, kind: 'body', role: p.role, weight: p.weight, durability: p.durability, damage: 0, destroyed: false };
   }
   let fuel = 0;
-  const gear: RosterEntry['equipment'] = [...entry.equipment, ...(chassis.builtIn ?? []).map((b) => [b.defId, 'builtin', b.host] as RosterEntry['equipment'][number])];
+  const gear: RosterEntry['equipment'] = [...entry.equipment, ...(chassis.builtIn ?? []).map((b) => [b.defId, EQUIPMENT[b.defId].mount === 'mounted' ? 'mount' : 'builtin', b.host] as RosterEntry['equipment'][number])];
   const equipment = gear.map(([defId, location, host], i): EquipState => {
     const def = EQUIPMENT[defId];
     const eid = `${id}e${i}`;

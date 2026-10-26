@@ -5,13 +5,13 @@ import { contactAngle, inShieldArc } from './combat';
 import { addStress, damageUnit, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import type { UnitState } from './types';
-import { chassisOf, heldOfKind, pilotOf } from './unit';
+import { chassisOf, pilotOf, readyMelee } from './unit';
 
 export type ClashDefense = 'blade' | 'shield' | 'dodge' | 'none';
 
 /** 這台機體在對決中的骰數（防守方沒拿近戰武器時另外處理） */
 export function meleePool(u: UnitState, charging: boolean, sidePenalty: boolean): number {
-  const weapon = heldOfKind(u, 'melee');
+  const weapon = readyMelee(u);
   let n = C.MELEE_BASE_DICE + pilotOf(u).skill;
   if (charging) n += C.MELEE_CHARGE_DIE;
   if (weapon) n += EQUIPMENT[weapon.defId].meleeDice ?? 0;
@@ -22,10 +22,10 @@ export function meleePool(u: UnitState, charging: boolean, sidePenalty: boolean)
 
 /** 回傳 true 表示承受衝擊的防守方把攻擊方拖住了（贏或平手） */
 export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, defCharging: boolean, defBracing = false): boolean {
-  const attWeapon = heldOfKind(att, 'melee');
+  const attWeapon = readyMelee(att);
   if (!attWeapon) return false;
   const angle = contactAngle(def, att.pos);
-  const defWeapon = heldOfKind(def, 'melee');
+  const defWeapon = readyMelee(def);
   const roll = (n: number) => Array.from({ length: n }, () => ctx.rng.die(6));
   const hits = (dice: number[]) => dice.filter((d) => d >= C.MELEE_SUCCESS_ON).length;
 
@@ -35,7 +35,7 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
   if (angle === 'back') {
     defense = 'none';
   } else {
-    defense = defWeapon ? 'blade' : heldOfKind(def, 'shield') && inShieldArc(def, att.pos) ? 'shield' : 'dodge';
+    defense = defWeapon ? 'blade' : inShieldArc(def, att.pos) ? 'shield' : 'dodge';
     let pool = meleePool(def, defCharging, angle === 'side');
     if (defense === 'dodge') pool = Math.max(1, Math.floor(pool / 2));
     // 承受衝擊：站穩接人，重機比較接得住

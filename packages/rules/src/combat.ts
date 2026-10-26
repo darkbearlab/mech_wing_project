@@ -4,7 +4,7 @@ import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
 import { radiusOf, roleLost } from './body';
-import { chassisOf, equipDef, heldOfKind, pilotOf, shieldHand } from './unit';
+import { activeShields, chassisOf, equipDef, pilotOf } from './unit';
 
 export interface Positioned {
   id: string;
@@ -72,16 +72,22 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };
 }
 
-export function inShieldArc(def: UnitState, from: Vec): boolean {
-  const hand = shieldHand(def);
-  if (!hand) return false;
-  const center = def.facing + (hand === 'right' ? 1 : -1) * C.SHIELD_ARC_OFFSET_DEG * DEG;
-  return Math.abs(angleDiff(angleOf(sub(from, def.pos)), center)) <= C.SHIELD_ARC_HALF_DEG * DEG;
+/** 每面盾牌的防護範圍（弧度）：手持盾預設在持盾那側，固定盾照資料的角度 */
+export function shieldArcs(u: { parts: Record<string, PartState>; equipment: EquipState[] }, facing: number): { equip: EquipState; center: number; half: number }[] {
+  return activeShields(u).map(({ equip, hand }) => {
+    const def = equipDef(equip);
+    const offset = def.shieldOffset ?? (hand ? (hand === 'right' ? 1 : -1) * C.SHIELD_ARC_OFFSET_DEG : 0);
+    return { equip, center: facing + offset * DEG, half: (def.shieldArc ?? C.SHIELD_ARC_HALF_DEG) * DEG };
+  });
 }
 
-function shieldPart(def: UnitState): string | null {
-  return heldOfKind(def, 'shield')?.id ?? null;
+/** 從 from 打過來時擋得到的盾牌（沒有就 null） */
+export function coveringShield(def: UnitState, from: Vec): EquipState | null {
+  const dir = angleOf(sub(from, def.pos));
+  return shieldArcs(def, def.facing).find((s) => Math.abs(angleDiff(dir, s.center)) <= s.half)?.equip ?? null;
 }
+
+export const inShieldArc = (def: UnitState, from: Vec): boolean => coveringShield(def, from) !== null;
 
 const blockChance = (def: UnitState): number => C.SHIELD_BLOCK_BASE + pilotOf(def).skill * C.SHIELD_BLOCK_PER_SKILL;
 
@@ -120,8 +126,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   for (let i = 0; i < shots; i++) {
     if (ctx.rng.d100() > h.chance) continue;
     hits++;
-    const shield = shieldPart(target);
-    if (shield && inShieldArc(target, attacker.pos) && ctx.rng.d100() <= blockChance(target)) {
+    const shield = coveringShield(target, attacker.pos)?.id;
+    if (shield && ctx.rng.d100() <= blockChance(target)) {
       blocked++;
       pending.push(() => damageUnit(ctx, target, def.damage ?? 1, 'focused', shield));
     } else {

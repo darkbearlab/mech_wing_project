@@ -63,6 +63,8 @@ export function validateContent(pack: ContentPack): string[] {
     if (e.ammo !== undefined && !(Number.isInteger(e.ammo) && e.ammo >= 1)) err(w, 'ammo 要是 1 以上的整數');
     for (const t of e.tags ?? []) if (!TAGS.includes(t)) err(w, `不認得的標籤 ${t}`);
     if (e.blocksHand && mount !== 'integrated') err(w, 'blocksHand 只能用在內建武器');
+    if (e.shieldArc !== undefined && !(isNum(e.shieldArc, 1) && e.shieldArc <= 180)) err(w, 'shieldArc 要在 1–180 度之間');
+    if (e.shieldOffset !== undefined && !(isNum(e.shieldOffset, -180) && e.shieldOffset <= 180)) err(w, 'shieldOffset 要在 −180–180 度之間');
   }
 
   for (const [key, c] of Object.entries(pack.chassis ?? {})) {
@@ -98,7 +100,7 @@ export function validateContent(pack: ContentPack): string[] {
     for (const b of c.builtIn ?? []) {
       const def = pack.equipment[b.defId];
       if (!def) err(w, `內建武裝 ${b.defId} 不存在`);
-      else if ((def.mount ?? 'hand') !== 'integrated') err(w, `內建武裝 ${b.defId} 的 mount 要是 integrated`);
+      else if (def.mount !== 'integrated' && def.mount !== 'mounted') err(w, `機型標準裝備 ${b.defId} 的安裝方式要是內建或外掛`);
       if (!c.parts?.[b.host]) err(w, `內建武裝 ${b.defId} 的宿主部位 ${b.host} 不存在`);
     }
   }

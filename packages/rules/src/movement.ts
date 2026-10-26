@@ -5,7 +5,7 @@ import { addStress, damageUnit, type Ctx } from './damage';
 import { DEG, add, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
 import type { ContactResult, MovePlan, Stance, UnitState, Vec } from './types';
-import { chassisOf, heldOfKind, moveSpeed, pilotOf } from './unit';
+import { chassisOf, moveSpeed, pilotOf, readyMelee } from './unit';
 
 interface Mover {
   unit: UnitState;
@@ -191,7 +191,7 @@ export function simulateMovement(
     };
 
     // 沒人近戰：擦撞。近戰：相對速度低就咬住（纏鬥），高速出手方一擊脫離（沒拿近戰武器則撞擊），只有慢速的一方也咬住
-    const bladed = attackers.filter((m) => heldOfKind(m.unit, 'melee'));
+    const bladed = attackers.filter((m) => readyMelee(m.unit));
     let result: ContactResult;
     if (melee.length === 0) result = 'bump';
     else if (vc <= C.CLINCH_MAX_VC || attackers.length === 0) result = 'clinch';

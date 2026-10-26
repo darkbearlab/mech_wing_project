@@ -4,7 +4,7 @@ import { addStress, damageUnit, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
 import type { GrappleChoice, GrappleState, UnitState } from './types';
-import { chassisOf, hasFreeHand, heldOfKind, pilotOf } from './unit';
+import { activeShields, chassisOf, hasFreeHand, pilotOf, readyMelee } from './unit';
 
 export const GRAPPLE_NAMES: Record<GrappleChoice, string> = { slash: '斬', parry: '架', grab: '抓', push: '推', disengage: '脫離' };
 
@@ -12,8 +12,8 @@ export function grappleOptions(u: UnitState): GrappleChoice[] {
   if (!closeCombatOf(u)) return ['disengage'];
   if (u.blackout) return ['push', 'disengage'];
   const out: GrappleChoice[] = [];
-  if (heldOfKind(u, 'melee')) out.push('slash', 'parry');
-  else if (heldOfKind(u, 'shield')) out.push('parry');
+  if (readyMelee(u)) out.push('slash', 'parry');
+  else if (activeShields(u).length) out.push('parry');
   if (hasFreeHand(u)) out.push('grab');
   out.push('push', 'disengage');
   return out;
@@ -48,7 +48,7 @@ export function resolveGrapple(ctx: Ctx, g: GrappleState, a: UnitState, b: UnitS
     if (ta === tb) return { winner: null, loser: null, margin: 0 };
     return ta > tb ? { winner: a, loser: b, margin: ta - tb } : { winner: b, loser: a, margin: tb - ta };
   };
-  const slashDamage = (u: UnitState) => (EQUIPMENT[heldOfKind(u, 'melee')!.defId].damage ?? 1) + (adv(u) ? C.ADVANTAGE_SLASH : 0);
+  const slashDamage = (u: UnitState) => (EQUIPMENT[readyMelee(u)!.defId].damage ?? 1) + (adv(u) ? C.ADVANTAGE_SLASH : 0);
   const slash = (from: UnitState, to: UnitState, half = false) => {
     const dmg = half ? Math.ceil(slashDamage(from) / 2) : slashDamage(from);
     notes.push(`${from.label} 斬中 ${to.label}${half ? '（追擊）' : ''}`);

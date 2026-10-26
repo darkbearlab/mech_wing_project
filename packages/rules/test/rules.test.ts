@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONTENT, contentVersion, useContent, validateContent } from '../src/content';
 import { edgeDistance } from '../src/combat';
 import { grappleOptions, normalizeChoice } from '../src/grapple';
+import { coveringShield } from '../src/combat';
+import { readyMelee } from '../src/unit';
 import { damageUnit, type Ctx } from '../src/damage';
 import { localPose, parseManeuver } from '../src/maneuvers';
 import { Match } from '../src/match';
@@ -805,5 +807,38 @@ describe('部位配置與戰機', () => {
     const errs = validateContent(pack);
     expect(errs.some((e) => e.includes('CF-01') && e.includes('沒有右手'))).toBe(true);
     expect(errs.some((e) => e.includes('X-00') && e.includes('核心'))).toBe(true);
+  });
+});
+
+describe('固定盾與肩部尖刺（薩克 II）', () => {
+  const zakuPack = () => {
+    const pack = structuredClone(DEFAULT_CONTENT);
+    pack.version = 'zaku-test';
+    pack.equipment.zaku_shoulder_shield = { id: 'zaku_shoulder_shield', name: '左肩盾', kind: 'shield', mount: 'mounted', weight: 2, durability: 5, shieldOffset: -45, shieldArc: 45 };
+    pack.equipment.zaku_spike = { id: 'zaku_spike', name: '右肩尖刺', kind: 'melee', mount: 'mounted', weight: 1, durability: 3, damage: 2 };
+    pack.chassis['X-00'].builtIn = [{ defId: 'zaku_shoulder_shield', host: 'torso' }, { defId: 'zaku_spike', host: 'torso' }];
+    return pack;
+  };
+  afterEach(() => useContent(DEFAULT_CONTENT));
+
+  it('左肩盾只擋左前 90 度', () => {
+    useContent(zakuPack());
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    expect(u.equipment.find((e) => e.defId === 'zaku_shoulder_shield')!.location).toBe('mount');
+    expect(coveringShield(u, { x: 15, y: 5 })?.id).toBeDefined(); // 左前
+    expect(coveringShield(u, { x: 15, y: 15 })).toBeNull(); // 右前
+    expect(coveringShield(u, { x: 5, y: 9 })).toBeNull(); // 左後
+  });
+
+  it('肩部尖刺：手上沒近戰武器也算有，手臂被打爆也還在', () => {
+    useContent(zakuPack());
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    expect(readyMelee(u)?.defId).toBe('zaku_spike');
+    damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 10, 'focused', 'rarm');
+    expect(u.parts.rarm.destroyed).toBe(true);
+    expect(readyMelee(u)?.defId).toBe('zaku_spike');
+    expect(grappleOptions(u)).toContain('slash');
   });
 });

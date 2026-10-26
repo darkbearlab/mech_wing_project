@@ -1,4 +1,5 @@
 import {
+  shieldArcs,
   closeCombatOf,
   handOfPart,
   handUsable,
@@ -50,6 +51,7 @@ import {
 } from '@mech/rules';
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
 import { loadContent } from './content';
+import { openLineup } from './lineup';
 import { LocalGame, type Opponent } from './local';
 import { mechSilhouette } from './silhouette';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
@@ -877,18 +879,14 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   ]);
   g.stroke();
   // 盾弧
-  const shield = (['right', 'left'] as Hand[]).find((h) => {
-    const e = u.equipment.find((x) => x.location === h && !u.parts[x.id].destroyed);
-    return e && EQUIPMENT[e.defId].kind === 'shield' && handUsable(u, h);
-  });
-  if (shield && !out) {
-    const c = facing + (shield === 'right' ? 1 : -1) * config.SHIELD_ARC_OFFSET_DEG * (Math.PI / 180);
-    const half = config.SHIELD_ARC_HALF_DEG * (Math.PI / 180);
-    g.strokeStyle = '#e6e6a0';
-    g.lineWidth = 3;
-    ringWorld(pos.x, pos.y, R + 0.12, 0, c - half, c + half, 16);
-    g.stroke();
-    g.lineWidth = 1;
+  if (!out) {
+    for (const s of shieldArcs(u, facing)) {
+      g.strokeStyle = '#e6e6a0';
+      g.lineWidth = 3;
+      ringWorld(pos.x, pos.y, R + 0.12, 0, s.center - s.half, s.center + s.half, 16);
+      g.stroke();
+      g.lineWidth = 1;
+    }
   }
   // 垂直線與浮空標記
   g.strokeStyle = out ? '#444' : color(u.owner, 0.5);
@@ -1901,6 +1899,22 @@ $('logToggle').onclick = () => {
 };
 
 function restart() {
+  // 本機模式：回到出擊準備，選好陣容再開打
+  if (local) {
+    const game = local;
+    openLineup(game.opponent, (rosters, opponent) => {
+      game.rosters = rosters;
+      game.opponent = opponent;
+      saveOpponent(opponent);
+      clearAndReset();
+      switchSeat(0);
+    });
+    return;
+  }
+  clearAndReset();
+}
+
+function clearAndReset() {
   logs[0].length = 0;
   logs[1].length = 0;
   replays[0].length = 0;
@@ -1914,7 +1928,8 @@ function restart() {
 }
 
 $('resetBtn').onclick = () => {
-  if (confirm(local ? '重新開始一場對戰？' : '重開這個房間？雙方的對戰都會重設。')) restart();
+  if (local) restart();
+  else if (confirm('重開這個房間？雙方的對戰都會重設。')) restart();
 };
 
 // 對手：電腦／同機輪流／電腦對戰電腦（只有本機模式）
@@ -1929,14 +1944,13 @@ function initialOpponent(): Opponent {
   } catch {}
   return 'ai';
 }
-opponentSel.onchange = () => {
-  if (!local) return;
-  local.opponent = opponentSel.value as Opponent;
+function saveOpponent(o: Opponent) {
   try {
-    localStorage.setItem(OPPONENT_KEY, local.opponent);
+    localStorage.setItem(OPPONENT_KEY, o);
   } catch {}
-  restart();
-};
+}
+// 對手改在出擊準備畫面選
+opponentSel.hidden = true;
 
 // 玩法說明：第一次開啟時自動顯示
 const HELP_KEY = 'mech-wing-help-seen';
@@ -1962,12 +1976,13 @@ if (mode === 'local') {
     const tag = $('contentTag');
     tag.textContent = `資料 ${version}`;
     tag.title = note;
-    local = new LocalGame(onMessage, initialOpponent());
-    opponentSel.value = local.opponent;
-    switchSeat(0);
+    openLineup(initialOpponent(), (rosters, opponent) => {
+      saveOpponent(opponent);
+      local = new LocalGame(onMessage, opponent, rosters);
+      switchSeat(0);
+    });
   });
 } else {
-  opponentSel.hidden = true;
   connect();
 }
 requestAnimationFrame(drawFrame);

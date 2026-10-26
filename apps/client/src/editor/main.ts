@@ -540,6 +540,11 @@ function equipmentForm(e: EquipDef & Obj) {
   }
   if (e.kind === 'melee') out.push(sec('近戰', grid(numField(e, 'damage', '傷害'), numField(e, 'meleeDice', '額外近戰骰', { optional: true, hint: '重武器在近戰對決多擲的骰數' }))));
   if (e.kind === 'tank') out.push(sec('燃料', grid(numField(e, 'fuel', '增加推進劑'))));
+  if (e.kind === 'shield')
+    out.push(sec('防護範圍', grid(
+      numField(e, 'shieldOffset', '中心角度（度）', { optional: true, hint: '相對機體正面，負＝左、正＝右。空白：手持盾在持盾那側，固定盾在正前方' }),
+      numField(e, 'shieldArc', '半角（度）', { optional: true, hint: `空白＝${C.SHIELD_ARC_HALF_DEG}。例如左前 90 度：中心 −45、半角 45` }),
+    )));
   if (mount === 'integrated') out.push(sec('內建', grid(selField(e, 'blocksHand', '佔手', [['false', '不佔手'], ['true', '那隻手不能握持']], { absent: 'false', hint: '例如手指光束砲' }))));
   out.push(sec('標籤', chips(e.tags, TAG_OPTS, (v) => (v ? (e.tags = v as EquipDef['tags']) : delete e.tags))));
   return out;
@@ -572,7 +577,8 @@ function dialGrid(c: ChassisDef, cols: [string, string, string][], speeds: numbe
 }
 
 function chassisForm(c: ChassisDef & Obj) {
-  const integrated = Object.values(draft.equipment).filter((e) => e.mount === 'integrated');
+  // 機型的標準裝備：內建（和部位一體）或外掛（固定掛著、有自己的部位，例如薩克的肩盾）
+  const integrated = Object.values(draft.equipment).filter((e) => e.mount === 'integrated' || e.mount === 'mounted');
   c.builtIn ??= [];
   // 格子顯示到 5 檔或機動盤上最快的那一檔，可以再往上加
   const fastest = Math.max(0, ...c.dial.map((m) => Number(m.split('-')[2])).filter((s) => Number.isInteger(s) && s <= C.MAX_DIAL_SPEED));
@@ -624,7 +630,7 @@ function chassisForm(c: ChassisDef & Obj) {
     sec('機動盤：前進（點格子開關，列＝速度，上面最快）', dialGrid(c, FWD, [...up].reverse().concat(0)), h('div', {}, more)),
     sec('機動盤：後退與急停', dialGrid(c, BACK, up)),
     odd.length > 0 && sec('其他機動', h('div', { class: 'chips' }, ...odd.map((m) => h('span', { class: 'chip on', title: '點一下移除', onclick: () => canEdit() && ((c.dial = c.dial.filter((x) => x !== m)), changed(true)) }, `${m} ×`)))),
-    sec('內建武裝', h('div', { class: 'gear' },
+    sec('標準裝備（內建或固定外掛，每台都有）', h('div', { class: 'gear' },
       ...c.builtIn.map((b, i) => {
         const def = h('select', { disabled: !canEdit() }, ...integrated.map((e) => h('option', { value: e.id, selected: e.id === b.defId }, e.name)), !integrated.some((e) => e.id === b.defId) && h('option', { value: b.defId, selected: true }, b.defId));
         def.onchange = () => ((b.defId = def.value), changed());
@@ -632,8 +638,8 @@ function chassisForm(c: ChassisDef & Obj) {
         host.onchange = () => ((b.host = host.value as typeof b.host), changed());
         return h('div', { class: 'g' }, def, '裝在', host, canEdit() && h('button', { class: 'small', onclick: () => (c.builtIn!.splice(i, 1), changed(true)) }, '移除'));
       }),
-      canEdit() && integrated.length > 0 && h('div', {}, h('button', { class: 'small', onclick: () => (c.builtIn!.push({ defId: integrated[0].id, host: Object.keys(parts)[0] }), changed(true)) }, '＋ 加內建武裝')),
-      !integrated.length && h('div', { class: 'muted' }, '先在武器裡做一件安裝方式是「內建」的武器'),
+      canEdit() && integrated.length > 0 && h('div', {}, h('button', { class: 'small', onclick: () => (c.builtIn!.push({ defId: integrated[0].id, host: Object.keys(parts)[0] }), changed(true)) }, '＋ 加標準裝備')),
+      !integrated.length && h('div', { class: 'muted' }, '先在武器裡做一件安裝方式是「內建」或「外掛」的裝備'),
     )),
   ];
 }
@@ -807,7 +813,7 @@ function renderForm() {
 // ---------- 右欄：檢查、試算、使用處、變更 ----------
 
 const FIELD_NAMES: Record<string, string> = {
-  radius: '底座半徑', minSpeed: '最低速度', closeCombat: '近身戰鬥',
+  radius: '底座半徑', minSpeed: '最低速度', closeCombat: '近身戰鬥', shieldOffset: '盾牌中心角度', shieldArc: '盾牌半角',
   name: '名稱', kind: '種類', mount: '安裝方式', weight: '受擊權重', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
   pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
   baseThrust: '免費加速', maxAccel: '最大加速', power: '出力', aim: '瞄準', evasion: '迴避', parts: '部位', dial: '機動盤', builtIn: '內建武裝', skill: '技術',

@@ -1,6 +1,6 @@
 // 本機模式：Match 直接跑在瀏覽器裡，給 GitHub Pages 這類沒有伺服器的環境用。
 // 回傳的訊息格式和 WebSocket 伺服器相同，main.ts 不需要分辨來源。
-import { Match, Rng, aiActions, aiMoves, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type ServerMessage } from '@mech/rules';
+import { Match, Rng, aiActions, aiMoves, createGame, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
 
 interface Unseen {
   /** 結算前的畫面，播放動畫需要起點 */
@@ -14,7 +14,7 @@ export type Opponent = 'hotseat' | 'ai' | 'aivai';
 const randomSeed = () => (Math.random() * 2 ** 32) >>> 0;
 
 export class LocalGame {
-  private match = new Match(randomSeed());
+  private match: Match;
   private rng = new Rng(randomSeed());
   /** 各席位還沒看過的結算事件；換手時才播放，避免對方看到 */
   private unseen: [Unseen | null, Unseen | null] = [null, null];
@@ -22,7 +22,16 @@ export class LocalGame {
   constructor(
     private deliver: (msg: ServerMessage) => void,
     public opponent: Opponent = 'ai',
-  ) {}
+    /** 出擊準備選的陣容；沒有就照資料包的隨機規則 */
+    public rosters?: [RosterEntry[], RosterEntry[]],
+  ) {
+    this.match = this.newMatch();
+  }
+
+  private newMatch(): Match {
+    const seed = randomSeed();
+    return new Match(seed, createGame(seed, this.rosters));
+  }
 
   private aiSeats(): PlayerId[] {
     return this.opponent === 'aivai' ? [0, 1] : this.opponent === 'ai' ? [1] : [];
@@ -31,7 +40,7 @@ export class LocalGame {
   /** 處理指令；回傳下一個該拿裝置的席位，送出失敗則回傳 null */
   submit(seat: PlayerId, msg: ClientMessage): PlayerId | null {
     if (msg.t === 'reset') {
-      this.match = new Match(randomSeed());
+      this.match = this.newMatch();
       this.unseen = [null, null];
       return 0;
     }

@@ -61,6 +61,26 @@ export function readyRanged(u: Gear): EquipState[] {
   return [...held, ...fixed].filter((e) => EQUIPMENT[e.defId].kind === 'ranged');
 }
 
+/** 能用的近戰武器：手上的優先，沒有就用外掛或內建的（薩克的肩部尖刺、古夫的熱能鞭） */
+export function readyMelee(u: Gear): EquipState | null {
+  for (const hand of ['right', 'left'] as Hand[]) {
+    const item = heldItem(u, hand);
+    if (item && equipDef(item).kind === 'melee') return item;
+  }
+  return u.equipment.find((e) => alwaysReady(e) && equipAlive(u, e) && EQUIPMENT[e.defId].kind === 'melee') ?? null;
+}
+
+/** 能擋的盾牌：手上拿的，加上固定在機體上的（薩克的肩盾） */
+export function activeShields(u: Gear): { equip: EquipState; hand: Hand | null }[] {
+  const out: { equip: EquipState; hand: Hand | null }[] = [];
+  for (const hand of ['right', 'left'] as Hand[]) {
+    const item = heldItem(u, hand);
+    if (item && equipDef(item).kind === 'shield') out.push({ equip: item, hand });
+  }
+  for (const e of u.equipment) if (alwaysReady(e) && equipAlive(u, e) && EQUIPMENT[e.defId].kind === 'shield') out.push({ equip: e, hand: null });
+  return out;
+}
+
 export function shieldHand(u: UnitState): Hand | null {
   for (const hand of ['right', 'left'] as Hand[]) {
     const item = heldItem(u, hand);
