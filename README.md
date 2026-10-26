@@ -28,6 +28,17 @@ npm run dev
 
 推到 `main` 後，[.github/workflows/pages.yml](.github/workflows/pages.yml) 會跑測試、建置 `apps/client` 並發佈。第一次需要在 repo 的 Settings → Pages 把 Source 設成 **GitHub Actions**。
 
+## 內容 API（Cloudflare）
+
+`apps/api` 是部署在 https://mech-wing-api.darkbearlab.workers.dev 的 Worker：D1 存編輯中的草稿，發佈時用規則引擎檢查、打包成不會再變的版本（`v1`、`v2`…）存進 KV。GitHub Pages 版開場時抓最新版，抓不到就用內建資料；網址加 `?content=builtin` 強制用內建資料，`?content=v1` 指定版本。畫面右上角會顯示目前用的資料版本。
+
+- 讀取：`GET /packs/latest`、`GET /packs/v1`、`GET /packs`（發佈紀錄）、`GET /draft`（草稿與檢查結果）
+- 寫入（要管理金鑰）：`PUT|DELETE /draft/:kind/:id`、`POST /draft/import`、`POST /publish`
+- 管理金鑰存在 `apps/api/.admin-token`（不進 git），設定檔裡只有它的 SHA-256。換金鑰：產生新金鑰寫進該檔，把雜湊更新到 `wrangler.jsonc`
+- 管理指令：`npm run admin -w @mech/api -- status | import [資料包.json] | publish [備註]`
+- 本機測試：`npm run migrate:local -w @mech/api`、`npm run dev -w @mech/api`，再用 `MECH_API=http://localhost:8787` 跑管理指令
+- `main` 上 `apps/api` 或 `packages/rules` 有變動時，[.github/workflows/api.yml](.github/workflows/api.yml) 會跑 D1 遷移並部署（用 repo secrets `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`）
+
 ## 結構
 
 | 位置 | 內容 |
@@ -36,5 +47,6 @@ npm run dev
 | `packages/rules/content` | 遊戲資料（JSON）：武器、機型、駕駛、配裝、預設陣容。`src/content.ts` 負責檢查與切換資料包，每場對戰記下開場時的版本 |
 | `packages/rules/src/match.ts` | 一場對戰的權威狀態與階段流程，不依賴傳輸層；日後包進 Durable Object |
 | `packages/rules/src/visibility.ts` | 依玩家過濾狀態與事件紀錄（看得到機體、看不到駕駛） |
+| `apps/api` | 內容 API（Cloudflare Worker + D1 + KV） |
 | `apps/server` | 本機 WebSocket 伺服器（port 8787），替代 Cloudflare |
 | `apps/client` | Vite + Canvas 的 2D 俯視除錯畫面；`src/local.ts` 是本機輪流模式 |

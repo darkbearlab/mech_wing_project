@@ -43,6 +43,7 @@ import {
   type Vec,
 } from '@mech/rules';
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
+import { loadContent } from './content';
 import { LocalGame, type Opponent } from './local';
 import { mechSilhouette } from './silhouette';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
@@ -1946,9 +1947,15 @@ try {
 }
 
 if (mode === 'local') {
-  local = new LocalGame(onMessage, initialOpponent());
-  opponentSel.value = local.opponent;
-  switchSeat(0);
+  // ?content=builtin 用內建資料，?content=v3 指定版本，預設抓線上最新版
+  void loadContent(params.get('content')).then(({ version, note }) => {
+    const tag = $('contentTag');
+    tag.textContent = `資料 ${version}`;
+    tag.title = note;
+    local = new LocalGame(onMessage, initialOpponent());
+    opponentSel.value = local.opponent;
+    switchSeat(0);
+  });
 } else {
   opponentSel.hidden = true;
   connect();
