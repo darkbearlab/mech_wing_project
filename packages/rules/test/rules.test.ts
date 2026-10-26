@@ -734,3 +734,14 @@ describe('資料包', () => {
     expect(createGame(1, [[saberX00], [rifleX00]]).units[0].propellant).toBe(DEFAULT_CONTENT.chassis['X-00'].propellant);
   });
 });
+
+describe('機動盤速度', () => {
+  it('允許 5 檔以上，但不能超過上限或不是整數', () => {
+    const pack = structuredClone(DEFAULT_CONTENT);
+    pack.chassis['X-00'].dial.push('straight-S-8');
+    expect(validateContent(pack)).toEqual([]);
+    pack.chassis['X-00'].dial.push(`straight-S-${C.MAX_DIAL_SPEED + 1}`, 'bank-L-1.5', 'hover-S-2');
+    const errs = validateContent(pack);
+    expect(errs.filter((e) => e.includes('的速度要是'))).toHaveLength(3);
+  });
+});

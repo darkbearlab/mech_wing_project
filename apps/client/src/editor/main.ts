@@ -62,6 +62,8 @@ let sel: string | null = null;
 let search = '';
 let jsonMode = false;
 let showAllErrors = false;
+/** 機動盤格子目前顯示到幾檔（只是畫面，沒存進資料） */
+const topSpeed = new Map<string, number>();
 
 const canEdit = () => !!adminKey;
 
@@ -561,8 +563,13 @@ function dialGrid(c: ChassisDef, cols: [string, string, string][], speeds: numbe
 function chassisForm(c: ChassisDef & Obj) {
   const integrated = Object.values(draft.equipment).filter((e) => e.mount === 'integrated');
   c.builtIn ??= [];
+  // 格子顯示到 5 檔或機動盤上最快的那一檔，可以再往上加
+  const fastest = Math.max(0, ...c.dial.map((m) => Number(m.split('-')[2])).filter((s) => Number.isInteger(s) && s <= C.MAX_DIAL_SPEED));
+  const top = Math.min(C.MAX_DIAL_SPEED, Math.max(5, fastest, topSpeed.get(c.id) ?? 0));
+  const up = Array.from({ length: top }, (_, i) => i + 1);
   const known = new Set<string>(['hover-S-0']);
-  for (const s of [1, 2, 3, 4, 5]) for (const [k, d] of [...FWD, ...BACK]) known.add(`${k}-${d}-${s}`);
+  for (const s of up) for (const [k, d] of [...FWD, ...BACK]) known.add(`${k}-${d}-${s}`);
+  const more = top < C.MAX_DIAL_SPEED && h('button', { class: 'small', onclick: () => (topSpeed.set(c.id, top + 1), renderForm()) }, `＋ 加到 ${top + 1} 檔`);
   const odd = c.dial.filter((m) => !known.has(m));
   const parts = c.parts as unknown as Record<string, Obj>;
   return [
@@ -592,8 +599,8 @@ function chassisForm(c: ChassisDef & Obj) {
         return h('tr', {}, h('td', {}, BODY_PART_NAMES[p]), h('td', {}, num('weight')), h('td', {}, num('durability')));
       }),
     )),
-    sec('機動盤：前進（點格子開關，列＝速度）', dialGrid(c, FWD, [0, 1, 2, 3, 4, 5])),
-    sec('機動盤：後退與急停', dialGrid(c, BACK, [1, 2, 3, 4, 5])),
+    sec('機動盤：前進（點格子開關，列＝速度，上面最快）', dialGrid(c, FWD, [...up].reverse().concat(0)), h('div', {}, more)),
+    sec('機動盤：後退與急停', dialGrid(c, BACK, up)),
     odd.length > 0 && sec('其他機動', h('div', { class: 'chips' }, ...odd.map((m) => h('span', { class: 'chip on', title: '點一下移除', onclick: () => canEdit() && ((c.dial = c.dial.filter((x) => x !== m)), changed(true)) }, `${m} ×`)))),
     sec('內建武裝', h('div', { class: 'gear' },
       ...c.builtIn.map((b, i) => {

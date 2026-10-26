@@ -1,6 +1,7 @@
 // 資料包：一份完整的機型、武器、駕駛、配裝與預設陣容，帶版本號。
 // 每場對戰記下開場時用的版本，之後換資料也不影響進行中的對戰與重播。
 import { BODY_PART_NAMES, BUILTIN_CONTENT, replaceTables, type RosterEntry } from './data';
+import { MAX_DIAL_SPEED } from './config';
 import { parseManeuver } from './maneuvers';
 import type { ChassisDef, EquipDef, PilotDef } from './types';
 
@@ -78,7 +79,10 @@ export function validateContent(pack: ContentPack): string[] {
     if (new Set(c.dial).size !== c.dial?.length) err(w, '機動盤有重複的機動');
     for (const m of c.dial ?? []) {
       try {
-        parseManeuver(m);
+        const spec = parseManeuver(m);
+        const min = spec.kind === 'hover' ? 0 : 1;
+        if (!Number.isInteger(spec.speed) || spec.speed < min || spec.speed > MAX_DIAL_SPEED || (spec.kind === 'hover' && spec.speed !== 0))
+          err(w, `機動 ${m} 的速度要是 ${min}–${MAX_DIAL_SPEED} 的整數${spec.kind === 'hover' ? '（懸停是 0）' : ''}`);
       } catch {
         err(w, `不認得的機動 ${m}`);
       }

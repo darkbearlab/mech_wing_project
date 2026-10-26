@@ -54,6 +54,8 @@ export const ACE_SKILL = 5;
 export const CLINCH_MAX_VC = 2;
 /** 自己這回合的速度 ≤ 這個值算慢速：近戰姿態慢速時不主動出刀，被高速衝進來就承受衝擊 */
 export const SLOW_MAX_SPEED = 2;
+/** 機動盤上單一機動的速度上限（資料檢查用；VOB 之類的高速裝備之後再談） */
+export const MAX_DIAL_SPEED = 12;
 /** 一擊脫離的高速負荷：相對速度達到這個值起，每多 1 點出手方壓力 +1（王牌門檻較高） */
 export const HIGH_SPEED_FROM = 5;
 export const ACE_HIGH_SPEED_FROM = 6;
