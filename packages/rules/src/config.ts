@@ -6,7 +6,7 @@ export const MOVE_STEPS = 40;
 export const TURN_LIMIT = 12;
 
 // 地形（以地圖中心點對稱產生）
-export const ROCK_PAIRS = 2;
+export const ROCK_PAIRS = 1;
 export const FIELD_PAIRS = 1;
 export const ROCK_RADIUS = [1, 2] as const;
 export const FIELD_RADIUS = [2.5, 3.5] as const;

@@ -62,7 +62,7 @@ const args = process.argv.slice(2);
 const replayMode = args[0] === '--replay';
 const statsMode = args[0] === '--stats';
 const games = statsMode ? Number(args[1] ?? 100) : 1;
-const seed0 = statsMode ? 1 : Number(args[0] ?? 1);
+const seed0 = statsMode ? Number(process.env.SEED0 ?? 1) : Number(args[0] ?? 1);
 const mode = (statsMode ? args[2] : args[1]) ?? 'config';
 /** 從環境變數讀勝利條件 */
 function settingsFromEnv(): BattleSettings {
