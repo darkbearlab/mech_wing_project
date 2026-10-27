@@ -20,7 +20,7 @@ function randomPlans(st: GameState, rng: Rng): [Plans, Plans] {
       facingOffset: 0,
       limiter: false,
       action: weapon && target ? { type: 'shoot', weapon: weapon.id, target: target.id } : { type: 'none' },
-      grapple: (['slash', 'parry', 'grab', 'push', 'disengage'] as const)[Math.floor(rng.next() * 5)],
+      grapple: (['cleave', 'thrust', 'entangle', 'disengage'] as const)[Math.floor(rng.next() * 4)],
     };
   }
   return out;

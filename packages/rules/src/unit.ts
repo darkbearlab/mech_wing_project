@@ -250,7 +250,7 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
 }
 
 export function defaultMove(u: UnitState): MovePlan {
-  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
+  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false };
 }
 
 export const defaultAction = (): ActionPlan => ({ action: { type: 'none' } });

@@ -228,6 +228,10 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       actionUsed = !(drawn ? freeDraw(u, drawn) : pilotOf(u).abilities.includes('quick_draw'));
     }
     if (plan.action.type === 'none') continue;
+    if (inGrapple(state, u.id)) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '纏鬥中不能射擊、鎖定或用道具' });
+      continue;
+    }
     if (actionUsed) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '換武器用掉了動作' });
       continue;

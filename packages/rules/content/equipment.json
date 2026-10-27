@@ -68,7 +68,17 @@
     "durability": 1,
     "damage": 3,
     "mode": "focused",
-    "cost": 1
+    "cost": 1,
+    "melee": {
+      "cleave": {
+        "dice": 1,
+        "damage": 3
+      },
+      "thrust": {
+        "dice": 1,
+        "damage": 3
+      }
+    }
   },
   "heat_axe": {
     "id": "heat_axe",
@@ -79,7 +89,21 @@
     "damage": 4,
     "mode": "focused",
     "meleeDice": 1,
-    "cost": 1
+    "cost": 1,
+    "melee": {
+      "cleave": {
+        "dice": 1,
+        "damage": 4
+      },
+      "thrust": {
+        "dice": -1,
+        "damage": 2
+      },
+      "entangle": {
+        "dice": 0,
+        "damage": 1
+      }
+    }
   },
   "shield": {
     "id": "shield",
@@ -233,7 +257,17 @@
     "tags": [
       "quickDraw"
     ],
-    "cost": 1
+    "cost": 1,
+    "melee": {
+      "cleave": {
+        "dice": 0,
+        "damage": 3
+      },
+      "thrust": {
+        "dice": 1,
+        "damage": 3
+      }
+    }
   },
   "nose_vulcan": {
     "id": "nose_vulcan",
