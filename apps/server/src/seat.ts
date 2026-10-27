@@ -264,7 +264,12 @@ function connect() {
       console.log(`RESOLVED ${msg.events.length} events`);
     } else if (msg.t === 'error') console.log(`ERROR ${msg.errors.join('；')}`);
   });
-  ws.on('close', () => {
+  ws.on('close', (code) => {
+    // 同一席位有新的連線：讓出來，不要互踢
+    if (code === 4000) {
+      console.log('REPLACED 這個席位被別的連線接手，文字座位結束');
+      process.exit(0);
+    }
     console.log('DISCONNECTED，1 秒後重連');
     setTimeout(connect, 1000);
   });

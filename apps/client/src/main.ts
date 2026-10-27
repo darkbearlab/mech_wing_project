@@ -98,8 +98,16 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}&seat=${seat}`);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMessage);
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     connected = [false, false];
+    // 同一席位在別的分頁開了：這一頁讓出來，不再重連（否則兩頁會互踢）
+    if (e.code === 4000) {
+      const cover = document.getElementById('cover')!;
+      $('lineup').hidden = true;
+      cover.innerHTML = `<div><p>這個席位已經在別的分頁或視窗開啟</p><p class="muted">這一頁已經讓出席位；要在這裡玩請重新整理。</p></div>`;
+      cover.hidden = false;
+      return;
+    }
     renderStatus();
     setTimeout(connect, 1000);
   };
@@ -269,6 +277,13 @@ function onMessage(msg: ServerMessage) {
     startShow(msg.events);
   } else if (msg.t === 'error') {
     errors = msg.errors;
+    // 還沒開打：多半是加入房間被退回，重開選隊畫面並把原因寫在狀態列
+    if (lobby && !lobby.joined[seat]) {
+      lineupOpenedFor = -1;
+      showLobby();
+      $('status').textContent = msg.errors.join('；');
+      return;
+    }
     renderPanel();
   }
 }
