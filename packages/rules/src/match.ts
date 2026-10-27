@@ -1,4 +1,4 @@
-import { inGrapple, resolveAceMovement, resolveActions, resolveDeploy, resolveMovement, resolvePursuit, validateDeploy } from './resolve';
+import { aceTier, inGrapple, resolveAceMovement, resolveActions, resolveDeploy, resolveMovement, resolvePursuit, validateDeploy } from './resolve';
 import { createGame } from './setup';
 import { pursuitOptions, validatePursuits, type PursuitOption } from './pursuit';
 import type { GameEvent, GameState, PlayerActions, PlayerDeploy, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
@@ -43,7 +43,7 @@ export class Match {
 
   /** 王牌移動步驟裡，player 要下指令的機體 */
   aceUnits(player: PlayerId): string[] {
-    return (this.state.turnInfo?.deferred ?? []).filter((id) => this.state.units.find((u) => u.id === id && u.owner === player && u.status === 'active'));
+    return aceTier(this.state).filter((id) => this.state.units.find((u) => u.id === id && u.owner === player));
   }
 
   /** 追擊步驟裡，player 各機體能做的追擊 */

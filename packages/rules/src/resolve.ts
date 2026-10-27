@@ -25,6 +25,16 @@ export interface TurnResult {
 
 export const inGrapple = (state: GameState, id: string): boolean => state.grapples.some((g) => g.a === id || g.b === id);
 
+/**
+ * 王牌移動這一批要動的機體：擱置中、技能最低的那一群（雙方都擱置時，技能低的先動、技能高的看完再動；同技能同時動）
+ */
+export function aceTier(state: GameState): string[] {
+  const waiting = (state.turnInfo?.deferred ?? []).map((id) => state.units.find((u) => u.id === id)).filter((u): u is UnitState => !!u && u.status === 'active');
+  if (!waiting.length) return [];
+  const low = Math.min(...waiting.map((u) => pilotOf(u).skill));
+  return waiting.filter((u) => pilotOf(u).skill === low).map((u) => u.id);
+}
+
 /** 這台能不能擱置移動（王牌移動）：要有能力、不在纏鬥中 */
 export const canDefer = (state: GameState, u: UnitState): boolean => pilotOf(u).abilities.includes('ace_move') && !inGrapple(state, u.id);
 
@@ -139,13 +149,13 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   return { state, events: ctx.events };
 }
 
-/** 王牌移動步驟：擱置的機體看過其他人的移動結果後再動，其他機體原地不動 */
+/** 王牌移動步驟：擱置的機體看過其他人的移動結果後再動（技能低的一批先動），其他機體原地不動 */
 export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves, PlayerMoves]): TurnResult {
   const state: GameState = structuredClone(input);
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [] };
   const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
-  const aces = new Set((info.deferred ?? []).filter((id) => unitById(ctx, id).status === 'active'));
+  const aces = new Set(aceTier(state));
   const plans: Record<string, MovePlan> = {};
   const stance: Record<string, Stance> = { ...info.stance };
   for (const id of aces) {
@@ -163,10 +173,16 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   const velocity = { ...info.velocity };
   for (const id of aces) velocity[id] = result.velocity[id] ?? { x: 0, y: 0 };
   exposeDecoys(ctx);
-  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: [] };
+  // 還沒動的王牌（技能較高的下一批）；這一批動的時候被碰撞或拖進纏鬥的就失去王牌移動
+  const hit = new Set([...result.bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.a, e.b] : []))]);
+  const later = (info.deferred ?? []).filter((id) => !aces.has(id) && unitById(ctx, id).status === 'active');
+  for (const id of later) if (hit.has(id)) ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
+  const next = later.filter((id) => !hit.has(id) && !inGrapple(state, id));
+  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next };
   updateSight(state);
   checkWinner(ctx, false);
-  afterMovement(ctx);
+  if (state.winner === null && next.length) ctx.events.push({ type: 'phase', phase: 'ace' });
+  else afterMovement(ctx);
   state.rngState = rng.state;
   return { state, events: ctx.events };
 }
@@ -424,7 +440,7 @@ export function resolveTurn(input: GameState, moves: [PlayerMoves, PlayerMoves],
     r = f(r.state);
     events.push(...r.events);
   };
-  if (r.state.winner === null && r.state.phase === 'ace') next((s) => resolveAceMovement(s, moves));
+  while (r.state.winner === null && r.state.phase === 'ace') next((s) => resolveAceMovement(s, moves));
   if (r.state.winner === null && r.state.phase === 'pursuit') next((s) => resolvePursuit(s, [{}, {}]));
   if (r.state.winner === null) next((s) => resolveActions(s, actions));
   return { state: r.state, events };

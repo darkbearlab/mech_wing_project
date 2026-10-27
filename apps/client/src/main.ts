@@ -45,6 +45,7 @@ import {
   techniqueUse,
   normalizeChoice,
   dangerClose,
+  availableManeuvers,
   coveringShield,
   psycommuOf,
   canPsycommu,
@@ -691,11 +692,13 @@ attachCameraControls(canvas, cam, {
     renderAll();
   },
   onHover(sx, sy) {
+    mouseScreen = { x: sx, y: sy };
     const hit = unitAt(sx, sy);
     hoverUnit = hit?.id ?? null;
     canvas.style.cursor = hit ? 'pointer' : 'grab';
   },
   onLeave() {
+    mouseScreen = null;
     hoverUnit = null;
   },
 });
@@ -711,6 +714,7 @@ function drawFrame(now: number) {
     if (view.phase === 'deploy') drawDeployZones();
     else {
       drawRanges();
+      drawReach();
       drawPreviews();
     }
     drawUnits(view.state.units.map((u) => ({ u, ...shownPose(u) })));
@@ -1670,9 +1674,92 @@ document.querySelectorAll<HTMLButtonElement>('#viewCtl button[data-view]').forEa
     if (v === 'left') cam.rotate(-Math.PI / 4);
     else if (v === 'right') cam.rotate(Math.PI / 4);
     else if (v === 'top') cam.toggleTopDown();
+    else if (v === 'reach') toggleReach();
     else resetCamera();
   };
 });
+
+// ---------- 敵機可能落點（可開關，預設關閉；記住上次的選擇） ----------
+
+const REACH_KEY = 'mech-wing-reach';
+let showReach = (() => {
+  try {
+    return localStorage.getItem(REACH_KEY) === '1';
+  } catch {
+    return false;
+  }
+})();
+function toggleReach() {
+  showReach = !showReach;
+  try {
+    localStorage.setItem(REACH_KEY, showReach ? '1' : '0');
+  } catch {}
+  syncReachButton();
+}
+function syncReachButton() {
+  document.querySelector('#viewCtl button[data-view="reach"]')?.classList.toggle('on', showReach);
+}
+syncReachButton();
+window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  if (e.key.toLowerCase() === 'n') toggleReach();
+});
+/** 滑鼠在畫面上的位置（落點的正面射界提示用） */
+let mouseScreen: { x: number; y: number } | null = null;
+
+/** 每台看得到的敵機：下一步所有機動的終點（推進劑不明就當作夠用；背包壞了之類看得到的損傷照算） */
+function drawReach() {
+  if (!showReach || !view || show || view.phase === 'deploy' || view.phase === 'over') return;
+  const grappled = new Set(view.state.grapples.flatMap((x) => [x.a, x.b]));
+  let near: { x: number; y: number; d: number; pos: Vec; facing: number; owner: PlayerId } | null = null;
+  for (const e of view.state.units) {
+    if (e.owner === view.you || e.status !== 'active' || e.hidden || e.unknown || grappled.has(e.id)) continue;
+    const limits = { ...e, propellant: 99 } as unknown as Parameters<typeof availableManeuvers>[0];
+    const ends = availableManeuvers(limits).map((m) => worldPose(buildPath(limits as unknown as UnitState, { maneuver: m.id, limiter: false }), 1));
+    if (!ends.length) continue;
+    const pts = ends.map((p) => pr(p.pos.x, p.pos.y, 0)).filter((q) => q.visible);
+    const shape = hull(pts.map((q) => ({ x: q.x, y: q.y })));
+    if (shape.length >= 3) {
+      g.fillStyle = color(e.owner, 0.08);
+      g.strokeStyle = color(e.owner, 0.45);
+      g.setLineDash([4, 4]);
+      g.beginPath();
+      shape.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+      g.closePath();
+      g.fill();
+      g.stroke();
+      g.setLineDash([]);
+    }
+    ends.forEach((p) => {
+      const q = pr(p.pos.x, p.pos.y, 0);
+      if (!q.visible) return;
+      g.fillStyle = color(e.owner, 0.75);
+      g.beginPath();
+      g.arc(q.x, q.y, 2.5, 0, Math.PI * 2);
+      g.fill();
+      if (mouseScreen) {
+        const d = Math.hypot(q.x - mouseScreen.x, q.y - mouseScreen.y);
+        if (d < 10 && (!near || d < near.d)) near = { x: q.x, y: q.y, d, pos: p.pos, facing: p.facing, owner: e.owner };
+      }
+    });
+  }
+  // 滑鼠停在某個落點：畫出它從那裡的正面射界（±45°）
+  const n = near as { pos: Vec; facing: number; owner: PlayerId } | null;
+  if (n) {
+    const half = (config.OFF_FRONT_DEG * Math.PI) / 180;
+    g.fillStyle = color(n.owner, 0.12);
+    g.beginPath();
+    const c = pr(n.pos.x, n.pos.y, 0);
+    g.moveTo(c.x, c.y);
+    for (let i = 0; i <= 16; i++) {
+      const a = n.facing - half + (2 * half * i) / 16;
+      const q = pr(n.pos.x + Math.cos(a) * config.RANGE_LIMITS.r2, n.pos.y + Math.sin(a) * config.RANGE_LIMITS.r2, 0);
+      g.lineTo(q.x, q.y);
+    }
+    g.closePath();
+    g.fill();
+  }
+}
 
 // ---------- 畫面：面板 ----------
 
