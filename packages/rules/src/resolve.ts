@@ -120,9 +120,11 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   const movers = new Set(Object.keys(plans).filter((id) => !deferred.has(id)));
   settleMomentum(ctx, plans, movers, frozen, stopped);
 
-  // 第一步裡被撞進纏鬥的王牌就失去這次王牌移動
+  // 第一步裡被碰撞（擦撞、撞擊、近戰、咬住）的王牌就失去這次王牌移動：敵人已經在眼前，看穿也來不及反應
   exposeDecoys(ctx);
-  const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !inGrapple(state, id));
+  const hit = new Set([...bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.a, e.b] : []))]);
+  for (const id of deferred) if (hit.has(id) && unitById(ctx, id).status === 'active') ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
+  const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !hit.has(id) && !inGrapple(state, id));
   state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting };
   updateSight(state);
   checkWinner(ctx, false);

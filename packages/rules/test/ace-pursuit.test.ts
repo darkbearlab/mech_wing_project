@@ -115,6 +115,20 @@ describe('王牌移動', () => {
     expect(['pursuit', 'action']).toContain(m.phase);
   });
 
+  it('擱置的王牌第一步被碰撞就失去王牌移動', () => {
+    const m = new Match(1, makeState([
+      { entry: rifle('ace'), owner: 0, x: 10, y: 10, facingDeg: 90 },
+      { entry: rifle(), owner: 1, x: 10, y: 13, facingDeg: -90 },
+    ]));
+    const [ace, foe] = m.state.units;
+    const [a, b] = moveAll(m.state, { [ace.id]: { defer: true }, [foe.id]: { maneuver: 'straight-S-3' } });
+    m.submitMoves(0, a);
+    m.submitMoves(1, b);
+    expect(m.turnResolvedEvents.some((e) => e.type === 'contact' && e.result === 'bump')).toBe(true);
+    expect(m.phase).not.toBe('ace');
+    expect(m.turnResolvedEvents.some((e) => e.type === 'actionFail' && e.unit === ace.id && e.reason.includes('王牌移動'))).toBe(true);
+  });
+
   it('新人類擱置：對方也有新人類才付 1 壓力', () => {
     for (const [enemy, expected] of [['nt_sensitive', 1], ['veteran', 0]] as const) {
       const m = new Match(1, makeState([
