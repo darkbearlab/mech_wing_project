@@ -1814,7 +1814,7 @@ function placeCard() {
   if (cardPinned) {
     pos = clamp(cardPinned.x, cardPinned.y);
   } else {
-    const p = fx(u.pos);
+    const p = fx(shownPose(u).pos);
     const gap = 34;
     const cands = [
       { x: p.x + gap, y: p.y - h / 2 },
@@ -1824,7 +1824,7 @@ function placeCard() {
     ];
     const blockers = [$('leftCol'), $('submitBox'), $('viewCtl'), $('log')].map((el) => relRect(el, stage));
       if (!$('infoCard').hidden) blockers.push(relRect($('infoCard'), stage));
-    const others = view!.state.units.filter((x) => x.id !== u.id).map((x) => fx(x.pos));
+    const others = view!.state.units.filter((x) => x.id !== u.id).map((x) => fx(shownPose(x).pos));
     let best = 0;
     let bestScore = Infinity;
     cands.forEach((c, i) => {
@@ -1865,7 +1865,7 @@ function updateHoverCard() {
     el.innerHTML = `<div class="hname" style="color:${color(u.owner)}" title="${esc(ch.name)}">${esc(u.label.split(' ')[0])}</div>${mechSilhouette(u)}${status}`;
   }
   el.hidden = false;
-  const p = fx(u.pos);
+  const p = fx(shownPose(u).pos);
   const w = el.offsetWidth;
   const h = el.offsetHeight;
   const x = p.x + 16 + w > W ? p.x - 16 - w : p.x + 16;
@@ -1877,7 +1877,7 @@ function updateHoverCard() {
 function drawCardLink() {
   const u = selected ? unitView(selected) : undefined;
   if (!cardRect || show || !u) return;
-  const p = fx(u.pos);
+  const p = fx(shownPose(u).pos);
   if (!p.visible) return;
   const a = { x: Math.max(cardRect.x, Math.min(cardRect.x + cardRect.w, p.x)), y: Math.max(cardRect.y, Math.min(cardRect.y + cardRect.h, p.y)) };
   const b = { x: p.x, y: p.y };
