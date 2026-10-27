@@ -42,6 +42,8 @@ import {
   type MovePlan,
   type PursuitPlan,
   type DeployPlan,
+  techniqueUse,
+  normalizeChoice,
   type Scenario,
   armorOf,
   aiDeploy,
@@ -388,7 +390,7 @@ function weaponPower(u: UnitView, eqId: string): number {
 }
 
 function initialMove(u: UnitView): MovePlan {
-  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
+  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: normalizeChoice(u as unknown as UnitState, undefined) };
 }
 
 /** 套用規劃中的換武器後，手上會拿著什麼 */
@@ -1749,7 +1751,7 @@ function infoHtml(u: UnitView): string {
   let html = `<div class="uname" style="color:${color(u.owner)}">${esc(u.label)} <span class="muted small">${esc(ch.name.replace(/^X-\d+ /, ''))}・重量級 ${ch.weightClass}</span></div>`;
   if (mine && u.pilotId) {
     const p = PILOTS[u.pilotId];
-    const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('called_shot') ? '瞄準要害' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
+    const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('called_shot') ? '瞄準要害' : '', p.abilities.includes('brawler') ? '擅長肉搏' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
     html += `<div class="small">${esc(p.name)}（技能 ${p.skill}${tags.map((t) => `・${t}`).join('')}）　壓力 <b>${u.stress}</b>/${u.maxStress}　推進劑 <b>${u.propellant}</b>/${u.maxPropellant}</div>`;
     const flags = [u.blackout ? '<span class="warn">黑視中</span>' : '', u.lockOn ? `鎖定 ${esc(labelOf(u.lockOn))}` : '', inGrapple(u.id) ? '<span class="warn">纏鬥中</span>' : ''].filter(Boolean);
     if (flags.length) html += `<div class="small">${flags.join('　')}</div>`;
@@ -1848,13 +1850,22 @@ const STANCE_TIPS: Record<Stance, string> = {
   melee: `近戰姿態：撞到就出手。相對速度 ${config.CLINCH_MAX_VC} 以下咬住對方進入纏鬥；自己速度 ${config.SLOW_MAX_SPEED + 1} 以上且相對速度更高時一擊脫離，雙方擲骰比近戰（手上沒近戰武器則是撞擊）。自己慢速（${config.SLOW_MAX_SPEED} 以下）時不主動出刀，被高速衝進來就承受衝擊：骰數 +${config.BRACE_DIE} 再加重量差，贏或平手把對方拖住。這回合射擊命中 −${config.MELEE_STANCE_SHOT_PENALTY}（發數多的武器比較划算）。`,
 };
 const STANCE_NAMES: Record<Stance, string> = { shoot: '射擊', melee: '近戰' };
-const GRAPPLE_TIPS: Record<GrappleChoice, string> = {
-  slash: '用手上的近戰武器攻擊。會被「架」擋下，但能打斷「抓」。',
-  parry: '用近戰武器或盾牌擋下「斬」並取得優勢；擋不住「抓」，也會被「推」壓制。',
-  grab: '需要一隻空手。成功就把對方甩開 2 格、造成傷害並結束纏鬥；怕「斬」。',
-  push: '比力氣（出力＋重量＋駕駛＋骰子），贏的一方取得優勢，差 3 以上直接把對方推開。',
-  disengage: '花 1 壓力離開纏鬥；對方選「抓」就會脫離失敗。',
+const TECH_TIPS: Record<GrappleChoice, string> = {
+  cleave: '劈砍：剋穿刺，被纏繞剋。',
+  thrust: '穿刺：剋纏繞，被劈砍剋。',
+  entangle: '纏繞（抓、摔、壓制）：剋劈砍，被穿刺剋；得手把對方摔出 2 格、壓力 +2。',
+  disengage: '脫離：永遠等於被剋（對手多骰）；贏了就乾淨脫身，輸了吃對方一擊並被擊退（一樣會分開）。',
 };
+
+/** 纏鬥選項的說明：這台用哪件武器、擲幾顆骰、得手造成多少傷害 */
+function grappleTip(u: UnitView, c: GrappleChoice): string {
+  const base = `${TECH_TIPS[c]}被剋的一方對手多 ${config.COUNTER_DICE} 顆骰。雙方擲近戰骰比成功數，得手的一方一律把對方擊退、結束纏鬥；平手就繼續纏，雙方壓力 +1。`;
+  if (c === 'disengage') return base;
+  const use = techniqueUse(u as unknown as UnitState, c);
+  if (!use) return base;
+  const how = use.weapon ? EQUIPMENT[use.weapon.defId].name : `徒手${PILOTS[u.pilotId!]?.abilities.includes('brawler') ? '（擅長肉搏）' : '（不擅長肉搏：等於被剋）'}`;
+  return `${how}：骰數 ${use.dice >= 0 ? '+' : ''}${use.dice}，得手造成 ${use.damage} 點傷害。${base}`;
+}
 
 /** 在按鈕上掛說明文字，滑鼠停留時顯示在卡片下方的說明區 */
 const tip = (button: string, text: string) => button.replace(/^<button /, `<button data-tip="${esc(text)}" `);
@@ -1863,7 +1874,7 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   if (inGrapple(u.id)) {
     const opts = grappleOptions(u as unknown as UnitState);
     return `<div class="sec">選一個纏鬥動作</div><div class="row">${opts
-      .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, GRAPPLE_TIPS[o]))
+      .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, grappleTip(u, o)))
       .join('')}</div>`;
   }
   // 王牌移動：移動步驟可以擱置（王牌移動步驟裡就不能再擱置）
@@ -2042,9 +2053,13 @@ function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
 
 function actionControls(u: UnitView, plan: ActionPlan): string {
   if (view!.state.bumped.includes(u.id)) return '<div class="warn">這台機體在移動時擦撞，本回合不能行動。</div>';
+
   const quick = PILOTS[u.pilotId!].abilities.includes('quick_draw');
-  let html = '<div class="sec">選一件裝備</div><div class="optList">';
+  const grappled = inGrapple(u.id);
+  let html = grappled ? '<div class="warn small">纏鬥中：不能射擊、鎖定或用道具，只能換武器（例如拔出光劍）。</div>' : '';
+  html += '<div class="sec">選一件裝備</div><div class="optList">';
   html += equipOptions(u)
+    .filter((o) => !grappled || o.kind === 'draw' || o.kind === 'none')
     .map((o) => tip(`<button class="${optionOn(o, plan, u) ? 'on' : ''}" data-opt="${o.key}">${esc(o.label)}</button>`, optionTip(u, o, quick)))
     .join('');
   html += '</div>';

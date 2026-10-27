@@ -158,9 +158,14 @@ export const SHIELD_BLOCK_BASE = 50;
 export const SHIELD_BLOCK_PER_SKILL = 5;
 
 // 纏鬥
-export const ADVANTAGE_PUSH = 2;
-export const ADVANTAGE_SLASH = 1;
-export const PUSH_AWAY_MARGIN = 3;
+/** 纏鬥：被剋的一方對手多幾顆骰（脫離、不擅長的徒手肉搏一律算被剋）——暫定，模擬後調整 */
+export const COUNTER_DICE = 2;
+/** 纏鬥優勢（從側面或背後抓住、互相纏繞僵持時較重的一方）多幾顆骰 */
+export const GRAPPLE_ADV_DICE = 1;
+/** 徒手肉搏的三種手法（拳、掌、摔） */
+export const BARE_HANDS = { cleave: { dice: -1, damage: 1 }, thrust: { dice: -1, damage: 1 }, entangle: { dice: 1, damage: 1 } } as const;
+/** 劈砍、穿刺得手時把對方擊退的距離（纏繞得手是 THROW_DISTANCE） */
+export const KNOCKBACK_GAP = 1.5;
 export const THROW_DISTANCE = 2;
 export const THROW_DAMAGE = 1;
 export const THROW_STRESS = 2;

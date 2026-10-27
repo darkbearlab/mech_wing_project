@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONTENT, contentVersion, useContent, validateContent } from '../src/content';
 import { edgeDistance } from '../src/combat';
-import { grappleOptions, normalizeChoice } from '../src/grapple';
+import { grappleDice, grappleOptions, normalizeChoice, techniqueUse } from '../src/grapple';
+import type { GrappleChoice, Technique } from '../src/types';
 import { coveringShield } from '../src/combat';
 import { readyMelee } from '../src/unit';
 import { damageUnit, type Ctx } from '../src/damage';
@@ -356,27 +357,38 @@ describe('纏鬥', () => {
   };
   const hold = (grapple: UnitPlan['grapple']) => plan({ maneuver: 'straight-S-1', grapple });
 
-  it('斬 vs 架：架方取得優勢，斬方壓力 +1', () => {
-    const st = grappled();
-    const r = duel(hold('slash'), hold('parry'), st);
-    const g = of(r.events, 'grapple')[0];
-    expect(g.advantage).toBe(st.units[1].id);
-    expect(of(r.events, 'stress').some((e) => e.unit === st.units[0].id && e.reason === '斬擊被架開')).toBe(true);
-    expect(r.state.units[0].pos.x).toBe(5); // 纏鬥中不移動
+  it('有人得手就擊退對方、纏鬥結束；纏鬥中不移動', () => {
+    let endedOnce = false;
+    for (let seed = 1; seed <= 30 && !endedOnce; seed++) {
+      const st = grappled();
+      st.rngState = seed;
+      const r = duel(hold('cleave'), hold('thrust'), st);
+      const g = of(r.events, 'grapple')[0];
+      if (g.ended) {
+        endedOnce = true;
+        expect(r.state.grapples).toHaveLength(0);
+        expect(Math.abs(r.state.units[1].pos.x - r.state.units[0].pos.x)).toBeGreaterThan(1.5);
+      } else expect(r.state.units[0].pos.x).toBe(5);
+    }
+    expect(endedOnce).toBe(true);
   });
 
-  it('架 vs 抓：抓方投擲成功，纏鬥結束', () => {
-    const st = grappled({ chassis: 'X-00', pilot: 'veteran', equipment: [['beam_saber', 'right']] });
-    const r = duel(hold('grab'), hold('parry'), st);
-    expect(of(r.events, 'grapple')[0].ended).toBe(true);
-    expect(r.state.grapples).toHaveLength(0);
-    expect(r.state.units[1].pos.x).toBeCloseTo(8); // 底板邊緣相距 2
+  it('剋制環：纏繞剋劈砍、劈砍剋穿刺、穿刺剋纏繞，被剋的對手多骰；脫離與不擅長的徒手一律被剋', () => {
+    const st = grappled();
+    const [a, b] = st.units;
+    const dice = (ca: GrappleChoice, cb: GrappleChoice) => grappleDice(a, ca, ca === 'disengage' ? null : techniqueUse(a, ca as Technique), cb, cb === 'disengage' ? null : techniqueUse(b, cb as Technique), false, b);
+    expect(dice('cleave', 'thrust') - dice('cleave', 'cleave')).toBe(C.COUNTER_DICE);
+    expect(dice('entangle', 'cleave') - dice('entangle', 'thrust')).toBe(C.COUNTER_DICE);
+    expect(dice('cleave', 'disengage') - dice('cleave', 'cleave')).toBe(C.COUNTER_DICE);
+    // b 是光劍：不能纏繞，纏繞就是徒手（不擅長肉搏）→ a 的劈砍多骰
+    expect(techniqueUse(b, 'entangle')?.weapon).toBeNull();
+    expect(dice('cleave', 'entangle') - dice('cleave', 'cleave')).toBe(C.COUNTER_DICE);
   });
 
-  it('沒有空手的抓視為推', () => {
-    const st = grappled();
-    const r = duel(hold('grab'), hold('push'), st);
-    expect(of(r.events, 'grapple')[0].choiceA).toBe('push');
+  it('纏鬥中不能射擊', () => {
+    const st = grappled(rifleX00, rifleX00);
+    const r = duel(plan({ maneuver: 'straight-S-1', action: { type: 'shoot', weapon: st.units[0].equipment[0].id, target: st.units[1].id } }), hold('disengage'), st);
+    expect(r.events.some((e) => e.type === 'shot' && e.attacker === st.units[0].id)).toBe(r.state.grapples.length === 0);
   });
 });
 
@@ -463,7 +475,7 @@ describe('整場模擬', () => {
         maneuver: opts.length ? opts[Math.floor(rng.next() * opts.length)].id : defaultMove(u).maneuver,
         stance: stances[Math.floor(rng.next() * 3)],
         action: weapon && target ? { type: 'shoot', weapon: weapon.id, target: target.id } : { type: 'none' },
-        grapple: (['slash', 'parry', 'grab', 'push', 'disengage'] as const)[Math.floor(rng.next() * 5)],
+        grapple: (['cleave', 'thrust', 'entangle', 'disengage'] as const)[Math.floor(rng.next() * 4)],
       });
     }
     return out;
@@ -774,7 +786,7 @@ describe('部位配置與戰機', () => {
     expect(validateMove(u, plan({ maneuver: 'straight-S-2', stance: 'melee' }), false).join()).toMatch(/只能選射擊姿態/);
     expect(validateMove(u, plan({ maneuver: 'straight-S-2' }), false)).toEqual([]);
     expect(grappleOptions(u)).toEqual(['disengage']);
-    expect(normalizeChoice(u, 'push')).toBe('disengage');
+    expect(normalizeChoice(u, 'cleave')).toBe('disengage');
   });
 
   it('底座半徑：距離用雙方各自的半徑計算', () => {
@@ -843,7 +855,7 @@ describe('固定盾與肩部尖刺（薩克 II）', () => {
     damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 10, 'focused', 'rarm');
     expect(u.parts.rarm.destroyed).toBe(true);
     expect(readyMelee(u)?.defId).toBe('zaku_spike');
-    expect(grappleOptions(u)).toContain('slash');
+    expect(grappleOptions(u)).toContain('thrust');
   });
 });
 

@@ -10,7 +10,8 @@ import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import { armorOf, readyRanged } from '../src/unit';
 import { viewState } from '../src/visibility';
-import type { PlayerActions, PlayerMoves, RosterEntry } from '../src/types';
+import type { PlayerActions, PlayerMoves } from '../src/types';
+import type { RosterEntry } from '../src/data';
 
 beforeEach(() => {
   const pack: ContentPack = structuredClone({ ...DEFAULT_CONTENT, version: 'test-pocket' });

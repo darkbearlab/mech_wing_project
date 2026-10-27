@@ -13,16 +13,16 @@ import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import { closeCombatOf, minSpeedOf, radiusOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { hitChance, relativeSpeed } from './combat';
-import { grappleOptions } from './grapple';
+import { BEATS, TECHNIQUES, techniqueUse, grappleOptions } from './grapple';
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire } from './terrain';
 import { buildPath } from './movement';
-import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED } from './config';
+import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
-import type { ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
+import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { armorOf, availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
@@ -380,12 +380,29 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
   return { score, end: pos, facing, track };
 }
 
-const GRAPPLE_WEIGHT: Record<GrappleChoice, number> = { slash: 4, grab: 3, push: 2, parry: 2, disengage: 1 };
-
-function pickGrapple(u: UnitView, rng: Rng): GrappleChoice {
+/**
+ * 纏鬥選手法：估計對手最可能用的手法（它骰數最多的那種），自己每種手法的骰數加上剋制與被剋的影響、
+ * 傷害與一點隨機，挑最好的；快撐不住（壓力快滿或受傷重）時有機會脫離
+ */
+function pickGrapple(u: UnitView, opp: UnitView | undefined, rng: Rng): GrappleChoice {
   const opts = grappleOptions(u as unknown as UnitState);
-  const tired = (u.stress ?? 0) >= (u.maxStress ?? 5) - 1;
-  return rng.pickWeighted(opts, (o) => (o === 'disengage' && tired ? 3 : GRAPPLE_WEIGHT[o]));
+  if (opts.length === 1) return opts[0];
+  const tired = (u.stress ?? 0) >= (u.maxStress ?? 5) - 1 || hurtOf(u) > 0.7;
+  if (tired && rng.next() < 0.5) return 'disengage';
+  const oppUse = (t: Technique) => (opp ? techniqueUse(opp, t) : null);
+  const oppBest = TECHNIQUES.map((t) => oppUse(t)).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => b.dice - a.dice)[0]?.technique;
+  const brawler = !!PILOTS[u.pilotId!]?.abilities.includes('brawler');
+  let best: { c: GrappleChoice; v: number } | null = null;
+  for (const c of opts) {
+    if (c === 'disengage') continue;
+    const use = techniqueUse(u, c)!;
+    let v = use.dice + use.damage * 0.4 + rng.next() * 1.5;
+    if (oppBest && BEATS[c] === oppBest) v += COUNTER_DICE;
+    if (oppBest && BEATS[oppBest] === c) v -= COUNTER_DICE;
+    if (!use.weapon && !brawler) v -= COUNTER_DICE;
+    if (!best || v > best.v) best = { c, v };
+  }
+  return best?.c ?? 'disengage';
 }
 
 /**
@@ -577,7 +594,9 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
   for (const u of order) {
     if (!deciding.has(u.id)) continue;
     if (grappled.has(u.id)) {
-      out[u.id] = { ...base, grapple: pickGrapple(u, rng) };
+      const g = view.state.grapples.find((x) => x.a === u.id || x.b === u.id);
+      const oppId = g ? (g.a === u.id ? g.b : g.a) : undefined;
+      out[u.id] = { ...base, grapple: pickGrapple(u, view.state.units.find((x) => x.id === oppId), rng) };
       continue;
     }
     if (deferNow.has(u.id)) {

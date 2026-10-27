@@ -5,7 +5,9 @@ export type PlayerId = 0 | 1;
 export type Stance = 'shoot' | 'melee';
 export type Hand = 'right' | 'left';
 export type RangeBand = 0 | 1 | 2 | 3;
-export type GrappleChoice = 'slash' | 'parry' | 'grab' | 'push' | 'disengage';
+/** 纏鬥的手法：劈砍、穿刺、纏繞（剋制環：纏繞剋劈砍、劈砍剋穿刺、穿刺剋纏繞） */
+export type Technique = 'cleave' | 'thrust' | 'entangle';
+export type GrappleChoice = Technique | 'disengage';
 export type DamageMode = 'focused' | 'scattered';
 /** 人形範本的部位 id；其他機型可以自訂部位 id */
 export type BodyPartId = string;
@@ -78,6 +80,8 @@ export interface EquipDef {
   shieldArc?: number;
   /** 近戰對決的額外骰數（重武器較多） */
   meleeDice?: number;
+  /** 纏鬥的三種手法：骰數修正與得手時的傷害；有寫就照寫的（沒寫的手法不能用），沒寫照 meleeDice 與 damage 劈砍、穿刺 */
+  melee?: Partial<Record<Technique, { dice: number; damage: number }>>;
   fuel?: number;
 }
 
@@ -117,13 +121,13 @@ export interface ChassisDef {
 
 /**
  * 駕駛能力：quick_draw 快拔；ace_move 王牌移動（移動步驟可以等其他人動完再決定）；
- * called_shot 瞄準要害（命中時比較容易打到核心部位）；
+ * called_shot 瞄準要害（命中時比較容易打到核心部位）；brawler 擅長肉搏（纏鬥徒手不吃虧）；
  * newtype 新人類（要搭配 ntSense，擊墜會累積壓力；有王牌移動時，對方也有新人類就要付壓力才能擱置）
  */
 /** 戰場環境：宇宙、重力圈（地面）；水中之後再做 */
 export type Environment = 'space' | 'gravity' | 'water';
 
-export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot';
+export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot' | 'brawler';
 /** 新人類對擊墜的感受：numb 麻木（後期阿姆羅、夏亞）、strong 心智堅強（捷度）、sensitive 敏感（剛上戰場）、fragile 纖細（卡蜜兒） */
 export type NtSense = 'numb' | 'strong' | 'sensitive' | 'fragile';
 

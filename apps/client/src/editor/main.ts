@@ -470,6 +470,23 @@ function selField(obj: Obj, key: string, name: string, options: [string, string]
   };
   return h('label', { class: 'field', title: o.hint }, h('small', {}, name), s);
 }
+/** 纏鬥手法：輸入「骰數,傷害」，空白表示不能這樣用 */
+function techField(e: Obj, tech: 'cleave' | 'thrust' | 'entangle', name: string) {
+  const melee = (e.melee ?? {}) as Record<string, { dice: number; damage: number }>;
+  const cur = melee[tech] ? `${melee[tech].dice},${melee[tech].damage}` : '';
+  const input = h('input', { value: cur, placeholder: '例如 1,3', disabled: !canEdit(), title: '骰數修正,得手傷害' }) as HTMLInputElement;
+  input.onchange = () => {
+    const m = /^\s*(-?\d+)\s*,\s*(\d+)\s*$/.exec(input.value);
+    const next = { ...((e.melee ?? {}) as Record<string, unknown>) };
+    if (m) next[tech] = { dice: Number(m[1]), damage: Number(m[2]) };
+    else delete next[tech];
+    if (Object.keys(next).length) e.melee = next;
+    else delete e.melee;
+    changed();
+  };
+  return h('label', { class: 'field' }, h('small', {}, name), input);
+}
+
 /** 適合環境：存成陣列，兩種都可以時不寫 */
 function envField(c: Obj) {
   const cur = Array.isArray(c.envs) ? (c.envs as string[]).join(',') : 'space,gravity';
@@ -557,7 +574,10 @@ function equipmentForm(e: EquipDef & Obj) {
       sec('距離帶命中修正（空白＝那個距離不能打）', grid(numField(r, '1', '近 R1', { optional: true }), numField(r, '2', '中 R2', { optional: true }), numField(r, '3', '遠 R3', { optional: true }))),
     );
   }
-  if (e.kind === 'melee') out.push(sec('近戰', grid(numField(e, 'damage', '傷害'), numField(e, 'meleeDice', '額外近戰骰', { optional: true, hint: '重武器在近戰對決多擲的骰數' }))));
+  if (e.kind === 'melee') {
+    out.push(sec('近戰', grid(numField(e, 'damage', '傷害'), numField(e, 'meleeDice', '額外近戰骰', { optional: true, hint: '重武器在近戰對決多擲的骰數' }))));
+    out.push(sec('纏鬥手法（骰數修正／得手傷害；空白＝不能這樣用，三個都空白就照上面的傷害劈砍、穿刺）', grid(techField(e, 'cleave', '劈砍'), techField(e, 'thrust', '穿刺'), techField(e, 'entangle', '纏繞'))));
+  }
   if (e.kind === 'tank') out.push(sec('燃料', grid(numField(e, 'fuel', '增加推進劑'))));
   if (e.kind === 'armor')
     out.push(sec('外裝甲（耐久就是能吸收的傷害）', grid(
@@ -716,7 +736,7 @@ function partOptions(chassisId: string | undefined, cur: string | undefined): HT
 function pilotForm(p: PilotDef & Obj) {
   return [
     sec('基本', grid(textField(p, 'name', '名稱'), numField(p, 'skill', '技術', { hint: `每點命中 +${C.HIT_PER_SKILL}、迴避 +${C.EVADE_PER_SKILL}` }), numField(p, 'maxStress', '壓力上限'), numField(p, 'recovery', '每回合壓力恢復'), numField(p, 'cost', '費用', { optional: true, hint: '組隊預算與擊墜分；空白＝0' }), selField(p, 'unique', '出擊限制', [['false', '可以重複'], ['true', '具名：一隊只能一位']], { absent: 'false' }))),
-    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害']], (v) => {
+    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害'], ['brawler', '擅長肉搏']], (v) => {
       p.abilities = (v ?? []) as PilotDef['abilities'];
       // 新人類一定要有擊墜感受；取消新人類就拿掉
       if (p.abilities.includes('newtype')) p.ntSense ??= 'sensitive';

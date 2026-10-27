@@ -1,3 +1,4 @@
+import { clinchAdvantage } from './grapple';
 import { radiusOf } from './body';
 import * as C from './config';
 import { meleeClash } from './melee';
@@ -219,7 +220,7 @@ export function simulateMovement(
         break;
       case 'clinch':
         halt(a, b);
-        ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: null });
+        ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: clinchAdvantage(a.unit, b.unit) });
         break;
       case 'hitrun': {
         for (const m of bladed) {
@@ -231,7 +232,7 @@ export function simulateMovement(
         const caught = meleeClash(ctx, att.unit, def.unit, t, attackers.includes(def), def === bracer);
         if (caught) {
           halt(a, b);
-          ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: null });
+          ctx.state.grapples.push({ a: a.unit.id, b: b.unit.id, advantage: clinchAdvantage(a.unit, b.unit) });
         }
         break;
       }
