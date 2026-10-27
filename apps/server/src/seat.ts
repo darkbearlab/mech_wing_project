@@ -380,16 +380,28 @@ function connect() {
 connect();
 
 // 指令檔：出現就送出，然後改名留底
+let badText = '';
+let badSince = 0;
 setInterval(() => {
   const file = resolve(dir, 'orders.json');
   if (!existsSync(file) || ws.readyState !== WebSocket.OPEN) return;
+  const text = readFileSync(file, 'utf-8');
   try {
-    const msg = normalizeOrders(JSON.parse(readFileSync(file, 'utf-8')));
+    const msg = normalizeOrders(JSON.parse(text));
     ws.send(JSON.stringify(msg));
     renameSync(file, resolve(dir, `sent-${Date.now()}.json`));
     console.log(`SENT ${msg.t}`);
+    badSince = 0;
   } catch (e) {
+    // 檔案可能還在寫：內容有變就再等等，同一份內容讀不懂超過 3 秒才當成壞掉
+    if (text !== badText) {
+      badText = text;
+      badSince = Date.now();
+      return;
+    }
+    if (Date.now() - badSince < 3000) return;
     console.log(`ERROR 指令檔讀不懂：${(e as Error).message}`);
     renameSync(file, resolve(dir, `bad-${Date.now()}.json`));
+    badText = '';
   }
 }, 500);
