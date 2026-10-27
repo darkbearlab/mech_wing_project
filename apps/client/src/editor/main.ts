@@ -487,6 +487,29 @@ function techField(e: Obj, tech: 'cleave' | 'thrust' | 'entangle', name: string)
   return h('label', { class: 'field' }, h('small', {}, name), input);
 }
 
+/** 感應武器（炮群）：不是／無線（艾爾美斯）／線控（吉翁克的有線臂，要內建在手臂上） */
+function psycommuSec(e: Obj) {
+  const ps = e.psycommu as Obj | undefined;
+  const cur = !ps ? 'none' : ps.wired ? 'wired' : 'wireless';
+  const s = h('select', { disabled: !canEdit() }, ...[['none', '不是'], ['wireless', '無線炮群'], ['wired', '線控（有線臂）']].map(([v, t]) => h('option', { value: v, selected: v === cur }, t)));
+  s.onchange = () => {
+    if (s.value === 'none') delete e.psycommu;
+    else if (s.value === 'wired') e.psycommu = { count: 1, range: 6, move: 6, wired: true };
+    else e.psycommu = { count: 8, charge: 2, range: 12, move: 8, evasion: 40 };
+    changed(true);
+  };
+  const kind = h('label', { class: 'field', title: '只有新人類、強化人能用，只能在宇宙用。發數是每支每次攻擊的發數' }, h('small', {}, '感應武器'), s);
+  if (!ps) return sec('感應武器', grid(kind));
+  return sec('感應武器（新人類、強化人才能用）', grid(
+    kind,
+    numField(ps, 'count', '支數'),
+    ...(ps.wired ? [] : [numField(ps, 'charge', '每支攻擊次數', { hint: '用完要收回充能' })]),
+    numField(ps, 'range', '控制距離'),
+    numField(ps, 'move', '每回合移動'),
+    numField(ps, 'evasion', '被射擊時迴避', { optional: true, hint: '很小的感應炮很難打中，例如 40' }),
+  ));
+}
+
 /** 適合環境：存成陣列，兩種都可以時不寫 */
 function envField(c: Obj) {
   const cur = Array.isArray(c.envs) ? (c.envs as string[]).join(',') : 'space,gravity';
@@ -572,6 +595,7 @@ function equipmentForm(e: EquipDef & Obj) {
         selField(e, 'pointBlank', '零距離射擊', [['true', '可以'], ['false', '不行']], { absent: 'true' }),
       )),
       sec('距離帶命中修正（空白＝那個距離不能打）', grid(numField(r, '1', '近 R1', { optional: true }), numField(r, '2', '中 R2', { optional: true }), numField(r, '3', '遠 R3', { optional: true }))),
+      psycommuSec(e),
     );
   }
   if (e.kind === 'melee') {
@@ -736,7 +760,7 @@ function partOptions(chassisId: string | undefined, cur: string | undefined): HT
 function pilotForm(p: PilotDef & Obj) {
   return [
     sec('基本', grid(textField(p, 'name', '名稱'), numField(p, 'skill', '技術', { hint: `每點命中 +${C.HIT_PER_SKILL}、迴避 +${C.EVADE_PER_SKILL}` }), numField(p, 'maxStress', '壓力上限'), numField(p, 'recovery', '每回合壓力恢復'), numField(p, 'cost', '費用', { optional: true, hint: '組隊預算與擊墜分；空白＝0' }), selField(p, 'unique', '出擊限制', [['false', '可以重複'], ['true', '具名：一隊只能一位']], { absent: 'false' }))),
-    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害'], ['brawler', '擅長肉搏']], (v) => {
+    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害'], ['brawler', '擅長肉搏'], ['cyber_newtype', '強化人']], (v) => {
       p.abilities = (v ?? []) as PilotDef['abilities'];
       // 新人類一定要有擊墜感受；取消新人類就拿掉
       if (p.abilities.includes('newtype')) p.ntSense ??= 'sensitive';
@@ -877,7 +901,7 @@ function renderForm() {
 const FIELD_NAMES: Record<string, string> = {
   radius: '底座半徑', minSpeed: '最低速度', closeCombat: '近身戰鬥', shieldOffset: '盾牌中心角度', shieldArc: '盾牌半角',
   name: '名稱', kind: '種類', mount: '安裝方式', weight: '受擊權重', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
-  pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
+  pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', psycommu: '感應武器', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
   baseThrust: '免費加速', maxAccel: '最大加速', power: '出力', aim: '瞄準', evasion: '迴避', parts: '部位', dial: '機動盤', builtIn: '內建武裝', skill: '技術',
   maxStress: '壓力上限', recovery: '壓力恢復', abilities: '能力', ntSense: '擊墜感受', crew: '機上人員', cost: '費用', unique: '具名', envs: '適合環境', hover: '地面滑行',
 };
