@@ -6,6 +6,7 @@
 // 陣容模式：config（照設定）、random、mirror、default。PACK=資料包.json 用指定的資料包。
 // FROM=logs/battle-12.json：用那場紀錄的地圖與陣容開局，雙方都交給 AI（--stats 時每場 AI 的亂數不同）。
 // AI_OLD=../src/ai_old.ts：一方換成另一份 AI（兩邊輪流換），統計分成「新」「舊」比較。
+// SCENARIO=0080-ep5：照重演戰役開局（雙方都是電腦，電腦方照劇本走）。
 // 勝利條件：WIN=kill50,decap,goal,control6（預設 kill50,decap）、TURNS=12、DEPLOY=free（預設照順序排開）、ENV=gravity（預設宇宙）、SEED0=起始種子。
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -27,6 +28,8 @@ import {
   randomRoster,
   readyRanged,
   replayRecord,
+  SCENARIOS,
+  scriptedOrders,
   killScoreOf,
   submitStep,
   useContent,
@@ -81,7 +84,9 @@ function settingsFromEnv(): BattleSettings {
     environment: process.env.ENV === 'gravity' ? 'gravity' : 'space',
   };
 }
-const settings = settingsFromEnv();
+const scenario = process.env.SCENARIO ? SCENARIOS.find((x) => x.id === process.env.SCENARIO) : undefined;
+if (process.env.SCENARIO && !scenario) throw new Error(`沒有劇本 ${process.env.SCENARIO}（有：${SCENARIOS.map((x) => x.id).join('、')}）`);
+const settings = scenario ? scenario.settings() : settingsFromEnv();
 const from = process.env.FROM ? (JSON.parse(readFileSync(process.env.FROM, 'utf-8')) as BattleRecord) : null;
 
 interface Ai {
@@ -93,9 +98,10 @@ const newAi: Ai = { aiMoves, aiActions, aiOrders };
 const oldAi: Ai | null = process.env.AI_OLD ? await import(pathToFileURL(resolve(process.env.AI_OLD)).href) : null;
 /** 舊版 AI 沒有 aiOrders 時：王牌移動照移動出、追擊放棄 */
 const ordersOf = (ai: Ai, v: PlayerView, rng: Rng) =>
-  ai.aiOrders ? ai.aiOrders(v, rng) : v.phase === 'pursuit' || v.phase === 'deploy' ? {} : v.phase === 'action' ? ai.aiActions(v, rng) : ai.aiMoves(v, rng);
+  scenario && ai === newAi ? scriptedOrders(scenario, v, rng) : ai.aiOrders ? ai.aiOrders(v, rng) : v.phase === 'pursuit' || v.phase === 'deploy' ? {} : v.phase === 'action' ? ai.aiActions(v, rng) : ai.aiMoves(v, rng);
 
 function rosters(seed: number): [RosterEntry[], RosterEntry[]] {
+  if (scenario) return scenario.rosters();
   if (from) return structuredClone(from.rosters ?? pickRosters(from.seed));
   if (mode === 'default') return structuredClone(DEFAULT_ROSTERS);
   const rng = new Rng(seed * 2654435761);
@@ -251,6 +257,21 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
             if (e.reason.startsWith('擊墜')) side(owner(e.unit)).ntKillStress += e.amount;
             say(`  ${label(e.unit)} 壓力 ${e.amount > 0 ? '+' : ''}${e.amount}（${e.reason}）→ ${e.total}`);
           }
+          break;
+        case 'smoke':
+          say(`  ${label(e.unit)} 丟出煙霧彈 → (${f1(e.at.x)},${f1(e.at.y)})`);
+          break;
+        case 'decoy':
+          say(`  ${label(e.unit)} 放出欺敵氣球`);
+          break;
+        case 'decoyPop':
+          say(`  ✕ 欺敵氣球破了（${e.reason}${e.by ? `，${label(e.by)}` : ''}）`);
+          break;
+        case 'purge':
+          say(`  ${label(e.unit)} 拋棄外裝甲`);
+          break;
+        case 'arrive':
+          say(`  ＋ ${label(e.unit)} 增援進場`);
           break;
         case 'objective':
           say(`  ◎ ${e.text}`);

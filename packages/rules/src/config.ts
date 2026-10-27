@@ -112,6 +112,23 @@ export const WATER_DECAY = 2;
 /** 不適合的環境：機動盤最高速度減掉多少 */
 export const UNSUITED_SPEED_CUT = 1;
 
+// ---- 口袋裡的戰爭：煙霧、欺敵氣球、外裝甲 ----
+/** 射擊線穿過煙霧或目標在煙霧裡：命中 −這麼多 */
+export const SMOKE_SHOT_PENALTY = 30;
+/** 煙霧半徑 */
+export const SMOKE_RADIUS = 2;
+/** 煙霧持續回合：重力圈、宇宙（宇宙裡不會沉降，散得比較慢） */
+export const SMOKE_TURNS_GRAVITY = 4;
+export const SMOKE_TURNS_SPACE = 5;
+/** 隔著煙霧只在這個距離以內認得出是什麼 */
+export const SMOKE_ID_RANGE = 1;
+/** 丟煙霧彈的最遠距離（底板邊緣距離，中距離帶） */
+export const SMOKE_THROW_RANGE = 6;
+/** 放欺敵氣球的最遠距離 */
+export const DECOY_PLACE_RANGE = 2;
+/** 敵機靠到這個距離以內，氣球就被識破 */
+export const DECOY_EXPOSE_RANGE = 2;
+
 // ---- 王牌移動、追擊、新人類 ----
 /** 新人類擱置移動、而對方也有新人類在場時付的壓力 */
 export const ACE_DEFER_STRESS = 1;

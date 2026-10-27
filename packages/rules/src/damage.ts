@@ -1,6 +1,6 @@
 import * as C from './config';
 import { FUEL_IGNITE_CHANCE, FUEL_IGNITE_DAMAGE } from './config';
-import { CHASSIS } from './data';
+import { CHASSIS, EQUIPMENT } from './data';
 import type { Rng } from './rng';
 import type { DamageMode, GameEvent, GameState, UnitState } from './types';
 import { corePart, handOfPart, roleLost } from './body';
@@ -72,6 +72,17 @@ function calledShotBonus(ctx: Ctx): number {
 export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string, overflow = false): void {
   if (amount <= 0) return;
   const bonus = calledShotBonus(ctx);
+  // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
+  if (forcePart === undefined) {
+    const armor = u.equipment.find((e) => EQUIPMENT[e.defId]?.kind === 'armor' && e.location === 'mount' && u.parts[e.id] && !u.parts[e.id].destroyed);
+    if (armor) {
+      const part = u.parts[armor.id];
+      const absorb = Math.min(amount, part.durability - part.damage);
+      if (absorb > 0) hitPart(ctx, u, armor.id, absorb);
+      amount -= absorb;
+      if (amount <= 0) return;
+    }
+  }
   if (mode === 'focused') {
     const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus), amount);
     if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u, bonus), 1);

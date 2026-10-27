@@ -1,4 +1,4 @@
-import { MAP_SIZE, ROSTER_MODE, START_MOMENTUM, UNSUITED_SPEED_CUT } from './config';
+import { MAP_SIZE, ROSTER_MODE, SMOKE_RADIUS, SMOKE_TURNS_GRAVITY, SMOKE_TURNS_SPACE, START_MOMENTUM, UNSUITED_SPEED_CUT } from './config';
 import { contentVersion } from './content';
 import { Rng } from './rng';
 import { generateObstacles } from './terrain';
@@ -71,8 +71,27 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
       units.push(createUnit(entry, owner as PlayerId, i, { x, y }, facing));
     });
   });
-  // 有據點時，大隕石與隕石群要避開據點
-  const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0), settings.control ? controlPoints() : []);
+  // 劇本的開場位置
+  for (const pl of settings.placements ?? []) {
+    const u = units.find((x) => x.owner === pl.owner && x.id === `p${pl.owner}u${pl.index}`);
+    if (!u) continue;
+    u.pos = { x: pl.x, y: pl.y };
+    u.facing = pl.facing;
+    if (pl.momentum !== undefined) u.momentum = pl.momentum;
+  }
+  // 劇本事先布置的欺敵氣球（外觀照模仿的那台機體）
+  const decoys = (settings.prepared?.decoys ?? []).flatMap((d, k) => {
+    const u = units.find((x) => x.id === `p${d.owner}u${d.index}`);
+    return u ? [{ id: `d${d.owner}-0-${k}`, owner: d.owner, pos: { x: d.x, y: d.y }, facing: u.facing, chassisId: u.chassisId, parts: structuredClone(u.parts), equipment: structuredClone(u.equipment) }] : [];
+  });
+  // 增援：先建好，到了指定回合才進場（編號接在陣容後面）
+  const reserves = (settings.reinforcements ?? []).map((r, k) => {
+    const index = rosters[r.owner].length + (settings.reinforcements ?? []).slice(0, k).filter((x) => x.owner === r.owner).length;
+    return { turn: r.turn, unit: createUnit(r.entry, r.owner, index, { x: r.x, y: r.y }, r.facing) };
+  });
+  // 有據點時，大隕石與隕石群要避開據點；劇本的開場位置與增援進場點也要空出來
+  const avoid = [...(settings.control ? controlPoints() : []), ...(settings.placements ?? []), ...(settings.reinforcements ?? [])].map((p) => ({ x: p.x, y: p.y }));
+  const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0), avoid, settings.terrain ?? 'asteroid');
   const free = settings.deploy === 'free';
   // 不適合這個環境的機體：機動盤最高速度 −1
   const env = settings.environment ?? 'space';
@@ -80,7 +99,10 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
     const envs = CHASSIS[u.chassisId].envs ?? ['space', 'gravity'];
     if (!envs.includes(env)) u.speedCut = UNSUITED_SPEED_CUT;
   }
-  const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null, settings: structuredClone(settings), objectives: newObjectives() };
+  const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null, settings: structuredClone(settings), objectives: newObjectives(), decoys, reserves };
+  // 事先布置的煙霧
+  const smokeTurns = (settings.environment ?? 'space') === 'space' ? SMOKE_TURNS_SPACE : SMOKE_TURNS_GRAVITY;
+  (settings.prepared?.smokes ?? []).forEach((p, k) => state.obstacles.push({ id: `smoke0-${k}`, kind: 'smoke', x: p.x, y: p.y, r: SMOKE_RADIUS, until: smokeTurns }));
   // 固定排開時雙方都知道對方的部署位置（第 0 回合的目擊），之後就要靠視野；自由部署則看不到
   if (!free) for (const u of units) state.lastSeen[(1 - u.owner) as PlayerId][u.id] = sighting(u, 0);
   updateSight(state);

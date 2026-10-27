@@ -48,7 +48,13 @@ export interface EquipDef {
   cost?: number;
   id: string;
   name: string;
-  kind: 'ranged' | 'melee' | 'shield' | 'tank';
+  kind: 'ranged' | 'melee' | 'shield' | 'tank' | 'armor' | 'utility';
+  /** 外裝甲（kind armor）：穿著時迴避減少、最大加減速減少；lockWeapons 為 true 時只有頭部武器能用 */
+  evasionPenalty?: number;
+  accelPenalty?: number;
+  lockWeapons?: boolean;
+  /** 戰術道具（kind utility）：smoke 煙霧彈、decoy 欺敵氣球；用 ammo 表示數量 */
+  utility?: 'smoke' | 'decoy';
   mount?: EquipMount;
   /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
   arc?: number;
@@ -196,10 +202,31 @@ export interface UnitState {
 /** rock：大隕石；field：隕石群（碎石區） */
 export interface Obstacle {
   id: string;
-  kind: 'rock' | 'field';
+  /** rock 大隕石（地面是岩石或建築）；field 隕石群（地面是森林）；smoke 煙霧（會散） */
+  kind: 'rock' | 'field' | 'smoke';
   x: number;
   y: number;
   r: number;
+  /** 煙霧：最後一個還在的回合 */
+  until?: number;
+}
+
+/** 欺敵氣球：外觀照放的那台機體；在煙霧裡對手分不出真假，出了煙霧就是氣球 */
+export interface Decoy {
+  id: string;
+  owner: PlayerId;
+  pos: Vec;
+  facing: number;
+  /** 模仿的機體外觀 */
+  chassisId: string;
+  parts: Record<string, PartState>;
+  equipment: EquipState[];
+}
+
+/** 增援：第 turn 回合開始時從指定位置進場 */
+export interface Reserve {
+  turn: number;
+  unit: UnitState;
 }
 
 /** 最後一次看到某台敵機時的外觀 */
@@ -256,6 +283,12 @@ export interface GameState {
   settings?: BattleSettings;
   /** 達陣、據點的進度 */
   objectives?: ObjectiveState;
+  /** 欺敵氣球 */
+  decoys?: Decoy[];
+  /** 還沒進場的增援 */
+  reserves?: Reserve[];
+  /** 各方看得到但分不出是什麼的機體（隔著煙霧） */
+  obscured?: [string[], string[]];
   winReason?: WinReason;
 }
 
@@ -264,7 +297,10 @@ export interface GameState {
 export type Action =
   | { type: 'none' }
   | { type: 'shoot'; weapon: string; target: string }
-  | { type: 'lock'; target: string };
+  | { type: 'lock'; target: string }
+  /** 丟煙霧彈、放欺敵氣球：at 是落點 */
+  | { type: 'smoke'; weapon: string; at: Vec }
+  | { type: 'decoy'; weapon: string; at: Vec };
 
 /** 第一步：移動（纏鬥中的機體改選纏鬥選項） */
 export interface MovePlan {
@@ -275,6 +311,8 @@ export interface MovePlan {
   grapple?: GrappleChoice;
   /** 王牌移動：這一步先不動，等其他人動完再決定（要有 ace_move 能力） */
   defer?: boolean;
+  /** 拋棄外裝甲（免費，和限制器同一層級的操作） */
+  purge?: boolean;
 }
 
 /** 第二步：移動結算後選的動作 */
@@ -336,6 +374,11 @@ export type GameEvent =
   | { type: 'pilot'; unit: string; state: 'blackout' | 'injured' | 'unconscious' | 'sluggish' }
   | { type: 'status'; unit: string; status: 'destroyed' | 'withdrawn' | 'disabled'; by?: string }
   | { type: 'defer'; unit: string }
+  | { type: 'purge'; unit: string }
+  | { type: 'smoke'; unit: string; at: Vec; r: number }
+  | { type: 'decoy'; unit: string; decoy: string }
+  | { type: 'decoyPop'; decoy: string; by?: string; reason: string }
+  | { type: 'arrive'; unit: string }
   | { type: 'phase'; phase: TurnPhase }
   | { type: 'grapple'; a: string; b: string; choiceA: GrappleChoice; choiceB: GrappleChoice; summary: string; advantage: string | null; ended: boolean }
   | { type: 'reposition'; unit: string; to: Vec }

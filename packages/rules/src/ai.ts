@@ -23,7 +23,7 @@ import type { Rng } from './rng';
 import { tailing } from './pursuit';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
 import type { ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
+import { armorOf, availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
@@ -475,6 +475,15 @@ export function aiDeploy(view: PlayerView, rng: Rng): PlayerDeploy {
   return out;
 }
 
+/** 該不該拋棄外裝甲：最近的敵機進到 4 格內，或裝甲只剩 2 以下 */
+function shouldPurge(u: UnitView, enemies: UnitView[]): boolean {
+  if (!armorOf(u)) return false;
+  const armor = u.equipment.find((e) => EQUIPMENT[e.defId]?.kind === 'armor' && u.parts[e.id] && !u.parts[e.id].destroyed)!;
+  const left = u.parts[armor.id].durability - u.parts[armor.id].damage;
+  const near = enemies.length ? Math.min(...enemies.map((e) => edge(u.pos, e.pos))) : Infinity;
+  return left <= 2 || near <= 4;
+}
+
 /** 依勝利條件給集火的提示 */
 function focusHints(view: PlayerView): FocusHints {
   const s = view.state.settings;
@@ -577,6 +586,8 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     }
     const best = { m: chosen.get(u.id)! };
     const plan: MovePlan = { ...base, maneuver: best.m.id };
+    // 外裝甲：穿著只能用頭部火神砲；敵機靠近要開打、或裝甲快被打光時就拋棄
+    if (shouldPurge(u, enemies)) plan.purge = true;
     const target = nearest(u.pos, enemies);
     const d = target ? edge(u.pos, target.pos) : Infinity;
     // 懸停時轉身面向最近的敵人

@@ -8,7 +8,16 @@ import type { Obstacle, Vec } from './types';
 const AVOID_GAP = 2.5;
 
 /** avoid：要空出來的點（例如據點），障礙物離它們至少 AVOID_GAP */
-export function generateObstacles(rng: Rng, avoid: Vec[] = []): Obstacle[] {
+/** 地形設定：大隕石（岩石、建築）與隕石群（森林）各幾對、半徑範圍 */
+export const TERRAIN_PROFILES = {
+  asteroid: { rocks: C.ROCK_PAIRS, rockR: C.ROCK_RADIUS, fields: C.FIELD_PAIRS, fieldR: C.FIELD_RADIUS },
+  forest: { rocks: 1, rockR: [0.8, 1.2] as const, fields: 3, fieldR: [2, 3] as const },
+  town: { rocks: 4, rockR: [0.8, 1.4] as const, fields: 0, fieldR: C.FIELD_RADIUS },
+};
+export type TerrainProfile = keyof typeof TERRAIN_PROFILES;
+
+export function generateObstacles(rng: Rng, avoid: Vec[] = [], profile: TerrainProfile = 'asteroid'): Obstacle[] {
+  const T = TERRAIN_PROFILES[profile];
   const M = C.MAP_SIZE;
   const out: Obstacle[] = [];
   const fits = (p: Vec, r: number) =>
@@ -24,8 +33,8 @@ export function generateObstacles(rng: Rng, avoid: Vec[] = []): Obstacle[] {
       return;
     }
   };
-  for (let i = 0; i < C.ROCK_PAIRS; i++) place('rock', C.ROCK_RADIUS[0], C.ROCK_RADIUS[1]);
-  for (let i = 0; i < C.FIELD_PAIRS; i++) place('field', C.FIELD_RADIUS[0], C.FIELD_RADIUS[1]);
+  for (let i = 0; i < T.rocks; i++) place('rock', T.rockR[0], T.rockR[1]);
+  for (let i = 0; i < T.fields; i++) place('field', T.fieldR[0], T.fieldR[1]);
   return out;
 }
 
@@ -40,11 +49,13 @@ export function segmentHitsCircle(a: Vec, b: Vec, c: Vec, r: number): boolean {
 
 export const insideField = (obstacles: Obstacle[], p: Vec) => obstacles.some((o) => o.kind === 'field' && dist(p, o) <= o.r);
 
-export type Cover = 'clear' | 'field' | 'blocked';
+export type Cover = 'clear' | 'field' | 'smoke' | 'blocked';
 
 /** 射擊線：被大隕石擋住、穿過（或目標在）隕石群、或暢通 */
 export function lineOfFire(obstacles: Obstacle[], a: Vec, b: Vec): Cover {
   if (obstacles.some((o) => o.kind === 'rock' && segmentHitsCircle(a, b, o, o.r))) return 'blocked';
+  // 煙霧：射擊線穿過，或目標在裡面
+  if (obstacles.some((o) => o.kind === 'smoke' && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r))) return 'smoke';
   if (obstacles.some((o) => o.kind === 'field' && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r))) return 'field';
   return 'clear';
 }

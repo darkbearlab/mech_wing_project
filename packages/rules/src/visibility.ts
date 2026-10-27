@@ -1,3 +1,6 @@
+import { dist } from './geometry';
+import { segmentHitsCircle } from './terrain';
+import * as C from './config';
 import { DEFAULT_SETTINGS, flagshipOf, killScoreOf, newObjectives, type BattleSettings, type ObjectiveState, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { canSee, sensorRange } from './vision';
@@ -22,6 +25,8 @@ export interface UnitView {
   hidden?: boolean;
   /** 最後目擊的回合（hidden 時才有） */
   seenTurn?: number;
+  /** 隔著煙霧看到的不明機體（可能是氣球） */
+  unknown?: boolean;
   // 以下只有自己的機體才有
   pilotId?: string;
   stress?: number;
@@ -43,6 +48,10 @@ export interface StateView {
   bumped: string[];
   /** 擱置移動、還在等王牌移動步驟的機體 */
   deferred: string[];
+  /** 看得出是氣球的欺敵氣球（自己的全部看得到） */
+  balloons: { id: string; owner: PlayerId; pos: Vec }[];
+  /** 自己還沒進場的增援 */
+  reserves: { id: string; label: string; turn: number }[];
   /** 勝利條件與部署方式 */
   settings: BattleSettings;
   /** 達陣、據點進度 */
@@ -83,6 +92,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
 
 /** 依目前位置重算雙方看得到哪些敵機，並更新最後目擊紀錄。revealed：這一步開火或鎖定而暴露位置的機體 */
 export function updateSight(state: GameState, revealed: Set<string> = new Set()): void {
+  const obscured: [string[], string[]] = [[], []];
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
@@ -90,7 +100,17 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
+    // 隔著煙霧（或在煙霧裡）只看得到有東西，認不出是什麼；開火的會暴露
+    for (const e of seen) if (!revealed.has(e.id) && smokeHides(state, eyes, e.pos, radiusOf(e))) obscured[p].push(e.id);
   }
+  state.obscured = obscured;
+}
+
+/** 從這些機體看過去，p 位置的東西是不是都隔著煙霧（又沒有近到認得出來） */
+export function smokeHides(state: GameState, eyes: UnitState[], at: Vec, r: number): boolean {
+  const smoke = state.obstacles.filter((o) => o.kind === 'smoke');
+  if (!smoke.length) return false;
+  return eyes.every((o) => dist(o.pos, at) - radiusOf(o) - r <= C.SMOKE_ID_RANGE ? false : smoke.some((s) => dist(at, s) <= s.r || segmentHitsCircle(o.pos, at, s, s.r)));
 }
 
 export const sighting = (u: UnitState, turn: number) => ({
@@ -108,9 +128,11 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   for (const u of s.units) if (u.owner === viewer && s.turnInfo?.stance[u.id]) stance[u.id] = s.turnInfo.stance[u.id];
   const visible = new Set(s.visible[viewer]);
   const units: UnitView[] = [];
+  const obscured = new Set(s.obscured?.[viewer] ?? []);
   for (const u of s.units) {
     if (u.owner === viewer || visible.has(u.id)) {
-      units.push(viewUnit(u, viewer));
+      const v = viewUnit(u, viewer);
+      units.push(obscured.has(u.id) ? { ...v, label: '不明機體', unknown: true, vague: null } : v);
       continue;
     }
     // 看不到的敵機：用最後目擊時的樣子當殘影；擊毀之類的結果還是知道
@@ -119,9 +141,23 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
     const ghost = viewUnit({ ...u, pos: seen.pos, facing: seen.facing, momentum: seen.momentum, parts: seen.parts, equipment: seen.equipment, stress: 0 }, viewer);
     units.push({ ...ghost, status: u.status === 'active' ? 'active' : ghost.status, vague: null, hidden: true, seenTurn: seen.turn });
   }
+  // 欺敵氣球：在煙霧裡、對手又認不出來時看起來就像一台機體；不然就是一顆氣球
+  const eyes = s.units.filter((u) => u.owner === viewer && u.status === 'active');
+  const balloons: { id: string; owner: PlayerId; pos: Vec }[] = [];
+  for (const d of s.decoys ?? []) {
+    if (d.owner === viewer) {
+      balloons.push({ id: d.id, owner: d.owner, pos: { ...d.pos } });
+      continue;
+    }
+    const inRange = eyes.some((o) => canSee(s.obstacles.filter((x) => x.kind !== 'smoke'), o.pos, sensorRange(o), d.pos, radiusOf(o) + C.BASE_RADIUS));
+    if (!inRange) continue;
+    if (smokeHides(s, eyes, d.pos, C.BASE_RADIUS))
+      units.push({ id: d.id, owner: d.owner, label: '不明機體', chassisId: d.chassisId, pos: { ...d.pos }, facing: d.facing, parts: structuredClone(d.parts), equipment: structuredClone(d.equipment.filter((e) => e.location !== 'housed' || e.revealed)), status: 'active', momentum: 0, vague: null, unknown: true });
+    else balloons.push({ id: d.id, owner: d.owner, pos: { ...d.pos } });
+  }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, balloons, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */

@@ -20,6 +20,14 @@ export interface BattleSettings {
   deploy: 'fixed' | 'free';
   /** 戰場環境（沒寫＝宇宙） */
   environment?: Environment;
+  /** 地形：asteroid 隕石帶（預設）、forest 森林、town 城鎮 */
+  terrain?: 'asteroid' | 'forest' | 'town';
+  /** 增援：第 turn 回合開始時在 (x, y) 進場 */
+  reinforcements?: { owner: PlayerId; entry: RosterEntry; turn: number; x: number; y: number; facing: number }[];
+  /** 劇本的開場位置（照陣容順序；沒列的照平常排開） */
+  placements?: { owner: PlayerId; index: number; x: number; y: number; facing: number; momentum?: number }[];
+  /** 劇本事先布置好的煙霧與欺敵氣球（氣球模仿第 index 台機體的外觀） */
+  prepared?: { smokes?: { x: number; y: number }[]; decoys?: { owner: PlayerId; index: number; x: number; y: number }[] };
 }
 
 export const DEFAULT_SETTINGS: BattleSettings = { killScore: 50, decapitation: true, turnLimit: C.TURN_LIMIT, deploy: 'fixed' };
@@ -78,7 +86,7 @@ export function lineupProblems(r: RosterEntry[], scale: Scale, settings: Pick<Ba
 /** 一方的旗艦：費用最高的機體（同分取編號小的），開場就決定 */
 export function flagshipOf(state: GameState, p: PlayerId): UnitState | undefined {
   let best: UnitState | undefined;
-  for (const u of state.units) if (u.owner === p && (!best || (u.cost ?? 0) > (best.cost ?? 0))) best = u;
+  for (const u of [...state.units, ...(state.reserves ?? []).map((r) => r.unit)]) if (u.owner === p && (!best || (u.cost ?? 0) > (best.cost ?? 0))) best = u;
   return best;
 }
 

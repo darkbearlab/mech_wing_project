@@ -29,7 +29,7 @@ export function useContent(pack: ContentPack): void {
   active = pack.version;
 }
 
-const KINDS = ['ranged', 'melee', 'shield', 'tank'];
+const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
 const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot'];
