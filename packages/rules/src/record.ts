@@ -4,12 +4,12 @@ import type { ContentPack } from './content';
 import type { RosterEntry } from './data';
 import { Match } from './match';
 import { createGame } from './setup';
-import type { PlayerActions, PlayerId, PlayerMoves } from './types';
+import type { PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
 
 export interface BattleStep {
   seat: PlayerId;
-  phase: 'move' | 'action';
-  orders: PlayerMoves | PlayerActions;
+  phase: TurnPhase;
+  orders: PlayerMoves | PlayerActions | PlayerPursuits;
 }
 
 export interface BattleRecord {
@@ -33,6 +33,7 @@ export interface BattleRecord {
 }
 
 export const MAX_RECORD_BYTES = 512 * 1024;
+const PHASES: string[] = ['move', 'ace', 'pursuit', 'action'];
 
 /** 粗略檢查上傳的紀錄格式，回傳問題說明（沒問題回傳 null） */
 export function checkRecord(r: unknown): string | null {
@@ -41,17 +42,24 @@ export function checkRecord(r: unknown): string | null {
   if (x.format !== 1) return 'format 要是 1';
   if (typeof x.seed !== 'number' || !Number.isFinite(x.seed)) return '缺少 seed';
   if (typeof x.contentVersion !== 'string' || x.contentVersion.length > 40) return '缺少 contentVersion';
-  if (!Array.isArray(x.steps) || x.steps.some((s) => !s || (s.seat !== 0 && s.seat !== 1) || (s.phase !== 'move' && s.phase !== 'action') || typeof s.orders !== 'object')) return 'steps 格式不對';
+  if (!Array.isArray(x.steps) || x.steps.some((s) => !s || (s.seat !== 0 && s.seat !== 1) || !PHASES.includes(s.phase) || typeof s.orders !== 'object')) return 'steps 格式不對';
   if (!Array.isArray(x.seats) || x.seats.length !== 2) return '缺少 seats';
   if (typeof x.turns !== 'number') return '缺少 turns';
   return null;
+}
+
+/** 照步驟送出指令 */
+export function submitStep(match: Match, s: BattleStep): string[] {
+  if (s.phase === 'move' || s.phase === 'ace') return match.submitMoves(s.seat, s.orders as PlayerMoves);
+  if (s.phase === 'pursuit') return match.submitPursuits(s.seat, s.orders as PlayerPursuits);
+  return match.submitActions(s.seat, s.orders as PlayerActions);
 }
 
 /**
  * 照紀錄重播（資料包要先換成紀錄用的版本）。
  * onResolved 在每次結算後呼叫，帶這次結算前各席位送出的指令。
  */
-export function replayRecord(rec: BattleRecord, onResolved?: (m: Match, phase: 'move' | 'action', orders: [BattleStep['orders'] | null, BattleStep['orders'] | null]) => void): { match: Match; errors: string[] } {
+export function replayRecord(rec: BattleRecord, onResolved?: (m: Match, phase: TurnPhase, orders: [BattleStep['orders'] | null, BattleStep['orders'] | null]) => void): { match: Match; errors: string[] } {
   const match = new Match(rec.seed, createGame(rec.seed, rec.rosters));
   const errors: string[] = [];
   let pending: [BattleStep['orders'] | null, BattleStep['orders'] | null] = [null, null];
@@ -61,7 +69,7 @@ export function replayRecord(rec: BattleRecord, onResolved?: (m: Match, phase: '
       break;
     }
     const before = match.resolvedCount;
-    const errs = s.phase === 'move' ? match.submitMoves(s.seat, s.orders as PlayerMoves) : match.submitActions(s.seat, s.orders as PlayerActions);
+    const errs = submitStep(match, s);
     if (errs.length) {
       errors.push(`第 ${i} 步（${'AB'[s.seat]} 方）：${errs.join('；')}`);
       break;

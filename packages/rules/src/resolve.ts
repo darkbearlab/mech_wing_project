@@ -9,7 +9,8 @@ import { EQUIPMENT } from './data';
 import { lineOfFire } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
-import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, Stance, UnitState } from './types';
+import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
+import { anyPursuit, runPursuits } from './pursuit';
 import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handUsable, heldItem, pilotOf, planCost, readyRanged } from './unit';
 
 export interface TurnResult {
@@ -19,7 +20,44 @@ export interface TurnResult {
 
 export const inGrapple = (state: GameState, id: string): boolean => state.grapples.some((g) => g.a === id || g.b === id);
 
-/** 第一步：纏鬥、同時移動。結算後進入動作階段。 */
+/** 這台能不能擱置移動（王牌移動）：要有能力、不在纏鬥中 */
+export const canDefer = (state: GameState, u: UnitState): boolean => pilotOf(u).abilities.includes('ace_move') && !inGrapple(state, u.id);
+
+const isNewtype = (u: UnitState) => pilotOf(u).abilities.includes('newtype');
+
+/** 移動全部結束後：有人能追擊就進追擊步驟，否則直接到動作 */
+function afterMovement(ctx: Ctx): void {
+  const { state } = ctx;
+  state.phase = state.winner === null && anyPursuit(state) ? 'pursuit' : 'action';
+  if (state.phase === 'pursuit') ctx.events.push({ type: 'phase', phase: 'pursuit' });
+}
+
+/** 機動的推進劑與壓力 */
+function payForMove(ctx: Ctx, u: UnitState, plan: MovePlan): void {
+  const cost = planCost(u, plan);
+  spendPropellant(ctx, u, Math.min(cost.propellant, u.propellant));
+  addStress(ctx, u, cost.stress, plan.limiter ? '機動負荷（限制器解除）' : '機動負荷');
+}
+
+/** 移動結算後的動能與出界 */
+function settleMomentum(ctx: Ctx, plans: Record<string, MovePlan>, movers: Set<string>, frozen: Set<string>, stopped: Set<string>): void {
+  // 動能：照機動的終速延續到下回合；被擋停、撞開或纏鬥中歸零（有最低速度的戰機只降到最低速度，引擎還在推）
+  for (const u of ctx.state.units) {
+    const plan = plans[u.id];
+    if (u.status !== 'active' || !plan || !movers.has(u.id)) continue;
+    const end = frozen.has(u.id) || stopped.has(u.id) ? 0 : parseManeuver(plan.maneuver).endMomentum;
+    const min = minSpeedOf(u);
+    u.momentum = min > 0 ? Math.max(min, end) : end;
+  }
+  for (const u of ctx.state.units) {
+    if (u.status === 'active' && (u.pos.x < 0 || u.pos.y < 0 || u.pos.x > C.MAP_SIZE || u.pos.y > C.MAP_SIZE)) {
+      u.status = 'withdrawn';
+      ctx.events.push({ type: 'status', unit: u.id, status: 'withdrawn' });
+    }
+  }
+}
+
+/** 第一步：纏鬥、同時移動（擱置的王牌先不動）。之後依序進王牌移動、追擊或動作。 */
 export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, PlayerMoves]): TurnResult {
   const state: GameState = structuredClone(input);
   const rng = new Rng(state.rngState);
@@ -32,15 +70,22 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   }
 
   const frozen = new Set(state.grapples.flatMap((g) => [g.a, g.b]));
+  // 王牌移動：擱置的機體這一步原地不動，等其他人動完再決定
+  const deferred = new Set(state.units.filter((u) => plans[u.id]?.defer && canDefer(state, u)).map((u) => u.id));
+  const ntOnSide = (p: PlayerId) => state.units.some((x) => x.owner === p && x.status === 'active' && isNewtype(x));
   const stance: Record<string, Stance> = {};
   for (const u of state.units) {
     const plan = plans[u.id];
     if (!plan) continue;
-    stance[u.id] = frozen.has(u.id) ? 'shoot' : plan.stance;
+    stance[u.id] = frozen.has(u.id) || deferred.has(u.id) ? 'shoot' : plan.stance;
+    if (deferred.has(u.id)) {
+      ctx.events.push({ type: 'defer', unit: u.id });
+      // 對方也有新人類在場：互相感應干擾，擱置要付壓力
+      if (isNewtype(u) && ntOnSide((1 - u.owner) as PlayerId)) addStress(ctx, u, C.ACE_DEFER_STRESS, '王牌移動（被敵方新人類干擾）');
+      continue;
+    }
     if (frozen.has(u.id)) continue;
-    const cost = planCost(u, plan);
-    spendPropellant(ctx, u, Math.min(cost.propellant, u.propellant));
-    addStress(ctx, u, cost.stress, plan.limiter ? '機動負荷（限制器解除）' : '機動負荷');
+    payForMove(ctx, u, plan);
   }
 
   // 1. 纏鬥
@@ -55,25 +100,63 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   }
 
   // 2. 同時移動
-  const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, frozen);
-  // 動能：照機動的終速延續到下回合；被擋停、撞開或纏鬥中歸零（有最低速度的戰機只降到最低速度，引擎還在推）
-  for (const u of state.units) {
-    const plan = plans[u.id];
-    if (u.status !== 'active' || !plan) continue;
-    const end = frozen.has(u.id) || stopped.has(u.id) ? 0 : parseManeuver(plan.maneuver).endMomentum;
-    const min = minSpeedOf(u);
-    u.momentum = min > 0 ? Math.max(min, end) : end;
-  }
-  for (const u of state.units) {
-    if (u.status === 'active' && (u.pos.x < 0 || u.pos.y < 0 || u.pos.x > C.MAP_SIZE || u.pos.y > C.MAP_SIZE)) {
-      u.status = 'withdrawn';
-      ctx.events.push({ type: 'status', unit: u.id, status: 'withdrawn' });
-    }
-  }
+  const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, new Set([...frozen, ...deferred]));
+  const movers = new Set(Object.keys(plans).filter((id) => !deferred.has(id)));
+  settleMomentum(ctx, plans, movers, frozen, stopped);
 
-  state.phase = 'action';
-  state.turnInfo = { stance, velocity, bumped: [...bumped] };
+  // 第一步裡被撞進纏鬥的王牌就失去這次王牌移動
+  const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !inGrapple(state, id));
+  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting };
   updateSight(state);
+  checkWinner(ctx, false);
+  if (state.winner === null && waiting.length) {
+    state.phase = 'ace';
+    ctx.events.push({ type: 'phase', phase: 'ace' });
+  } else afterMovement(ctx);
+  state.rngState = rng.state;
+  return { state, events: ctx.events };
+}
+
+/** 王牌移動步驟：擱置的機體看過其他人的移動結果後再動，其他機體原地不動 */
+export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves, PlayerMoves]): TurnResult {
+  const state: GameState = structuredClone(input);
+  const rng = new Rng(state.rngState);
+  const ctx: Ctx = { state, rng, events: [] };
+  const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
+  const aces = new Set((info.deferred ?? []).filter((id) => unitById(ctx, id).status === 'active'));
+  const plans: Record<string, MovePlan> = {};
+  const stance: Record<string, Stance> = { ...info.stance };
+  for (const id of aces) {
+    const u = unitById(ctx, id);
+    const plan = { ...(movesByPlayer[u.owner][id] ?? defaultMove(u)), defer: false };
+    plans[id] = plan;
+    stance[id] = plan.stance;
+    payForMove(ctx, u, plan);
+  }
+  const frozen = new Set(state.units.filter((u) => u.status === 'active' && !aces.has(u.id)).map((u) => u.id));
+  const result = simulateMovement(ctx, plans, stance, frozen);
+  settleMomentum(ctx, plans, aces, new Set(), result.stopped);
+  const velocity = { ...info.velocity };
+  for (const id of aces) velocity[id] = result.velocity[id] ?? { x: 0, y: 0 };
+  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: [] };
+  updateSight(state);
+  checkWinner(ctx, false);
+  afterMovement(ctx);
+  state.rngState = rng.state;
+  return { state, events: ctx.events };
+}
+
+/** 追擊步驟：結算雙方送出的追擊射擊，之後進入動作 */
+export function resolvePursuit(input: GameState, byPlayer: [PlayerPursuits, PlayerPursuits]): TurnResult {
+  const state: GameState = structuredClone(input);
+  const rng = new Rng(state.rngState);
+  const ctx: Ctx = { state, rng, events: [] };
+  const plans: Record<string, PursuitPlan> = {};
+  for (const p of [0, 1] as PlayerId[])
+    for (const [id, plan] of Object.entries(byPlayer[p])) if (plan && state.units.find((u) => u.id === id)?.owner === p) plans[id] = plan;
+  const fired = runPursuits(ctx, plans);
+  state.phase = 'action';
+  updateSight(state, fired);
   checkWinner(ctx, false);
   state.rngState = rng.state;
   return { state, events: ctx.events };
@@ -164,12 +247,18 @@ function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
   return true;
 }
 
-/** 整回合（移動＋動作），測試與批次模擬用 */
+/** 整回合（移動＋動作），測試與批次模擬用；王牌移動用同一份移動指令、不追擊 */
 export function resolveTurn(input: GameState, moves: [PlayerMoves, PlayerMoves], actions: [PlayerActions, PlayerActions] = [{}, {}]): TurnResult {
-  const m = resolveMovement(input, moves);
-  if (m.state.winner !== null) return m;
-  const a = resolveActions(m.state, actions);
-  return { state: a.state, events: [...m.events, ...a.events] };
+  let r = resolveMovement(input, moves);
+  const events = [...r.events];
+  const next = (f: (s: GameState) => TurnResult) => {
+    r = f(r.state);
+    events.push(...r.events);
+  };
+  if (r.state.winner === null && r.state.phase === 'ace') next((s) => resolveAceMovement(s, moves));
+  if (r.state.winner === null && r.state.phase === 'pursuit') next((s) => resolvePursuit(s, [{}, {}]));
+  if (r.state.winner === null) next((s) => resolveActions(s, actions));
+  return { state: r.state, events };
 }
 
 function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string | null) {

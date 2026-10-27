@@ -1,13 +1,40 @@
+import * as C from './config';
 import { FUEL_IGNITE_CHANCE, FUEL_IGNITE_DAMAGE } from './config';
+import { CHASSIS } from './data';
 import type { Rng } from './rng';
 import type { DamageMode, GameEvent, GameState, UnitState } from './types';
 import { corePart, handOfPart, roleLost } from './body';
-import { equipDef, heldItem } from './unit';
+import { equipDef, heldItem, pilotOf } from './unit';
 
 export interface Ctx {
   state: GameState;
   rng: Rng;
   events: GameEvent[];
+  /** 目前這筆傷害是誰造成的（擊墜記在他身上）；撞隕石、自傷等沒有 */
+  by?: string;
+}
+
+/** 以 by 的名義造成傷害（擊墜歸屬），結束後還原 */
+export function dealtBy(ctx: Ctx, by: UnitState | null | undefined, fn: () => void): void {
+  const prev = ctx.by;
+  ctx.by = by?.id;
+  try {
+    fn();
+  } finally {
+    ctx.by = prev;
+  }
+}
+
+/** 新人類擊墜的壓力：依對方機上人員、自己的感受，擊墜新人類另外加；纖細的還會降低最大壓力 */
+function killStress(ctx: Ctx, killer: UnitState, victim: UnitState): void {
+  const p = pilotOf(killer);
+  if (!p.abilities.includes('newtype') || !p.ntSense || killer.status !== 'active' || killer.owner === victim.owner) return;
+  const crew = CHASSIS[victim.chassisId]?.crew ?? 'pilot';
+  if (crew === 'unmanned') return;
+  let amount = (crew === 'ship' ? C.NT_KILL_SHIP_STRESS : C.NT_KILL_STRESS)[p.ntSense];
+  if (pilotOf(victim).abilities.includes('newtype')) amount += C.NT_KILL_NT_EXTRA;
+  addStress(ctx, killer, amount, `擊墜 ${victim.label}（新人類的感應）`);
+  if (p.ntSense === 'fragile') killer.maxStress = Math.max(1, killer.maxStress - C.NT_FRAGILE_MAX_LOSS);
 }
 
 export function unitById(ctx: Ctx, id: string): UnitState {
@@ -82,7 +109,9 @@ function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
   const role = u.parts[partId]?.role;
   if (role === 'core' && roleLost(u, 'core')) {
     u.status = 'destroyed';
-    ctx.events.push({ type: 'status', unit: u.id, status: 'destroyed' });
+    ctx.events.push({ type: 'status', unit: u.id, status: 'destroyed', ...(ctx.by ? { by: ctx.by } : {}) });
+    const killer = ctx.by ? ctx.state.units.find((x) => x.id === ctx.by) : undefined;
+    if (killer) killStress(ctx, killer, u);
     return;
   }
   const hand = handOfPart(u, partId);

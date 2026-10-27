@@ -1,7 +1,7 @@
 import { radiusOf } from './body';
 import * as C from './config';
 import { meleeClash } from './melee';
-import { addStress, damageUnit, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
 import { DEG, add, angleDiff, angleOf, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
 import type { ContactResult, MovePlan, Stance, UnitState, Vec } from './types';
@@ -252,8 +252,8 @@ export function simulateMovement(
     const hitA = braced(a, Math.max(1, vc + wb - wa));
     const hitB = braced(b, Math.max(1, vc + wa - wb));
     const both = rammers.length === 2;
-    damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered');
-    damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered');
+    dealtBy(ctx, b.unit, () => damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered'));
+    dealtBy(ctx, a.unit, () => damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered'));
     addStress(ctx, a.unit, Math.floor(vc / 2), '撞擊');
     addStress(ctx, b.unit, Math.floor(vc / 2), '撞擊');
     if (wa === wb) return;

@@ -96,7 +96,17 @@ export interface ChassisDef {
   minSpeed?: number;
   /** 能近身戰鬥：false 時只能選射擊姿態，被纏鬥時只能選脫離；沒填是 true */
   closeCombat?: boolean;
+  /** 機上人員：unmanned 無人（飛彈、無人機），pilot 一般駕駛（預設），ship 船艦（大量人員）；新人類擊墜時的壓力依此計算 */
+  crew?: 'unmanned' | 'pilot' | 'ship';
 }
+
+/**
+ * 駕駛能力：quick_draw 快拔；ace_move 王牌移動（移動步驟可以等其他人動完再決定）；
+ * newtype 新人類（要搭配 ntSense，擊墜會累積壓力；有王牌移動時，對方也有新人類就要付壓力才能擱置）
+ */
+export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype';
+/** 新人類對擊墜的感受：numb 麻木（後期阿姆羅、夏亞）、strong 心智堅強（捷度）、sensitive 敏感（剛上戰場）、fragile 纖細（卡蜜兒） */
+export type NtSense = 'numb' | 'strong' | 'sensitive' | 'fragile';
 
 export interface PilotDef {
   id: string;
@@ -104,7 +114,9 @@ export interface PilotDef {
   skill: number;
   maxStress: number;
   recovery: number;
-  abilities: 'quick_draw'[];
+  abilities: PilotAbility[];
+  /** 新人類才需要 */
+  ntSense?: NtSense;
 }
 
 // ---- 動態狀態 ----
@@ -186,7 +198,10 @@ export interface GrappleState {
   advantage: string | null;
 }
 
-export type TurnPhase = 'move' | 'action';
+/**
+ * 每回合的步驟：move 移動 → ace 王牌移動（有人擱置才有）→ pursuit 追擊（有機體咬住敵機背後才有）→ action 動作
+ */
+export type TurnPhase = 'move' | 'ace' | 'pursuit' | 'action';
 
 /** 移動結算後、動作結算前要保留的本回合資訊 */
 export interface TurnInfoState {
@@ -195,6 +210,8 @@ export interface TurnInfoState {
   velocity: Record<string, Vec>;
   /** 擦撞的機體本回合不能執行動作 */
   bumped: string[];
+  /** 擱置移動、等王牌移動步驟才動的機體 */
+  deferred?: string[];
 }
 
 export interface GameState {
@@ -229,6 +246,8 @@ export interface MovePlan {
   facingOffset: number;
   limiter: boolean;
   grapple?: GrappleChoice;
+  /** 王牌移動：這一步先不動，等其他人動完再決定（要有 ace_move 能力） */
+  defer?: boolean;
 }
 
 /** 第二步：移動結算後選的動作 */
@@ -238,6 +257,12 @@ export interface ActionPlan {
 }
 
 export type PlayerMoves = Record<string, MovePlan>;
+/** 追擊：咬住敵機背後的機體多開一槍；沒寫或 null 表示放棄 */
+export interface PursuitPlan {
+  weapon: string;
+  target: string;
+}
+export type PlayerPursuits = Record<string, PursuitPlan | null>;
 export type PlayerActions = Record<string, ActionPlan>;
 
 // ---- 事件 ----
@@ -268,13 +293,15 @@ export type GameEvent =
       /** 防守方承受衝擊並把攻擊方拖進纏鬥 */
       caught: boolean;
     }
-  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number }
+  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean }
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
   | { type: 'stress'; unit: string; amount: number; total: number; reason: string }
   | { type: 'propellant'; unit: string; amount: number; total: number }
   | { type: 'pilot'; unit: string; state: 'blackout' | 'injured' | 'unconscious' | 'sluggish' }
-  | { type: 'status'; unit: string; status: 'destroyed' | 'withdrawn' | 'disabled' }
+  | { type: 'status'; unit: string; status: 'destroyed' | 'withdrawn' | 'disabled'; by?: string }
+  | { type: 'defer'; unit: string }
+  | { type: 'phase'; phase: TurnPhase }
   | { type: 'grapple'; a: string; b: string; choiceA: GrappleChoice; choiceB: GrappleChoice; summary: string; advantage: string | null; ended: boolean }
   | { type: 'reposition'; unit: string; to: Vec }
   | { type: 'swap'; unit: string; hand: Hand; equip: string | null }

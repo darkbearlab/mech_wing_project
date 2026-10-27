@@ -36,6 +36,8 @@ export interface StateView {
   obstacles: Obstacle[];
   /** 本回合擦撞、不能執行動作的機體（動作階段才有） */
   bumped: string[];
+  /** 擱置移動、還在等王牌移動步驟的機體 */
+  deferred: string[];
   /** 本回合各機的移動向量（動作階段才有；看不到的敵機不列） */
   velocity: Record<string, Vec>;
   /** 自己機體本回合的姿態（動作階段才有） */
@@ -104,7 +106,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */

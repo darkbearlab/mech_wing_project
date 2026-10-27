@@ -32,7 +32,9 @@ export function useContent(pack: ContentPack): void {
 const KINDS = ['ranged', 'melee', 'shield', 'tank'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
-const ABILITIES = ['quick_draw'];
+const ABILITIES = ['quick_draw', 'ace_move', 'newtype'];
+const NT_SENSES = ['numb', 'strong', 'sensitive', 'fragile'];
+const CREWS = ['unmanned', 'pilot', 'ship'];
 const isNum = (v: unknown, min = -Infinity) => typeof v === 'number' && Number.isFinite(v) && v >= min;
 
 /** 檢查資料包，回傳所有問題（空陣列代表沒問題） */
@@ -83,6 +85,7 @@ export function validateContent(pack: ContentPack): string[] {
     if (c.radius !== undefined && !(isNum(c.radius) && c.radius >= 0.2 && c.radius <= 4)) err(w, '半徑要在 0.2–4 之間');
     if (c.minSpeed !== undefined && !(Number.isInteger(c.minSpeed) && c.minSpeed >= 0 && c.minSpeed <= MAX_DIAL_SPEED)) err(w, `最低速度要是 0–${MAX_DIAL_SPEED} 的整數`);
     if (c.closeCombat !== undefined && typeof c.closeCombat !== 'boolean') err(w, 'closeCombat 要是 true 或 false');
+    if (c.crew !== undefined && !CREWS.includes(c.crew)) err(w, `crew 要是 ${CREWS.join('／')}`);
     const min = c.minSpeed ?? 0;
     if (min > 0 && !(c.dial ?? []).some((m) => m.startsWith('straight-') && Number(m.split('-')[2]) >= min)) err(w, `最低速度 ${min}：機動盤至少要有一個速度 ≥ ${min} 的直線`);
     if (!c.dial?.length) err(w, '機動盤是空的');
@@ -112,6 +115,9 @@ export function validateContent(pack: ContentPack): string[] {
     if (!isNum(p.maxStress, 1)) err(w, 'maxStress 至少 1');
     if (!isNum(p.recovery, 0)) err(w, 'recovery 要是 0 以上的數字');
     for (const a of p.abilities ?? []) if (!ABILITIES.includes(a)) err(w, `不認得的能力 ${a}`);
+    const nt = (p.abilities ?? []).includes('newtype');
+    if (nt && !NT_SENSES.includes(p.ntSense ?? '')) err(w, `新人類要設定擊墜感受（${NT_SENSES.join('／')}）`);
+    if (!nt && p.ntSense !== undefined) err(w, '不是新人類，不能設定擊墜感受');
   }
 
   /** 檢查一套配裝（裝備存在、位置和安裝方式相符、宿主正確、佔手衝突） */

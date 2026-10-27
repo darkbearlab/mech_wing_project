@@ -11,7 +11,9 @@ import { createGame as newGame, pickRosters } from '../src/setup';
 import { lineOfFire } from '../src/terrain';
 import { updateSight, viewState, filterEvents } from '../src/visibility';
 import * as C from '../src/config';
-import { aiActions, aiMoves } from '../src/ai';
+import { aiActions, aiMoves, aiOrders } from '../src/ai';
+import { submitStep } from '../src/record';
+import type { TurnPhase } from '../src/types';
 import { resolveActions, resolveMovement, resolveTurn } from '../src/resolve';
 import { hitChance, relativeSpeed } from '../src/combat';
 import { EQUIPMENT } from '../src/data';
@@ -503,10 +505,12 @@ describe('勝負與 AI', () => {
       const rng = new Rng(seed * 13);
       let guard = 0;
       while (m.phase !== 'over' && guard++ < 40) {
+        const before = m.resolvedCount;
         for (const p of [0, 1] as const) {
           const v = m.viewFor(p);
-          const errors = m.phase === 'move' ? m.submitMoves(p, aiMoves(v, rng)) : m.submitActions(p, aiActions(v, rng));
-          expect(errors).toEqual([]);
+          if (v.submitted[p]) continue;
+          expect(submitStep(m, { seat: p, phase: m.phase as TurnPhase, orders: aiOrders(v, rng) })).toEqual([]);
+          if (m.resolvedCount !== before) break;
         }
         // 飛出地圖只能是被甩開或撞開，不能是自己開出去
         const ev = m.turnResolvedEvents;

@@ -3,6 +3,8 @@
 //       隊形、邊界、下回合會不會撞上、壓力與推進劑打分。受傷越重越重視自保。
 //       以多打少：終點打得到我的敵機若比「能支援我的隊友＋我」多就大扣分，所以會等隊友一起進場、
 //       躲在大隕石後面只露給一台敵機；還沒交火時不衝到隊友前面。
+// 王牌移動：有能力的機體一律先擱置，等其他人動完、看清楚再決定（敵機位置確定，咬尾更準）。
+// 追擊：會避免把背後露給敵機（被咬住會多挨一槍），也會找能咬住敵機背後的位置；追擊步驟挑期望傷害最高的一槍。
 // 行動：全隊選一個集火目標（優先離它隊友最遠、我方最多台打得到的敵機），挑期望傷害最高的射擊；
 //       命中率太低就先鎖定（下一發加成），沒得打就拔刀、拔槍或鎖定集火目標。
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
@@ -16,7 +18,8 @@ import { buildPath } from './movement';
 import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
-import type { ActionPlan, EquipDef, EquipState, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
+import { tailing } from './pursuit';
+import type { ActionPlan, EquipDef, EquipState, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
@@ -55,7 +58,10 @@ function preferredRange(u: UnitView): { range: number; melee: boolean } {
 }
 
 /** 猜敵機下一步大概會到哪：沿目前朝向照動能前進 */
+/** 這回合已經動完、不會再移動的機體（王牌移動步驟時才有） */
+let settled: Set<string> | null = null;
 const predict = (e: UnitView): Vec => {
+  if (settled?.has(e.id)) return e.pos;
   const step = Math.max(1, Math.min(4, Math.abs(e.momentum ?? 2)));
   return { x: e.pos.x + Math.cos(e.facing) * step, y: e.pos.y + Math.sin(e.facing) * step };
 };
@@ -295,7 +301,21 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
     if (t > 0.1 || expectedDamage(e, e.pos, null, u, pos, facing, team.obstacles, ASSUMED_SKILL, skill) > 0.1) foes.push(e);
     if (heldOf(e, 'melee').length && dist(predict(e), pos) < 4) threat += 1;
   }
+  // 被咬尾：敵機在我背後又面向我，追擊步驟會多挨一槍
+  for (const e of team.enemies) {
+    const ep = { pos: predict(e), facing: e.facing };
+    if (tailing(ep, { pos, facing })) threat += expectedDamage(e, ep.pos, e.facing, u, pos, facing, team.obstacles, ASSUMED_SKILL, skill);
+  }
   score -= threat * (2 + hurt * 3);
+  // 咬住敵機背後：追擊步驟多打一槍
+  if (!pref.melee) {
+    let tail = 0;
+    for (const e of team.enemies) {
+      const ep = { pos: predict(e), facing: e.facing };
+      if (tailing({ pos, facing }, ep) && edge(pos, ep.pos) <= RANGE_TARGET[2]) tail = Math.max(tail, expectedDamage(u, pos, facing, e, ep.pos, e.facing, team.obstacles, skill, null) * (e === team.focus ? 1.4 : 1));
+    }
+    score += tail * 3;
+  }
   // 以多打少：打得到我的敵機，比「能還擊它們的隊友＋我」多就是落單
   const backers = new Set(foes.flatMap((e) => [...(team.support.get(e.id) ?? [])]));
   const outnumbered = foes.length - (backers.size + 1);
@@ -343,8 +363,40 @@ function pickGrapple(u: UnitView, rng: Rng): GrappleChoice {
   return rng.pickWeighted(opts, (o) => (o === 'disengage' && tired ? 3 : GRAPPLE_WEIGHT[o]));
 }
 
+/** 依目前的步驟出指令（移動、王牌移動、追擊、動作） */
+export function aiOrders(view: PlayerView, rng: Rng): PlayerMoves | PlayerActions | PlayerPursuits {
+  if (view.phase === 'move') return aiMoves(view, rng);
+  if (view.phase === 'ace') return aiAceMoves(view, rng);
+  if (view.phase === 'pursuit') return aiPursuits(view);
+  return aiActions(view, rng);
+}
+
+/** 自己的駕駛有沒有王牌移動、會不會因為擱置付壓力而太危險 */
+function shouldDefer(u: UnitView, grappled: boolean): boolean {
+  const p = PILOTS[u.pilotId!];
+  if (!p?.abilities.includes('ace_move') || grappled) return false;
+  // 新人類擱置可能要付壓力：快到上限就不冒險
+  return !(p.abilities.includes('newtype') && (u.stress ?? 0) + 1 >= (u.maxStress ?? 5));
+}
+
 export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
-  const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
+  return planMoves(view, rng, 'move');
+}
+
+/** 王牌移動步驟：其他人都已經動完，只剩擱置的機體（雙方的王牌同時下指令） */
+export function aiAceMoves(view: PlayerView, rng: Rng): PlayerMoves {
+  settled = new Set(view.state.units.filter((u) => !view.state.deferred.includes(u.id)).map((u) => u.id));
+  try {
+    return planMoves(view, rng, 'ace');
+  } finally {
+    settled = null;
+  }
+}
+
+function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMoves {
+  const active = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
+  const deciding = new Set(step === 'ace' ? (view.aceUnits ?? []) : active.map((u) => u.id));
+  const own = active;
   const seen = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
   const enemies = seen.length ? seen : view.state.units.filter((u) => u.owner !== view.you && u.status === 'active');
   const grappled = new Set(view.state.grapples.flatMap((g) => [g.a, g.b]));
@@ -369,15 +421,22 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
     team.planned.push({ id: u.id, pos: best.end, facing: best.facing, r: radiusOf(u), track: best.track ?? [u.pos] });
     chosen.set(u.id, best.m);
   };
-  // 纏鬥中的機體留在原地，隊友要繞開
-  for (const u of order.filter((x) => grappled.has(x.id))) team.planned.push({ id: u.id, pos: u.pos, facing: u.facing, r: radiusOf(u), track: Array.from({ length: TRACK + 1 }, () => u.pos) });
+  // 留在原地的隊友（纏鬥中、這一步擱置的王牌、王牌移動步驟裡已經動完的）：隊友要繞開
+  const deferNow = new Set(step === 'move' ? order.filter((u) => shouldDefer(u, grappled.has(u.id))).map((u) => u.id) : []);
+  const still = (u: UnitView) => grappled.has(u.id) || deferNow.has(u.id) || !deciding.has(u.id);
+  for (const u of order.filter(still)) team.planned.push({ id: u.id, pos: u.pos, facing: u.facing, r: radiusOf(u), track: Array.from({ length: TRACK + 1 }, () => u.pos) });
   // 想兩輪：第一輪先決定的機體只能猜後面的隊友會去哪；第二輪每台都知道隊友實際的打算，再重新決定一次
-  const free = order.filter((x) => !grappled.has(x.id));
+  const free = order.filter((x) => !still(x));
   for (let round = 0; round < 2; round++) for (const u of free) choose(u);
 
   for (const u of order) {
+    if (!deciding.has(u.id)) continue;
     if (grappled.has(u.id)) {
       out[u.id] = { ...base, grapple: pickGrapple(u, rng) };
+      continue;
+    }
+    if (deferNow.has(u.id)) {
+      out[u.id] = { ...base, defer: true };
       continue;
     }
     const best = { m: chosen.get(u.id)! };
@@ -397,6 +456,28 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
     else if (swordsman && moveSpeed(plan) <= SLOW_MAX_SPEED && rng.next() < braceChance) stance = 'melee';
     plan.stance = closeCombatOf(u) ? stance : 'shoot';
     out[u.id] = plan;
+  }
+  return out;
+}
+
+/** 追擊步驟：每台能追擊的機體挑期望傷害最高的一槍（集火目標、受傷的敵機加權） */
+export function aiPursuits(view: PlayerView): PlayerPursuits {
+  const out: PlayerPursuits = {};
+  const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
+  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
+  const focus = pickFocus(own, enemies, view.state.obstacles);
+  for (const [id, opts] of Object.entries(view.pursuit ?? {})) {
+    let best: { o: (typeof opts)[number]; v: number } | null = null;
+    for (const o of opts) {
+      const u = own.find((x) => x.id === id);
+      const t = enemies.find((x) => x.id === o.target);
+      const w = u?.equipment.find((e) => e.id === o.weapon);
+      if (!u || !t || !w) continue;
+      const def = EQUIPMENT[w.defId];
+      const v = (o.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
+      if (!best || v > best.v) best = { o, v };
+    }
+    out[id] = best && best.o.chance >= 10 ? { weapon: best.o.weapon, target: best.o.target } : null;
   }
   return out;
 }

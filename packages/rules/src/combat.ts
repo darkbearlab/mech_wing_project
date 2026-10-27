@@ -1,5 +1,5 @@
 import * as C from './config';
-import { damageUnit, type Ctx } from './damage';
+import { damageUnit, dealtBy, type Ctx } from './damage';
 import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
@@ -109,7 +109,10 @@ export interface TurnInfo {
   dazzled?: Set<string>;
 }
 
-export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState): boolean {
+/**
+ * 開火。opts.pursuit 標記為追擊射擊；opts.later 有給的話，命中的傷害先放進去、由呼叫端一起結算（同時開火用）
+ */
+export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState, opts: { pursuit?: boolean; later?: (() => void)[] } = {}): boolean {
   const def = equipDef(weapon);
   const h = hitChance({
     attacker,
@@ -136,17 +139,18 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     const shield = coveringShield(target, attacker.pos)?.id;
     if (shield && ctx.rng.d100() <= blockChance(target)) {
       blocked++;
-      pending.push(() => damageUnit(ctx, target, def.damage ?? 1, 'focused', shield, overflow));
+      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, def.damage ?? 1, 'focused', shield, overflow)));
     } else {
-      pending.push(() => damageUnit(ctx, target, def.damage ?? 1, def.mode ?? 'focused', undefined, overflow));
+      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, def.damage ?? 1, def.mode ?? 'focused', undefined, overflow)));
     }
   }
-  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance });
+  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(opts.pursuit ? { pursuit: true } : {}) });
   if (hits > blocked && def.tags?.includes('dazzle') && !turn.dazzled?.has(target.id)) {
     turn.dazzled?.add(target.id);
     ctx.events.push({ type: 'dazzle', unit: target.id, by: attacker.id });
   }
-  for (const p of pending) p();
+  if (opts.later) opts.later.push(...pending);
+  else for (const p of pending) p();
   // 零距離開火可能傷到自己的武器；內建武器沒有自己的部位，傷到宿主
   const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;
   if (h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', selfPart);

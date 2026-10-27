@@ -91,6 +91,22 @@ export const MELEE_STANCE_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;
+
+// ---- 王牌移動、追擊、新人類 ----
+/** 新人類擱置移動、而對方也有新人類在場時付的壓力 */
+export const ACE_DEFER_STRESS = 1;
+/** 追擊：射擊方要在目標背後 ±PURSUIT_ARC_DEG，而且面向目標 ±PURSUIT_ARC_DEG */
+export const PURSUIT_ARC_DEG = 45;
+/** 追擊只在這個距離帶以內成立（0 零距離、1 近、2 中） */
+export const PURSUIT_MAX_BAND = 2;
+/** 新人類擊墜一般機體的壓力 */
+export const NT_KILL_STRESS = { numb: 0, strong: 1, sensitive: 2, fragile: 1 } as const;
+/** 新人類擊墜船艦的壓力（船上人很多） */
+export const NT_KILL_SHIP_STRESS = { numb: 2, strong: 3, sensitive: 5, fragile: 3 } as const;
+/** 擊墜的是另一個新人類：額外壓力 */
+export const NT_KILL_NT_EXTRA = 2;
+/** 纖細（fragile）的新人類每擊墜一架有人機，最大壓力永久 −1（最低 1） */
+export const NT_FRAGILE_MAX_LOSS = 1;
 /** 被眩光照到：本回合射擊命中下降 */
 export const DAZZLE_PENALTY = 20;
 export const HEAD_LONG_PENALTY = 15;
