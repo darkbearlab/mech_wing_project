@@ -108,6 +108,22 @@ async function readBody(req: Request): Promise<unknown> {
   }
 }
 
+const SITE = 'https://darkbearlab.github.io/mech_wing_project/';
+
+/** 入口頁：連到遊戲與機庫編輯器 */
+function landingPage(latest: string | null): string {
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>機器人戰術對戰</title><style>
+:root{color-scheme:dark}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#10151b;color:#dfe6ee;font-family:system-ui,"Noto Sans TC",sans-serif}
+main{width:min(420px,100% - 32px)}h1{font-size:22px;font-weight:600;margin:0 0 4px}p{color:#8a97a5;font-size:14px;margin:0 0 20px}
+a{display:block;padding:14px 16px;margin:10px 0;border:1px solid #2c3743;border-radius:10px;color:#dfe6ee;text-decoration:none;background:#17202a}
+a:hover{border-color:#ffcf4a}a b{display:block;font-size:16px}a span{color:#8a97a5;font-size:13px}
+</style></head><body><main><h1>機器人戰術對戰</h1><p>內容 API${latest ? `・目前資料版本 ${latest}` : ''}</p>
+<a href="${SITE}"><b>進入遊戲</b><span>出擊準備、對戰電腦、同機輪流、電腦對戰電腦</span></a>
+<a href="${SITE}editor.html"><b>機庫編輯器</b><span>編輯機型、武器、駕駛與陣容，發佈新版本（需要管理金鑰）</span></a>
+</main></body></html>`;
+}
+
 async function handle(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
@@ -118,7 +134,11 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const v = await env.PACKS.get('latest');
     return v && fromLegacy(v);
   };
-  if (method === 'GET' && parts.length === 0) return json({ name: 'mech-wing content api', latest: await latest() });
+  if (method === 'GET' && parts.length === 0) {
+    // 用瀏覽器開啟時給入口頁，程式讀取時照舊回 JSON
+    if (req.headers.get('Accept')?.includes('text/html')) return new Response(landingPage(await latest()), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    return json({ name: 'mech-wing content api', latest: await latest() });
+  }
 
   if (parts[0] === 'packs' && method === 'GET') {
     if (parts.length === 1) {

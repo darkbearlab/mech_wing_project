@@ -1,6 +1,6 @@
 // 本機模式：Match 直接跑在瀏覽器裡，給 GitHub Pages 這類沒有伺服器的環境用。
 // 回傳的訊息格式和 WebSocket 伺服器相同，main.ts 不需要分辨來源。
-import { Match, Rng, aiActions, aiMoves, contentVersion, createGame, type BattleRecord, type ClientMessage, type GameEvent, type PlayerActions, type PlayerId, type PlayerMoves, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
+import { Match, Rng, aiOrders, contentVersion, createGame, submitStep, type BattleRecord, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
 import { draftPack } from './content';
 import { uploadBattle } from './record';
 
@@ -54,12 +54,13 @@ export class LocalGame {
     return new Match(seed, createGame(seed, this.rosters));
   }
 
-  /** 送出指令並記進紀錄 */
-  private send(seat: PlayerId, orders: PlayerMoves | PlayerActions): string[] {
+  /** 送出這一步的指令並記進紀錄 */
+  private send(seat: PlayerId, orders: BattleStep['orders']): string[] {
     const phase = this.match.phase;
     if (phase === 'over') return ['對戰已結束'];
-    const errors = phase === 'move' ? this.match.submitMoves(seat, orders as PlayerMoves) : this.match.submitActions(seat, orders as PlayerActions);
-    if (!errors.length) this.record.steps.push({ seat, phase, orders: structuredClone(orders) });
+    const step: BattleStep = { seat, phase, orders: structuredClone(orders) };
+    const errors = submitStep(this.match, step);
+    if (!errors.length) this.record.steps.push(step);
     return errors;
   }
 
@@ -74,6 +75,10 @@ export class LocalGame {
     return this.opponent === 'aivai' ? [0, 1] : this.opponent === 'ai' ? [1] : [];
   }
 
+  private humanSeats(): PlayerId[] {
+    return ([0, 1] as PlayerId[]).filter((p) => !this.aiSeats().includes(p));
+  }
+
   /** 處理指令；回傳下一個該拿裝置的席位，送出失敗則回傳 null */
   submit(seat: PlayerId, msg: ClientMessage): PlayerId | null {
     if (msg.t === 'reset') {
@@ -84,33 +89,58 @@ export class LocalGame {
       return 0;
     }
     const ok = this.step(() => {
-      const errors = this.send(seat, msg.t === 'moves' ? msg.moves : msg.actions);
+      const errors = this.send(seat, msg.t === 'moves' ? msg.moves : msg.t === 'pursuits' ? msg.pursuits : msg.actions);
       if (errors.length) this.deliver({ t: 'error', errors });
       return errors.length === 0;
     });
     if (!ok) return null;
-    return this.opponent === 'hotseat' ? ((1 - seat) as PlayerId) : seat;
+    if (this.opponent !== 'hotseat') return seat;
+    // 同機輪流：交給這一步還要下指令的一方（王牌移動、追擊可能只有一方要下）
+    const other = (1 - seat) as PlayerId;
+    if (this.match.phase === 'over') return other;
+    return !this.match.viewFor(other).submitted[other] ? other : !this.match.viewFor(seat).submitted[seat] ? seat : other;
   }
 
-  /** 電腦對戰電腦：雙方各下一步 */
+  /** 電腦對戰電腦：走一步 */
   autoStep(): void {
     this.step(() => true);
   }
 
-  /** 先讓人送出，再讓電腦補上還沒送出的席位；有結算就記下各席位要播放的內容 */
+  /**
+   * 先讓人送出，再讓電腦補上還沒送出的席位。結算後如果下一步只有電腦要下指令（例如只有電腦能追擊），
+   * 電腦接著下，直到輪到人或對戰結束；各席位還沒看過的結算事件累積起來，換手時一起播放
+   */
   private step(human: () => boolean): boolean {
-    const before = this.match.resolvedCount;
-    const views = [this.match.viewFor(0), this.match.viewFor(1)];
+    let views = [this.match.viewFor(0), this.match.viewFor(1)];
+    let seen = this.match.resolvedCount;
     if (!human()) return false;
-    for (const p of this.aiSeats()) {
-      const phase = this.match.phase;
-      if (phase === 'over' || this.match.resolvedCount !== before) break;
-      const v = this.match.viewFor(p);
-      if (v.submitted[p]) continue;
-      this.send(p, phase === 'move' ? aiMoves(v, this.rng) : aiActions(v, this.rng));
+    let resolved = false;
+    const capture = () => {
+      if (this.match.resolvedCount === seen) return false;
+      for (const p of [0, 1] as PlayerId[]) {
+        const prev = this.unseen[p];
+        const events = this.match.eventsFor(p);
+        this.unseen[p] = prev ? { before: prev.before, events: [...prev.events, ...events] } : { before: views[p], events };
+      }
+      views = [this.match.viewFor(0), this.match.viewFor(1)];
+      seen = this.match.resolvedCount;
+      resolved = true;
+      return true;
+    };
+    capture();
+    for (let guard = 0; guard < 12 && this.match.phase !== 'over'; guard++) {
+      if (this.opponent === 'aivai' ? resolved : this.humanSeats().some((p) => !this.match.viewFor(p).submitted[p])) break;
+      let acted = false;
+      for (const p of this.aiSeats()) {
+        if ((this.match.phase as string) === 'over') break;
+        const v = this.match.viewFor(p);
+        if (v.submitted[p]) continue;
+        this.send(p, aiOrders(v, this.rng));
+        acted = true;
+        if (capture()) break;
+      }
+      if (!acted) break;
     }
-    if (this.match.phase === 'over') this.upload();
-    if (this.match.resolvedCount !== before) this.unseen = [{ before: views[0], events: this.match.eventsFor(0) }, { before: views[1], events: this.match.eventsFor(1) }];
     return true;
   }
 

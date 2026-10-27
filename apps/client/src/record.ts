@@ -21,6 +21,8 @@ export function setUploadEnabled(on: boolean): void {
 
 export function uploadBattle(rec: BattleRecord): void {
   if (!uploadEnabled() || !rec.steps.length) return;
+  // 本機開發版不傳到正式 API（要測上傳就用 VITE_CONTENT_API 指向本機的 API）
+  if (import.meta.env.DEV && !import.meta.env.VITE_CONTENT_API) return;
   // keepalive：關掉分頁或重開時也送得出去
   fetch(`${API}/battles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rec), keepalive: true })
     .then((res) => res.json())

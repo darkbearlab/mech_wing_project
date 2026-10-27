@@ -40,6 +40,8 @@ import {
   type ClientMessage,
   type ManeuverSpec,
   type MovePlan,
+  type PursuitPlan,
+  type TurnPhase,
   type Obstacle,
   type PlayerId,
   type PlayerView,
@@ -127,6 +129,8 @@ function switchSeat(next: PlayerId) {
 
 let moveDrafts: Record<string, MovePlan> = {};
 let actionDrafts: Record<string, ActionPlan> = {};
+/** 追擊步驟：各機體選的追擊（null 表示放棄） */
+let pursuitDrafts: Record<string, PursuitPlan | null> = {};
 let draftKey = '';
 let selected: string | null = null;
 let pendingView: PlayerView | null = null;
@@ -180,7 +184,7 @@ function onMessage(msg: ServerMessage) {
 /** 每次結算的演出都記下來，對戰結束後可以整場重播（各席位只記自己看得到的內容） */
 interface ReplayItem {
   turn: number;
-  phase: 'move' | 'action';
+  phase: TurnPhase;
   events: GameEvent[];
   prevUnits: UnitView[];
 }
@@ -299,14 +303,25 @@ function applyView(v: PlayerView) {
     document.getElementById('confirm')!.hidden = true;
     moveDrafts = {};
     actionDrafts = {};
+    pursuitDrafts = {};
     for (const u of ownUnits()) {
       if (u.status !== 'active') continue;
-      if (v.phase === 'move') moveDrafts[u.id] = initialMove(u);
+      if (v.phase === 'move' || (v.phase === 'ace' && v.aceUnits?.includes(u.id))) moveDrafts[u.id] = initialMove(u);
       if (v.phase === 'action') actionDrafts[u.id] = { action: { type: 'none' } };
+      // 追擊：先幫忙選好估計傷害最高的一槍，玩家可以改或放棄
+      const opts = v.pursuit?.[u.id];
+      if (v.phase === 'pursuit' && opts?.length) {
+        const best = [...opts].sort((a, b) => b.chance * weaponPower(u, b.weapon) - a.chance * weaponPower(u, a.weapon))[0];
+        pursuitDrafts[u.id] = { target: best.target, weapon: best.weapon };
+        touched.add(u.id);
+      }
     }
   }
   if (!show) scheduleAuto();
   if (!selected || !v.state.units.some((u) => u.id === selected)) selected = ownUnits().find((u) => u.status === 'active')?.id ?? null;
+  // 王牌移動、追擊：自動選第一台要下指令的機體
+  const sel = selected ? unitView(selected) : undefined;
+  if ((v.phase === 'ace' || v.phase === 'pursuit') && (!sel || sel.owner !== v.you || !needsOrder(sel))) selected = ownUnits().find((u) => needsOrder(u))?.id ?? selected;
   renderAll();
 }
 
@@ -319,6 +334,13 @@ const equipName = (u: UnitView | undefined, eqId: string | null) => {
   const e = u?.equipment.find((x) => x.id === eqId);
   return e ? EQUIPMENT[e.defId].name : eqId;
 };
+
+/** 一次射擊的期望傷害係數（傷害 × 發數），挑追擊預設武器用 */
+function weaponPower(u: UnitView, eqId: string): number {
+  const e = u.equipment.find((x) => x.id === eqId);
+  const d = e ? EQUIPMENT[e.defId] : undefined;
+  return (d?.damage ?? 1) * (d?.shots ?? 1);
+}
 
 function initialMove(u: UnitView): MovePlan {
   return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: 'push' };
@@ -972,10 +994,27 @@ function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'fa
 }
 
 function drawPreviews() {
-  if (view?.phase === 'move') {
+  drawDeferRings();
+  drawRearArc();
+  if (view?.phase === 'pursuit') {
+    for (const [id, plan] of Object.entries(pursuitDrafts)) {
+      const a = unitView(id);
+      const t = plan ? unitView(plan.target) : null;
+      if (!a || !t) continue;
+      g.strokeStyle = 'rgba(216,90,48,0.9)';
+      g.lineWidth = 2.5;
+      polyWorld([
+        [a.pos.x, a.pos.y, UNIT_Z],
+        [t.pos.x, t.pos.y, UNIT_Z],
+      ]);
+      g.stroke();
+      g.lineWidth = 1;
+    }
+  }
+  if (view?.phase === 'move' || view?.phase === 'ace') {
     for (const [id, plan] of Object.entries(moveDrafts)) {
       const u = unitView(id);
-      if (!u || inGrapple(id)) continue;
+      if (!u || inGrapple(id) || plan.defer) continue;
       if (hoverManeuver?.unit === id) drawPath(u, { ...plan, maneuver: hoverManeuver.maneuver, facingOffset: 0 }, 'rgba(255,255,255,0.95)', true);
       else drawPath(u, plan, color(u.owner, id === selected ? 0.9 : 0.45), id === selected);
     }
@@ -995,6 +1034,45 @@ function drawPreviews() {
       g.setLineDash([]);
     }
   }
+}
+
+/** 擱置移動的機體：虛線圈（自己這一步選了擱置的、王牌移動步驟裡還在等的） */
+function drawDeferRings() {
+  if (!view || show || replayNow) return;
+  const ids = new Set(view.phase === 'ace' ? view.state.deferred : view.phase === 'move' ? Object.keys(moveDrafts).filter((id) => moveDrafts[id].defer) : []);
+  for (const id of ids) {
+    const u = unitView(id);
+    if (!u || u.status !== 'active') continue;
+    g.strokeStyle = u.owner === view.you ? 'rgba(175,169,236,0.95)' : 'rgba(240,149,149,0.95)';
+    g.lineWidth = 2;
+    g.setLineDash([5, 4]);
+    ringWorld(u.pos.x, u.pos.y, radiusOf(u) + 0.35, UNIT_Z, 0, Math.PI * 2, 36);
+    g.stroke();
+    g.setLineDash([]);
+    g.lineWidth = 1;
+  }
+}
+
+/** 選取機體背後的危險扇形：敵機在這裡面又面向它，就能追擊 */
+function drawRearArc() {
+  const u = selected ? unitView(selected) : null;
+  if (!u || u.status !== 'active' || show || replayNow) return;
+  const half = (config.PURSUIT_ARC_DEG * Math.PI) / 180;
+  const back = u.facing + Math.PI;
+  const r = config.RANGE_LIMITS.r2 + radiusOf(u) + config.BASE_RADIUS;
+  const pts: [number, number, number][] = [[u.pos.x, u.pos.y, 0]];
+  for (let i = 0; i <= 16; i++) {
+    const a = back - half + (2 * half * i) / 16;
+    pts.push([u.pos.x + Math.cos(a) * r, u.pos.y + Math.sin(a) * r, 0]);
+  }
+  pts.push([u.pos.x, u.pos.y, 0]);
+  polyWorld(pts);
+  g.fillStyle = 'rgba(226,75,74,0.10)';
+  g.fill();
+  g.strokeStyle = 'rgba(226,75,74,0.45)';
+  g.setLineDash([3, 4]);
+  g.stroke();
+  g.setLineDash([]);
 }
 
 /** 行動步驟：滑鼠停在敵機上時顯示所選機體對它的估計命中率 */
@@ -1056,7 +1134,7 @@ function renderStatus() {
     $('status').textContent = '連線中…';
     return;
   }
-  const phase = { move: '步驟 1／2：移動', action: '步驟 2／2：行動', over: '對戰結束' }[view.phase];
+  const phase = { move: '步驟 1：移動', ace: '步驟 1b：王牌移動', pursuit: '追擊', action: '步驟 2：行動', over: '對戰結束' }[view.phase];
   const opp = connected[seat === 0 ? 1 : 0] ? '' : '（對手未連線）';
   const timer = deadline ? `　剩 ${Math.max(0, Math.round((deadline - Date.now()) / 1000))} 秒` : '';
   $('status').textContent = `第 ${view.state.turn} 回合 · ${phase}${opp}${timer}`;
@@ -1065,12 +1143,23 @@ setInterval(() => deadline && renderStatus(), 1000);
 
 const PHASE_HINT = {
   move: '替每台機體選機動和姿態，全部選好後按「送出指令」',
+  ace: '其他機體已經動完：替擱置的機體選機動',
+  pursuit: '有機體咬住敵機背後：選追擊的目標與武器，或放棄',
   action: '移動已結算：選一件裝備，再點地圖上的敵機當目標',
   over: '',
 };
+const PHASE_NAME: Record<TurnPhase, string> = { move: '移動', ace: '王牌移動', pursuit: '追擊', action: '行動' };
+const NT_SENSE_NAME = { numb: '麻木', strong: '堅強', sensitive: '敏感', fragile: '纖細' };
 
-/** 這一步需要下指令的機體（擦撞的機體行動步驟不用） */
-const needsOrder = (u: UnitView) => u.status === 'active' && !(view!.phase === 'action' && view!.state.bumped.includes(u.id));
+/** 這一步需要下指令的機體：擦撞的機體行動步驟不用；王牌移動只有擱置的；追擊只有咬住敵機背後的 */
+const needsOrder = (u: UnitView) => {
+  if (u.status !== 'active') return false;
+  const ph = view!.phase;
+  if (ph === 'action') return !view!.state.bumped.includes(u.id);
+  if (ph === 'ace') return !!view!.aceUnits?.includes(u.id);
+  if (ph === 'pursuit') return !!view!.pursuit?.[u.id]?.length;
+  return true;
+}
 
 /** 已經點過選項；射擊和鎖定還要選好目標才算完成 */
 function orderDone(u: UnitView): boolean {
@@ -1084,7 +1173,9 @@ function unitStatusText(u: UnitView): [string, boolean] {
   if (u.status !== 'active') return [{ destroyed: '已擊毀', withdrawn: '已脫離戰場', unconscious: '駕駛昏迷', disabled: '停止動作' }[u.status], false];
   if (!view || view.phase === 'over' || show) return ['', false];
   if (view.submitted[view.you]) return ['已送出', true];
-  if (!needsOrder(u)) return ['擦撞，本回合不能行動', false];
+  if (!needsOrder(u)) return [view.phase === 'ace' ? '已移動' : view.phase === 'pursuit' ? '不能追擊' : '擦撞，本回合不能行動', false];
+  if (view.phase === 'move' && moveDrafts[u.id]?.defer && touched.has(u.id)) return ['擱置', true];
+  if (view.phase === 'pursuit') return pursuitDrafts[u.id] ? ['可追擊', true] : ['放棄追擊', true];
   return orderDone(u) ? ['✓ 已下指令', true] : ['未下指令', false];
 }
 
@@ -1123,7 +1214,7 @@ function renderPanel() {
     return;
   }
   $('phaseHint').textContent = replayNow
-    ? `重播中：第 ${replayNow.turn} 回合・${replayNow.phase === 'move' ? '移動' : '行動'}（剩 ${replayQueue?.length ?? 0} 段）`
+    ? `重播中：第 ${replayNow.turn} 回合・${PHASE_NAME[replayNow.phase]}（剩 ${replayQueue?.length ?? 0} 段）`
     : local?.opponent === 'aivai' && view.phase !== 'over'
       ? '觀戰中：雙方都由電腦操作，會自動進行到分出勝負'
       : show || view.submitted[view.you]
@@ -1136,10 +1227,10 @@ function renderPanel() {
   $('controls').innerHTML = ctrl;
   $('cmdCard').hidden = !ctrl;
   if (ctrl && u) {
-    $('cmdTitle').textContent = `${u.label.split(' ')[0]}・${view.phase === 'move' ? (inGrapple(u.id) ? '纏鬥' : '移動') : '行動'}`;
+    $('cmdTitle').textContent = `${u.label.split(' ')[0]}・${view.phase === 'move' && inGrapple(u.id) ? '纏鬥' : PHASE_NAME[view.phase as TurnPhase]}`;
     $('cmdPin').textContent = cardPinned ? '已固定・雙擊還原' : '';
     defaultTip = defaultTipFor(u);
-    $('tipBox').textContent = defaultTip;
+    setTip(defaultTip);
   }
   bindControls(u);
   bindTips();
@@ -1157,8 +1248,10 @@ let cardSide = -1;
 let cardRect: { x: number; y: number; w: number; h: number } | null = null;
 
 function defaultTipFor(u: UnitView): string {
-  if (view!.phase === 'move') {
+  if (view!.phase === 'pursuit') return '選一個追擊目標與武器，或放棄。追擊是額外的一槍，不佔行動步驟的動作。';
+  if (view!.phase === 'move' || view!.phase === 'ace') {
     if (inGrapple(u.id)) return '纏鬥中：本回合不移動。滑鼠停在選項上看說明。';
+    if (moveDrafts[u.id].defer) return '已擱置：其他機體（包括對方）都動完後，再替這台下移動指令。';
     const m = parseManeuver(moveDrafts[u.id].maneuver);
     const c = planCost(u, moveDrafts[u.id]);
     return `已選 ${m.name}：推進劑 −${c.propellant}、壓力 +${c.stress}。滑鼠停在按鈕上可預覽路徑與看說明；紅字會加壓力，黃底線會耗推進劑。`;
@@ -1172,13 +1265,29 @@ function defaultTipFor(u: UnitView): string {
 }
 
 function bindTips() {
-  const box = $('tipBox');
   $('cmdCard')
     .querySelectorAll<HTMLElement>('[data-tip]')
     .forEach((el) => {
-      el.addEventListener('mouseenter', () => (box.textContent = el.dataset.tip!));
-      el.addEventListener('mouseleave', () => (box.textContent = defaultTip));
+      el.addEventListener('mouseenter', () => setTip(el.dataset.tip!));
+      el.addEventListener('mouseleave', () => setTip(defaultTip));
     });
+}
+
+/**
+ * 說明區固定高度，不會撐開卡片讓按鈕跑掉；放不下的文字自動上下捲動
+ * （游標停在按鈕上才會顯示說明，沒辦法用滾輪捲）
+ */
+function setTip(text: string) {
+  const box = $('tipBox');
+  box.innerHTML = `<div class="tipInner">${esc(text)}</div>`;
+  const inner = box.firstElementChild as HTMLElement;
+  const room = box.clientHeight - parseFloat(getComputedStyle(box).paddingTop || '0');
+  const over = inner.offsetHeight - room;
+  if (over > 1) {
+    inner.style.setProperty('--tip-shift', `${-Math.ceil(over)}px`);
+    inner.style.setProperty('--tip-dur', `${(2 + over / 14).toFixed(1)}s`);
+    inner.classList.add('scroll');
+  }
 }
 
 const relRect = (el: HTMLElement, stage: DOMRect) => {
@@ -1395,7 +1504,8 @@ function infoHtml(u: UnitView): string {
   let html = `<div class="uname" style="color:${color(u.owner)}">${esc(u.label)} <span class="muted small">${esc(ch.name.replace(/^X-\d+ /, ''))}・重量級 ${ch.weightClass}</span></div>`;
   if (mine && u.pilotId) {
     const p = PILOTS[u.pilotId];
-    html += `<div class="small">${esc(p.name)}（技能 ${p.skill}${p.abilities.includes('quick_draw') ? '・快速拔刀' : ''}）　壓力 <b>${u.stress}</b>/${u.maxStress}　推進劑 <b>${u.propellant}</b>/${u.maxPropellant}</div>`;
+    const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
+    html += `<div class="small">${esc(p.name)}（技能 ${p.skill}${tags.map((t) => `・${t}`).join('')}）　壓力 <b>${u.stress}</b>/${u.maxStress}　推進劑 <b>${u.propellant}</b>/${u.maxPropellant}</div>`;
     const flags = [u.blackout ? '<span class="warn">黑視中</span>' : '', u.lockOn ? `鎖定 ${esc(labelOf(u.lockOn))}` : '', inGrapple(u.id) ? '<span class="warn">纏鬥中</span>' : ''].filter(Boolean);
     if (flags.length) html += `<div class="small">${flags.join('　')}</div>`;
   } else {
@@ -1433,8 +1543,9 @@ function resultText(): string {
 
 function controlsHtml(u: UnitView | undefined): string {
   if (replayNow || show || !u || view!.phase === 'over' || local?.opponent === 'aivai') return '';
-  if (u.owner !== view!.you || u.status !== 'active' || view!.submitted[view!.you]) return '';
-  return view!.phase === 'move' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]);
+  if (u.owner !== view!.you || u.status !== 'active' || view!.submitted[view!.you] || !needsOrder(u)) return '';
+  if (view!.phase === 'pursuit') return pursuitControls(u);
+  return view!.phase === 'move' || view!.phase === 'ace' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]);
 }
 
 const DIAL_COLUMNS = ['turn-L', 'bank-L', 'straight-S', 'bank-R', 'turn-R'];
@@ -1508,10 +1619,16 @@ function moveControls(u: UnitView, plan: MovePlan): string {
       .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, GRAPPLE_TIPS[o]))
       .join('')}</div>`;
   }
+  // 王牌移動：移動步驟可以擱置（王牌移動步驟裡就不能再擱置）
+  const pilot = PILOTS[u.pilotId!];
+  const canDefer = view!.phase === 'move' && pilot?.abilities.includes('ace_move');
+  const deferTip = `王牌移動：這一步先不動，等所有機體（包括對方）動完、看到結果後再替這台下移動指令。${pilot?.abilities.includes('newtype') ? `新人類：對方有新人類在場時，擱置會讓壓力 +${config.ACE_DEFER_STRESS}。` : ''}`;
+  const deferBtn = canDefer ? tip(`<button class="${plan.defer ? 'on' : ''}" data-defer="1">擱置</button>`, deferTip) : '';
   if (planCost(u, plan).blocked) plan.maneuver = cruiseManeuver(u);
   const m = parseManeuver(plan.maneuver);
   const cost = planCost(u, plan);
-  let html = '<div class="ctrlRow"><div>';
+  // 擱置時版面不變、只把機動與姿態淡掉，按鈕才不會跑離游標
+  let html = `<div class="ctrlRow${plan.defer ? ' deferred' : ''}"><div>`;
   html += `<div class="sec">動能 ${signed(u.momentum)} → ${signed(m.endMomentum)}：<b style="color:var(--text)">${m.name}</b>　推 −${cost.propellant}　壓 +${cost.stress}</div>`;
   html += dialHtml(u, plan);
   html += '</div><div>';
@@ -1527,8 +1644,25 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   if (m.kind === 'hover') {
     html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
   }
-  html += `<div class="row small"><label><input type="checkbox" data-f="limiter" ${plan.limiter ? 'checked' : ''}> 限制器解除（最大加減速 +1，壓力 +${config.LIMITER_STRESS}）</label></div>`;
+  const limiterTip = `限制器解除：這回合最大加減速 +1，壓力 +${config.LIMITER_STRESS}。${m.kind === 'hover' ? '懸停時不能用。' : ''}`;
+  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${deferBtn}</div>`;
   return html + '</div></div>';
+}
+
+/** 追擊步驟：列出能追擊的目標 × 武器，或放棄 */
+function pursuitControls(u: UnitView): string {
+  const opts = view!.pursuit?.[u.id] ?? [];
+  const cur = pursuitDrafts[u.id];
+  const buttons = opts.map((o, i) => {
+    const on = cur?.target === o.target && cur?.weapon === o.weapon;
+    const w = equipName(u, o.weapon);
+    return tip(
+      `<button class="${on ? 'on' : ''}" data-pursue="${i}">${esc(labelOf(o.target).split(' ')[0])}・${esc(w)}　${o.chance}%</button>`,
+      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3)}，估計命中 ${o.chance}%（看不到對手的駕駛）。`,
+    );
+  });
+  buttons.push(tip(`<button class="${cur === null ? 'on' : ''}" data-pursue="-1">放棄</button>`, '這台不追擊。'));
+  return `<div class="sec">追擊</div><div class="optList">${buttons.join('')}</div>`;
 }
 
 interface EquipOption {
@@ -1676,6 +1810,22 @@ function bindControls(u: UnitView | undefined) {
         changed();
       }),
   );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-limiter]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.off) return;
+      move.limiter = !move.limiter;
+      if (planCost(u, move).blocked) move.maneuver = cruiseManeuver(u);
+      changed();
+    };
+  });
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-defer]').forEach((b) => (b.onclick = () => ((move.defer = !move.defer), changed())));
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-pursue]').forEach((b) => {
+    b.onclick = () => {
+      const o = view!.pursuit?.[u.id]?.[Number(b.dataset.pursue)];
+      pursuitDrafts[u.id] = o ? { target: o.target, weapon: o.weapon } : null;
+      changed();
+    };
+  });
   ctr.querySelectorAll<HTMLButtonElement>('button[data-grapple]').forEach((b) => (b.onclick = () => ((move.grapple = b.dataset.grapple as GrappleChoice), changed())));
   ctr.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-f]').forEach((el) => {
     el.onchange = () => {
@@ -1760,7 +1910,7 @@ function renderSubmit() {
 function trySubmit() {
   const missing = ownUnits().filter((u) => needsOrder(u) && !orderDone(u));
   if (!missing.length) return submitOrders();
-  const fallback = view!.phase === 'move' ? '移動步驟會用預設機動（直線 2）' : '行動步驟則是不行動（選了裝備但沒選目標的也一樣）';
+  const fallback = view!.phase === 'move' || view!.phase === 'ace' ? '會用預設機動（直線 2）' : '行動步驟則是不行動（選了裝備但沒選目標的也一樣）';
   const dlg = $('confirm');
   dlg.innerHTML = `<div class="dlg"><h3>還有機體沒下指令</h3><p class="muted">${missing.map((u) => esc(u.label.split(' ')[0])).join('、')} 還沒下指令。照預設送出的話，${fallback}。</p><div class="row" style="justify-content:flex-end"><button id="dlgBack">回去下指令</button><button class="primary" id="dlgGo">照預設送出</button></div></div>`;
   dlg.hidden = false;
@@ -1776,7 +1926,8 @@ function trySubmit() {
 }
 
 function submitOrders() {
-  if (view!.phase === 'move') return sendMsg({ t: 'moves', moves: moveDrafts });
+  if (view!.phase === 'move' || view!.phase === 'ace') return sendMsg({ t: 'moves', moves: moveDrafts });
+  if (view!.phase === 'pursuit') return sendMsg({ t: 'pursuits', pursuits: pursuitDrafts });
   // 沒選目標的射擊／鎖定視為不行動
   const actions: Record<string, ActionPlan> = {};
   for (const [id, p] of Object.entries(actionDrafts)) actions[id] = p.action.type !== 'none' && !p.action.target ? { ...p, action: { type: 'none' } } : p;
@@ -1817,8 +1968,12 @@ function describe(e: GameEvent): string | null {
       return e.result === 'none' ? null : `${L(e.a)} 與 ${L(e.b)} 接觸（Vc ${e.vc}）：${RESULT_NAMES[e.result]}`;
     case 'clash':
       return clashText(e);
+    case 'defer':
+      return `${L(e.unit)} 擱置移動，等待王牌移動`;
+    case 'phase':
+      return e.phase === 'ace' ? '── 王牌移動 ──' : e.phase === 'pursuit' ? '── 追擊 ──' : null;
     case 'shot':
-      return `${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
+      return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
     case 'damage':
       return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
     case 'knockback':
@@ -1830,7 +1985,7 @@ function describe(e: GameEvent): string | null {
     case 'pilot':
       return `${L(e.unit)} ${{ blackout: '駕駛黑視', injured: '駕駛負傷', unconscious: '駕駛昏迷', sluggish: '動作遲鈍' }[e.state]}`;
     case 'status':
-      return `${L(e.unit)} ${{ destroyed: '被擊毀', withdrawn: '脫離戰場', disabled: '停止動作' }[e.status]}`;
+      return `${L(e.unit)} ${{ destroyed: '被擊毀', withdrawn: '脫離戰場', disabled: '停止動作' }[e.status]}${e.by ? `（${L(e.by)} 擊墜）` : ''}`;
     case 'grapple':
       return `纏鬥 ${L(e.a)}「${GRAPPLE_NAMES[e.choiceA]}」 vs ${L(e.b)}「${GRAPPLE_NAMES[e.choiceB]}」：${e.summary}`;
     case 'swap':
@@ -1865,7 +2020,7 @@ function appendLog(events: GameEvent[]) {
     const text = describe(e);
     if (!text) continue;
     const owner = eventOwner(e);
-    logs[seat].push({ text, at, cls: e.type === 'turnStart' || e.type === 'gameOver' ? 'turn' : owner === null ? '' : owner === seat ? 'mine' : 'theirs' });
+    logs[seat].push({ text, at, cls: e.type === 'turnStart' || e.type === 'gameOver' || e.type === 'phase' ? 'turn' : owner === null ? '' : owner === seat ? 'mine' : 'theirs' });
   }
   renderLog();
 }
@@ -1971,6 +2126,9 @@ try {
 } catch {
   setHelp(true);
 }
+
+// 開發用：在主控台用 __mech.local() 取得本機對戰（正式建置不會有）
+if (import.meta.env.DEV) (window as unknown as { __mech: object }).__mech = { local: () => local };
 
 // 關掉分頁時，打到一半的對局也上傳紀錄
 addEventListener('pagehide', () => local?.upload());
