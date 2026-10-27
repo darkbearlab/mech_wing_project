@@ -15,6 +15,7 @@ beforeEach(() => {
   const pack: ContentPack = structuredClone({ ...DEFAULT_CONTENT, version: 'test-ace' });
   for (const p of [
     pilot('ace', ['ace_move']),
+    { ...pilot('ace_hi', ['ace_move']), skill: 10 },
     pilot('nt_numb', ['ace_move', 'newtype'], 'numb'),
     pilot('nt_strong', ['newtype'], 'strong'),
     pilot('nt_sensitive', ['newtype'], 'sensitive'),
@@ -127,6 +128,28 @@ describe('王牌移動', () => {
     expect(m.turnResolvedEvents.some((e) => e.type === 'contact' && e.result === 'bump')).toBe(true);
     expect(m.phase).not.toBe('ace');
     expect(m.turnResolvedEvents.some((e) => e.type === 'actionFail' && e.unit === ace.id && e.reason.includes('王牌移動'))).toBe(true);
+  });
+
+  it('雙方都擱置：技能低的一批先動，技能高的看完再動', () => {
+    const m = new Match(1, makeState([
+      { entry: rifle('ace'), owner: 0, x: 6, y: 4, facingDeg: 90 },
+      { entry: rifle('ace_hi'), owner: 1, x: 18, y: 20, facingDeg: -90 },
+    ]));
+    const [lo, hi] = m.state.units;
+    const [a, b] = moveAll(m.state, { [lo.id]: { defer: true }, [hi.id]: { defer: true } });
+    m.submitMoves(0, a);
+    m.submitMoves(1, b);
+    expect(m.phase).toBe('ace');
+    expect(m.viewFor(0).aceUnits).toEqual([lo.id]);
+    expect(m.viewFor(1).aceUnits).toEqual([]);
+    expect(m.submitMoves(0, { [lo.id]: { ...hover, maneuver: 'straight-S-2' } })).toEqual([]);
+    // 技能低的動完了，技能高的才下指令，而且看得到結果
+    expect(m.phase).toBe('ace');
+    expect(m.viewFor(1).aceUnits).toEqual([hi.id]);
+    expect(m.state.units[0].pos.y).toBeCloseTo(6);
+    expect(m.submitMoves(1, { [hi.id]: { ...hover, maneuver: 'straight-S-1' } })).toEqual([]);
+    expect(['pursuit', 'action']).toContain(m.phase);
+    expect(m.state.units[1].pos.y).toBeCloseTo(19);
   });
 
   it('新人類擱置：對方也有新人類才付 1 壓力', () => {
