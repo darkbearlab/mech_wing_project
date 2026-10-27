@@ -1,5 +1,6 @@
 import * as C from './config';
-import { damageUnit, dealtBy, type Ctx } from './damage';
+import { bodyWeight, damageUnit, shotBy, type Ctx } from './damage';
+import { grapplePool } from './grapple';
 import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
@@ -141,7 +142,11 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   let hits = 0;
   let blocked = 0;
   let crits = 0;
+  let strays = 0;
   const pending: (() => void)[] = [];
+  // 目標在纏鬥中：每發命中照部位權重從纏在一起的機體裡抽打到誰（可能誤擊友軍）
+  const pool = grapplePool(ctx.state, target);
+  const aimBonus = pilotOf(attacker).abilities.includes('called_shot') ? C.CALLED_SHOT_CORE_BONUS : 0;
   for (let i = 0; i < shots; i++) {
     // 同一顆骰子：≤ 命中率就命中，≤ 命中率 − 100 就是爆擊（傷害加倍）
     const roll = ctx.rng.d100();
@@ -150,15 +155,17 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     const crit = roll <= h.chance - 100;
     if (crit) crits++;
     const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1);
-    const shield = coveringShield(target, attacker.pos)?.id;
-    if (shield && ctx.rng.d100() <= blockChance(target)) {
+    const victim = pool.length > 1 ? ctx.rng.pickWeighted(pool, (u) => bodyWeight(u, u === target ? aimBonus : 0)) : target;
+    if (victim !== target) strays++;
+    const shield = coveringShield(victim, attacker.pos)?.id;
+    if (shield && ctx.rng.d100() <= blockChance(victim)) {
       blocked++;
-      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, dmg, 'focused', shield, overflow)));
+      pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow)));
     } else {
-      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, dmg, def.mode ?? 'focused', undefined, overflow)));
+      pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', undefined, overflow)));
     }
   }
-  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(opts.pursuit ? { pursuit: true } : {}) });
+  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}) });
   if (hits > blocked && def.tags?.includes('dazzle') && !turn.dazzled?.has(target.id)) {
     turn.dazzled?.add(target.id);
     ctx.events.push({ type: 'dazzle', unit: target.id, by: attacker.id });

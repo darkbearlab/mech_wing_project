@@ -6,10 +6,20 @@ import * as C from './config';
 import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
-import type { EquipState, GrappleChoice, GrappleState, PartState, Technique, UnitState } from './types';
+import type { EquipState, GameState, GrappleChoice, GrappleState, PartState, Technique, UnitState } from './types';
 import { alwaysReady, chassisOf, equipAlive, handUsable, heldItem, pilotOf } from './unit';
 
 export const TECHNIQUES: Technique[] = ['cleave', 'thrust', 'entangle'];
+
+/** 射擊纏鬥中的目標時，命中部位從這些機體的部位一起抽（目標本身排第一）；沒在纏鬥就只有目標 */
+export function grapplePool<T extends { id: string; status: string }>(state: { grapples: GrappleState[]; units: T[] }, target: T): T[] {
+  const ids = new Set<string>();
+  for (const g of state.grapples) if (g.a === target.id || g.b === target.id) ids.add(g.a === target.id ? g.b : g.a);
+  return [target, ...state.units.filter((u) => ids.has(u.id) && u.status === 'active')];
+}
+
+/** 這台目標在纏鬥中：射它有誤擊風險（Danger Close） */
+export const dangerClose = (state: Pick<GameState, 'grapples'>, targetId: string): boolean => state.grapples.some((g) => g.a === targetId || g.b === targetId);
 export const GRAPPLE_NAMES: Record<GrappleChoice, string> = { cleave: '劈砍', thrust: '穿刺', entangle: '纏繞', disengage: '脫離' };
 /** 剋制環：key 剋 value */
 export const BEATS: Record<Technique, Technique> = { entangle: 'cleave', cleave: 'thrust', thrust: 'entangle' };
