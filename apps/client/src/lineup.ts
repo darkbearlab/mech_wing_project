@@ -23,7 +23,7 @@ const KEY = 'mech-wing-lineup';
 const SETTINGS_KEY = 'mech-wing-settings';
 const SIDES = ['A', 'B'] as const;
 const OPPONENTS: [Opponent, string][] = [['ai', '對戰電腦'], ['hotseat', '同機輪流'], ['aivai', '電腦對戰電腦（觀戰）']];
-const SIDE_ROLE: Record<Opponent, [string, string]> = { ai: ['你', '電腦'], hotseat: ['玩家一', '玩家二'], aivai: ['電腦', '電腦'] };
+const SIDE_ROLE: Record<Opponent, [string, string]> = { ai: ['你', '電腦'], aiA: ['電腦', '你'], hotseat: ['玩家一', '玩家二'], aivai: ['電腦', '電腦'] };
 const TURN_LIMITS = [8, 12, 16];
 const CONTROL_TARGET = 6;
 
@@ -37,8 +37,9 @@ interface LineupSettings {
   turnLimit: number;
   deploy: 'fixed' | 'free';
   environment: 'space' | 'gravity';
+  terrain: 'asteroid' | 'forest' | 'town';
 }
-const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed', environment: 'space' };
+const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed', environment: 'space', terrain: 'asteroid' };
 
 const VICTORY_TIPS: Record<'killScore' | 'decapitation' | 'goal' | 'control', string> = {
   killScore: '擊墜敵機的費用加總到門檻就獲勝（飛出地圖也算）',
@@ -106,6 +107,7 @@ export function toBattleSettings(s: LineupSettings): BattleSettings {
     turnLimit: s.turnLimit,
     deploy: s.deploy,
     environment: s.environment,
+    terrain: s.terrain,
   };
 }
 
@@ -163,6 +165,8 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       <div class="luBar"><b>出擊準備</b><span class="muted">${esc(document.getElementById('contentTag')?.textContent ?? '')}</span><span class="spacer"></span>
         <span class="muted">環境</span><select data-f="environment" title="重力圈：每回合結束時動能往 0 回正 1（地面滑行的機體例外）；不適合這個環境的機體機動盤最高速度 −1">
           <option value="space" ${set.environment === 'space' ? 'selected' : ''}>宇宙</option><option value="gravity" ${set.environment === 'gravity' ? 'selected' : ''}>重力圈</option></select>
+        <span class="muted">地形</span><select data-f="terrain" title="隕石帶：大隕石與隕石群；森林：大片森林（擋視線、穿越命中下降）；城鎮：很多建築（擋移動、射擊與視線）">
+          ${(['asteroid', 'forest', 'town'] as const).map((t) => `<option value="${t}" ${set.terrain === t ? 'selected' : ''}>${{ asteroid: '隕石帶', forest: '森林', town: '城鎮' }[t]}</option>`).join('')}</select>
         <span class="muted">規模</span><select data-f="scale">${(Object.keys(SCALES) as Scale[]).map((k) => `<option value="${k}" ${k === set.scale ? 'selected' : ''}>${SCALES[k].name}（${SCALES[k].budget} 分、最多 ${SCALES[k].maxUnits} 台）</option>`).join('')}</select>
         <button data-act="default">載入預設陣容</button><button data-act="last" ${saved ? '' : 'disabled'}>上次的陣容</button></div>
       <div class="luCols">${sideHtml(0)}${sideHtml(1)}</div>
@@ -193,6 +197,9 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     if (f === 'opponent') opp = el.value as Opponent;
     else if (f === 'scale') {
       set.scale = el.value as Scale;
+      saveSettings();
+    } else if (f === 'terrain') {
+      set.terrain = el.value as LineupSettings['terrain'];
       saveSettings();
     } else if (f === 'environment') {
       set.environment = el.value as LineupSettings['environment'];

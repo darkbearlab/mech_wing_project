@@ -4,7 +4,7 @@ import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
 import { radiusOf, roleLost } from './body';
-import { activeShields, chassisOf, equipDef, pilotOf } from './unit';
+import { activeShields, chassisOf, equipDef, pilotOf, armorOf } from './unit';
 
 export interface Positioned {
   id: string;
@@ -12,6 +12,7 @@ export interface Positioned {
   pos: Vec;
   facing: number;
   parts: Record<string, PartState>;
+  equipment?: EquipState[];
 }
 
 export function edgeDistance(a: { pos: Vec; chassisId?: string }, b: { pos: Vec; chassisId?: string }): number {
@@ -62,7 +63,8 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (rangeMod === undefined) return null;
   const atk = chassisOf(h.attacker);
   const def = chassisOf(h.target);
-  let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - def.evasion;
+  // 穿著外裝甲：迴避下降
+  let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - def.evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
   if (h.targetSkill !== null) {
     chance -= h.targetSkill * C.EVADE_PER_SKILL;
     // 技能差距太大：只有身手相當的人才打得到
@@ -74,6 +76,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.dazzled) chance -= C.DAZZLE_PENALTY;
   if (h.cover === 'blocked') return null;
   if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
+  if (h.cover === 'smoke') chance -= C.SMOKE_SHOT_PENALTY;
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (band === 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;

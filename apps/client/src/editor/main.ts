@@ -526,7 +526,7 @@ function deleteButton(k: Kind, id: string) {
   return b;
 }
 
-const KIND_OPTS: [string, string][] = [['ranged', '射擊'], ['melee', '近戰'], ['shield', '盾牌'], ['tank', '燃料槽']];
+const KIND_OPTS: [string, string][] = [['ranged', '射擊'], ['melee', '近戰'], ['shield', '盾牌'], ['tank', '燃料槽'], ['armor', '外裝甲（可拋棄）'], ['utility', '戰術道具']];
 const MOUNT_OPTS: [string, string][] = [['hand', '手持'], ['mounted', '外掛'], ['integrated', '內建（部位的一部分）'], ['housed', '內藏（藏在手臂裡）']];
 const TAG_OPTS: [string, string][] = [['quickDraw', '快速拔出'], ['secondary', '副武裝'], ['volatile', '易爆'], ['overflow', '溢出傷害'], ['dazzle', '眩光']];
 
@@ -559,6 +559,17 @@ function equipmentForm(e: EquipDef & Obj) {
   }
   if (e.kind === 'melee') out.push(sec('近戰', grid(numField(e, 'damage', '傷害'), numField(e, 'meleeDice', '額外近戰骰', { optional: true, hint: '重武器在近戰對決多擲的骰數' }))));
   if (e.kind === 'tank') out.push(sec('燃料', grid(numField(e, 'fuel', '增加推進劑'))));
+  if (e.kind === 'armor')
+    out.push(sec('外裝甲（耐久就是能吸收的傷害）', grid(
+      numField(e, 'evasionPenalty', '穿著時迴避 −', { optional: true }),
+      numField(e, 'accelPenalty', '穿著時最大加減速 −', { optional: true }),
+      selField(e, 'lockWeapons', '穿著時武器', [['false', '照常使用'], ['true', '只有頭部武器能用']], { absent: 'false' }),
+    )));
+  if (e.kind === 'utility')
+    out.push(sec('戰術道具', grid(
+      selField(e, 'utility', '用途', [['smoke', '煙霧彈'], ['decoy', '欺敵氣球']], { rerender: true }),
+      numField(e, 'ammo', '數量', { optional: true }),
+    )));
   if (e.kind === 'shield')
     out.push(sec('防護範圍', grid(
       numField(e, 'shieldOffset', '中心角度（度）', { optional: true, hint: '相對機體正面，負＝左、正＝右。空白：手持盾在持盾那側，固定盾在正前方' }),

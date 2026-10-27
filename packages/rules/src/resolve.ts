@@ -13,7 +13,7 @@ import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerI
 import { anyPursuit, runPursuits } from './pursuit';
 import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, type WinReason } from './objectives';
 import { radiusOf } from './body';
-import { DEG } from './geometry';
+import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
 import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handUsable, heldItem, pilotOf, planCost, readyRanged } from './unit';
 
@@ -34,6 +34,28 @@ function afterMovement(ctx: Ctx): void {
   const { state } = ctx;
   state.phase = state.winner === null && anyPursuit(state) ? 'pursuit' : 'action';
   if (state.phase === 'pursuit') ctx.events.push({ type: 'phase', phase: 'pursuit' });
+}
+
+/** 拋棄外裝甲（免費）：裝甲部位標成脫落，機體恢復輕快、武器解鎖 */
+function purgeArmor(ctx: Ctx, u: UnitState): void {
+  const armor = u.equipment.find((e) => EQUIPMENT[e.defId]?.kind === 'armor' && e.location === 'mount' && u.parts[e.id] && !u.parts[e.id].destroyed);
+  if (!armor) return;
+  u.parts[armor.id].destroyed = true;
+  ctx.events.push({ type: 'purge', unit: u.id });
+}
+
+/** 敵機靠太近的氣球被識破 */
+function exposeDecoys(ctx: Ctx): void {
+  const { state } = ctx;
+  for (const d of [...(state.decoys ?? [])]) {
+    const near = state.units.find((u) => u.owner !== d.owner && u.status === 'active' && dist(u.pos, d.pos) <= C.DECOY_EXPOSE_RANGE + radiusOf(u));
+    if (near) popDecoy(ctx, d.id, near.id, '被靠近識破');
+  }
+}
+
+function popDecoy(ctx: Ctx, id: string, by: string | undefined, reason: string): void {
+  ctx.state.decoys = (ctx.state.decoys ?? []).filter((d) => d.id !== id);
+  ctx.events.push({ type: 'decoyPop', decoy: id, by, reason });
 }
 
 /** 機動的推進劑與壓力 */
@@ -88,6 +110,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
       if (isNewtype(u) && ntOnSide((1 - u.owner) as PlayerId)) addStress(ctx, u, C.ACE_DEFER_STRESS, '王牌移動（被敵方新人類干擾）');
       continue;
     }
+    if (plan.purge) purgeArmor(ctx, u);
     if (frozen.has(u.id)) continue;
     payForMove(ctx, u, plan);
   }
@@ -109,6 +132,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   settleMomentum(ctx, plans, movers, frozen, stopped);
 
   // 第一步裡被撞進纏鬥的王牌就失去這次王牌移動
+  exposeDecoys(ctx);
   const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !inGrapple(state, id));
   state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting };
   updateSight(state);
@@ -135,6 +159,7 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
     const plan = { ...(movesByPlayer[u.owner][id] ?? defaultMove(u)), defer: false };
     plans[id] = plan;
     stance[id] = plan.stance;
+    if (plan.purge) purgeArmor(ctx, u);
     payForMove(ctx, u, plan);
   }
   const frozen = new Set(state.units.filter((u) => u.status === 'active' && !aces.has(u.id)).map((u) => u.id));
@@ -142,6 +167,7 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   settleMomentum(ctx, plans, aces, new Set(), result.stopped);
   const velocity = { ...info.velocity };
   for (const id of aces) velocity[id] = result.velocity[id] ?? { x: 0, y: 0 };
+  exposeDecoys(ctx);
   state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: [] };
   updateSight(state);
   checkWinner(ctx, false);
@@ -245,12 +271,26 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   state.phase = 'move';
   state.turnInfo = null;
   updateSight(state, revealed);
+  // 回合結束：煙霧散掉（散了以後氣球就藏不住了）
+  state.obstacles = state.obstacles.filter((o) => o.kind !== 'smoke' || (o.until ?? 0) > state.turn);
   // 回合結束：達陣與據點
   const settings = state.settings ?? DEFAULT_SETTINGS;
   const done = scoreObjectives(state, settings, (text, side) => ctx.events.push({ type: 'objective', side, text }));
   if (state.winner === null && done.goal.length) finish(ctx, settleBoth(state, done.goal), 'goal');
   if (state.winner === null && done.control.length) finish(ctx, settleBoth(state, done.control, state.objectives!.control), 'control');
-  if (!checkWinner(ctx, true)) state.turn++;
+  if (!checkWinner(ctx, true)) {
+    state.turn++;
+    // 增援進場
+    const arriving = (state.reserves ?? []).filter((r) => r.turn <= state.turn);
+    if (arriving.length) {
+      state.reserves = (state.reserves ?? []).filter((r) => r.turn > state.turn);
+      for (const r of arriving) {
+        state.units.push(r.unit);
+        ctx.events.push({ type: 'arrive', unit: r.unit.id });
+      }
+      updateSight(state);
+    }
+  }
   state.rngState = rng.state;
   return { state, events: ctx.events };
 }
@@ -269,7 +309,7 @@ function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
   const { state } = ctx;
   if (state.winner !== null) return true;
   const s = state.settings ?? DEFAULT_SETTINGS;
-  const alive = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status === 'active').length);
+  const alive = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status === 'active').length + (state.reserves ?? []).filter((r) => r.unit.owner === p).length);
   if (!alive[0] || !alive[1]) {
     finish(ctx, alive[0] === alive[1] ? 'draw' : alive[0] ? 0 : 1, 'annihilation');
     return true;
@@ -368,10 +408,46 @@ function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string 
   ctx.events.push({ type: 'swap', unit: u.id, hand, equip: next?.id ?? null });
 }
 
+/** 煙霧彈、欺敵氣球：丟到指定位置 */
+function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'smoke' | 'decoy' }>): boolean {
+  const { state } = ctx;
+  const item = u.equipment.find((e) => e.id === action.weapon && equipAlive(u, e) && EQUIPMENT[e.defId].utility === action.type);
+  if (!item || (item.ammo !== undefined && item.ammo <= 0)) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: action.type === 'smoke' ? '沒有煙霧彈了' : '沒有氣球了' });
+    return false;
+  }
+  const reach = dist(u.pos, action.at) - radiusOf(u);
+  const limit = action.type === 'smoke' ? C.SMOKE_THROW_RANGE : C.DECOY_PLACE_RANGE;
+  if (reach > limit || !Number.isFinite(reach)) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '太遠了' });
+    return false;
+  }
+  if (item.ammo !== undefined) item.ammo--;
+  if (action.type === 'smoke') {
+    const turns = (state.settings?.environment ?? 'space') === 'space' ? C.SMOKE_TURNS_SPACE : C.SMOKE_TURNS_GRAVITY;
+    const n = state.obstacles.filter((o) => o.kind === 'smoke').length;
+    state.obstacles.push({ id: `smoke${state.turn}-${u.id}-${n}`, kind: 'smoke', x: action.at.x, y: action.at.y, r: C.SMOKE_RADIUS, until: state.turn + turns - 1 });
+    ctx.events.push({ type: 'smoke', unit: u.id, at: { ...action.at }, r: C.SMOKE_RADIUS });
+    return false;
+  }
+  const id = `d${u.owner}-${state.turn}-${(state.decoys ?? []).length}-${u.id}`;
+  (state.decoys ??= []).push({ id, owner: u.owner, pos: { ...action.at }, facing: u.facing, chassisId: u.chassisId, parts: structuredClone(u.parts), equipment: structuredClone(u.equipment) });
+  ctx.events.push({ type: 'decoy', unit: u.id, decoy: id });
+  return false;
+}
+
 /** 回傳 true 表示有開火或鎖定（會暴露位置） */
 function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boolean {
   const action = plan.action;
   if (action.type === 'none') return false;
+  if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
+  // 打到或鎖定的是氣球：氣球破掉，這個動作就浪費了
+  if ((ctx.state.decoys ?? []).some((d) => d.id === action.target)) {
+    const w = action.type === 'shoot' ? u.equipment.find((e) => e.id === action.weapon) : undefined;
+    if (w && w.ammo !== undefined) w.ammo = Math.max(0, w.ammo - 1);
+    popDecoy(ctx, action.target, u.id, action.type === 'shoot' ? '被擊中，原來是氣球' : '鎖定後發現是氣球');
+    return true;
+  }
   const target = ctx.state.units.find((x) => x.id === action.target);
   if (!target || target.status !== 'active') {
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標已失去戰鬥能力' });

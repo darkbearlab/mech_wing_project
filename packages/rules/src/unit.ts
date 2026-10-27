@@ -13,10 +13,20 @@ export const isActive = (u: UnitState): boolean => u.status === 'active';
 /** 該部位或裝備仍存在 */
 export const partAlive = (u: { parts: Record<string, PartState> }, id: string): boolean => !!u.parts[id] && !u.parts[id].destroyed;
 
-/** 這隻手還在而且能握持（沒有手的機型永遠不行） */
+/** 穿著中的外裝甲（還沒被打掉、也沒拋棄） */
+export function armorOf(u: { parts: Record<string, PartState>; equipment?: EquipState[] }): EquipDef | null {
+  const e = u.equipment?.find((x) => EQUIPMENT[x.defId]?.kind === 'armor' && x.location === 'mount' && u.parts[x.id] && !u.parts[x.id].destroyed);
+  return e ? EQUIPMENT[e.defId] : null;
+}
+
+/** 外裝甲鎖住武器時：只有裝在頭部（感測部位）的武器能用 */
+const weaponsLocked = (u: Gear): boolean => !!armorOf(u)?.lockWeapons;
+const onHead = (u: Gear, e: EquipState): boolean => !!e.host && u.parts[e.host]?.role === 'sensor';
+
+/** 這隻手還在而且能握持（沒有手的機型永遠不行；外裝甲鎖住武器時也不行） */
 export function handUsable(u: Gear, hand: Hand): boolean {
   const p = handPart(u, hand);
-  return !!p && partAlive(u, p) && !handBlocked(u, hand);
+  return !!p && partAlive(u, p) && !handBlocked(u, hand) && !weaponsLocked(u);
 }
 
 type Gear = { parts: Record<string, PartState>; equipment: EquipState[] };
@@ -57,7 +67,7 @@ export function hasFreeHand(u: UnitState): boolean {
 /** 現在能開火的射擊武器：手上的，加上外掛與內建的 */
 export function readyRanged(u: Gear): EquipState[] {
   const held = (['right', 'left'] as Hand[]).map((h) => heldItem(u, h)).filter((e): e is EquipState => !!e);
-  const fixed = u.equipment.filter((e) => alwaysReady(e) && equipAlive(u, e));
+  const fixed = u.equipment.filter((e) => alwaysReady(e) && equipAlive(u, e) && (!weaponsLocked(u) || onHead(u, e)));
   return [...held, ...fixed].filter((e) => EQUIPMENT[e.defId].kind === 'ranged');
 }
 
@@ -67,7 +77,7 @@ export function readyMelee(u: Gear): EquipState | null {
     const item = heldItem(u, hand);
     if (item && equipDef(item).kind === 'melee') return item;
   }
-  return u.equipment.find((e) => alwaysReady(e) && equipAlive(u, e) && EQUIPMENT[e.defId].kind === 'melee') ?? null;
+  return u.equipment.find((e) => alwaysReady(e) && equipAlive(u, e) && EQUIPMENT[e.defId].kind === 'melee' && (!weaponsLocked(u) || onHead(u, e))) ?? null;
 }
 
 /** 能擋的盾牌：手上拿的，加上固定在機體上的（薩克的肩盾） */
@@ -91,6 +101,8 @@ export function shieldHand(u: UnitState): Hand | null {
 
 export interface ManeuverLimits {
   chassisId: string;
+  /** 外裝甲會降低最大加減速 */
+  equipment?: EquipState[];
   /** 不適合目前環境：機動盤最高速度減掉這麼多 */
   speedCut?: number;
   parts: Record<string, PartState>;
@@ -113,7 +125,8 @@ export interface ManeuverCost {
 function thrustLimits(u: ManeuverLimits) {
   const ch = CHASSIS[u.chassisId];
   if (roleLost(u, 'propulsion')) return { base: PACK_BROKEN_ACCEL, max: PACK_BROKEN_ACCEL, canBurn: false };
-  return { base: ch.baseThrust, max: ch.maxAccel, canBurn: true };
+  const armor = armorOf(u);
+  return { base: ch.baseThrust, max: Math.max(1, ch.maxAccel - (armor?.accelPenalty ?? 0)), canBurn: true };
 }
 
 /** 轉向也算加速：速度越快，轉彎要的側向推力和 G 負荷越大 */
@@ -216,6 +229,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
       if (blocked) errors.push(`${u.label}：${blocked}`);
     }
   }
+  if (plan.purge && !armorOf(u)) errors.push(`${u.label}：沒有可以拋棄的外裝甲`);
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
@@ -225,6 +239,8 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
 
 export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   const errors: string[] = [];
+  const a = plan.action;
+  if ((a.type === 'smoke' || a.type === 'decoy') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
   if (plan.swap) {
     const target = plan.swap.equip;
     if (target !== null && !u.equipment.some((e) => e.id === target && !alwaysReady(e))) errors.push(`${u.label}：沒有這件裝備`);
