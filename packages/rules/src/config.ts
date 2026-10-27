@@ -78,6 +78,12 @@ export const HIT_PER_SKILL = 5;
 export const EVADE_PER_SKILL = 3;
 /** 近戰骰、纏鬥推擠、盾牌擋下率只算到這個技能（傳奇駕駛的優勢主要在射擊與迴避） */
 export const SKILL_CAP_CLOSE = 5;
+/** 技能差距：目標比射擊方高出這麼多以內不另外修正 */
+export const SKILL_GAP_FREE = 3;
+/** 技能差距超過 SKILL_GAP_FREE 的每一級，命中再 −這麼多（只有身手相當的人才打得到傳奇駕駛） */
+export const SKILL_GAP_PENALTY = 6;
+/** 爆擊傷害倍率 */
+export const CRIT_MULTIPLIER = 2;
 /** 瞄準要害（called_shot）：命中時抽部位，核心部位的權重加這麼多 */
 export const CALLED_SHOT_CORE_BONUS = 10;
 /** 射擊的相對速度修正：雙方本回合移動向量差的長度 ≤ 第一個數字時，命中 + 第二個數字 */
@@ -126,8 +132,9 @@ export const DAZZLE_PENALTY = 20;
 export const HEAD_LONG_PENALTY = 15;
 export const ZERO_RANGE_BONUS = 25;
 export const ZERO_RANGE_SELF_DAMAGE = 20;
-export const HIT_MIN = 5;
-export const HIT_MAX = 95;
+export const HIT_MIN = 0;
+/** 命中率可以超過 100：超過的部分是爆擊率（115 → 骰 1–15 爆擊），到 200 就每發都爆擊 */
+export const HIT_MAX = 200;
 export const SHIELD_ARC_HALF_DEG = 60;
 export const SHIELD_ARC_OFFSET_DEG = 30;
 export const SHIELD_BLOCK_BASE = 50;

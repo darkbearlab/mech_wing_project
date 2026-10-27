@@ -63,7 +63,12 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   const atk = chassisOf(h.attacker);
   const def = chassisOf(h.target);
   let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - def.evasion;
-  if (h.targetSkill !== null) chance -= h.targetSkill * C.EVADE_PER_SKILL;
+  if (h.targetSkill !== null) {
+    chance -= h.targetSkill * C.EVADE_PER_SKILL;
+    // 技能差距太大：只有身手相當的人才打得到
+    const gap = h.targetSkill - h.attackerSkill - C.SKILL_GAP_FREE;
+    if (gap > 0) chance -= gap * C.SKILL_GAP_PENALTY;
+  }
   if (h.relSpeed !== null) chance += relativeSpeedMod(h.relSpeed);
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
   if (h.dazzled) chance -= C.DAZZLE_PENALTY;
@@ -132,19 +137,25 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   const overflow = !!def.tags?.includes('overflow');
   let hits = 0;
   let blocked = 0;
+  let crits = 0;
   const pending: (() => void)[] = [];
   for (let i = 0; i < shots; i++) {
-    if (ctx.rng.d100() > h.chance) continue;
+    // 同一顆骰子：≤ 命中率就命中，≤ 命中率 − 100 就是爆擊（傷害加倍）
+    const roll = ctx.rng.d100();
+    if (roll > h.chance) continue;
     hits++;
+    const crit = roll <= h.chance - 100;
+    if (crit) crits++;
+    const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1);
     const shield = coveringShield(target, attacker.pos)?.id;
     if (shield && ctx.rng.d100() <= blockChance(target)) {
       blocked++;
-      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, def.damage ?? 1, 'focused', shield, overflow)));
+      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, dmg, 'focused', shield, overflow)));
     } else {
-      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, def.damage ?? 1, def.mode ?? 'focused', undefined, overflow)));
+      pending.push(() => dealtBy(ctx, attacker, () => damageUnit(ctx, target, dmg, def.mode ?? 'focused', undefined, overflow)));
     }
   }
-  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(opts.pursuit ? { pursuit: true } : {}) });
+  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(opts.pursuit ? { pursuit: true } : {}) });
   if (hits > blocked && def.tags?.includes('dazzle') && !turn.dazzled?.has(target.id)) {
     turn.dazzled?.add(target.id);
     ctx.events.push({ type: 'dazzle', unit: target.id, by: attacker.id });

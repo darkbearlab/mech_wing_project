@@ -328,7 +328,7 @@ export type GameEvent =
       /** 防守方承受衝擊並把攻擊方拖進纏鬥 */
       caught: boolean;
     }
-  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean }
+  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number }
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
   | { type: 'stress'; unit: string; amount: number; total: number; reason: string }

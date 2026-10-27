@@ -91,6 +91,8 @@ function hurtOf(u: UnitView): number {
 }
 
 const ASSUMED_SKILL = 3;
+/** 命中率（可超過 100）換成每發的期望傷害倍率：命中機率 ×（1 ＋ 爆擊機率） */
+const hitValue = (chance: number) => (Math.min(chance, 100) / 100) * (1 + Math.max(0, Math.min(100, chance - 100)) / 100);
 /** 命中率低於這個就先鎖定，不浪費這回合 */
 const LOW_SHOT = 22;
 /** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
@@ -113,7 +115,7 @@ function expectedDamage(shooter: UnitView, from: Vec, facing: number | null, tar
       shooterMelee: false,
       cover: lineOfFire(obstacles, from, at),
     });
-    if (h) best = Math.max(best, (h.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1));
+    if (h) best = Math.max(best, hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1));
   }
   return best;
 }
@@ -608,7 +610,7 @@ export function aiPursuits(view: PlayerView): PlayerPursuits {
       const w = u?.equipment.find((e) => e.id === o.weapon);
       if (!u || !t || !w) continue;
       const def = EQUIPMENT[w.defId];
-      const v = (o.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
+      const v = hitValue(o.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
       if (!best || v > best.v) best = { o, v };
     }
     out[id] = best && best.o.chance >= 10 ? { weapon: best.o.weapon, target: best.o.target } : null;
@@ -634,7 +636,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
         if (!h || (w.ammo !== undefined && w.ammo <= 0)) continue;
         // 集火：集火目標、受傷的、隊友已經瞄準的敵機加權
         const weight = (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8) * (1 + (aimed[t.id] ?? 0) * 0.2);
-        const value = (h.chance / 100) * (def.damage ?? 1) * (def.shots ?? 1) * weight + rng.next() * 0.2;
+        const value = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * weight + rng.next() * 0.2;
         if (!shot || value > shot.value) shot = { weapon: w, target: t, value, chance: h.chance };
       }
     }
