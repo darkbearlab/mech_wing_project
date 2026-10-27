@@ -2505,7 +2505,7 @@ function pursuitControls(u: UnitView): string {
     const w = equipName(u, o.weapon);
     return tip(
       `<button class="${on ? 'on' : ''}" data-pursue="${i}">${esc(labelOf(o.target).split(' ')[0])}・${esc(w)}　${o.chance > 100 ? `爆擊 ${Math.min(100, o.chance - 100)}%` : `${o.chance}%`}</button>`,
-      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3)}，估計${chanceText(o.chance)}。`,
+      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3 | 4)}，估計${chanceText(o.chance)}。`,
     );
   });
   buttons.push(tip(`<button class="${cur === null ? 'on' : ''}" data-pursue="-1">放棄</button>`, '這台不追擊。'));
@@ -2592,13 +2592,13 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${shield}${barrage ? `・目標在防禦彈幕裡 −${barrage}` : ''}${danger}` : '射程外';
 }
 
-const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
+const BAND_SHORT = { 1: '近', 2: '中', 3: '遠', 4: '超遠' } as const;
 /**
  * 命中率文字：駕駛以外的因素（距離、相對速度、射擊線、射界、鎖定、外裝甲、頭部）都算進去了；
  * 對方的駕駛看不到，閃避（技能 × 3）沒算，所以不說「必中」。超過 100 的部分是爆擊率
  */
 const chanceText = (c: number) => (c > 100 ? `約 ${c}%（爆擊約 ${Math.min(100, c - 100)}%）・未計對方駕駛閃避` : `約 ${c}%・未計對方駕駛閃避`);
-const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離' } as const;
+const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離', 4: '超遠距離' } as const;
 
 function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。`;
@@ -2608,11 +2608,11 @@ function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
   const def = EQUIPMENT[u.equipment.find((e) => e.id === o.equip)!.defId];
   const eq = u.equipment.find((e) => e.id === o.equip)!;
   if (o.kind === 'draw') return `把${def.name}換到手上${def.kind === 'melee' ? '，之後突進撞到敵機時才砍得到' : ''}。${quick || freeDraw(u as unknown as UnitState, eq) ? '不佔行動。' : '會用掉這回合的行動。'}`;
-  const ranges = ([1, 2, 3] as const)
+  const ranges = ([1, 2, 3, 4] as const)
     .filter((b) => def.ranges?.[b] !== undefined)
     .map((b) => `${BAND_SHORT[b]} ${def.ranges![b]! >= 0 ? '+' : ''}${def.ranges![b]}`)
     .join('／');
-  const best = ([1, 2, 3] as const).filter((b) => def.ranges?.[b] !== undefined).sort((x, y) => def.ranges![y]! - def.ranges![x]!)[0];
+  const best = ([1, 2, 3, 4] as const).filter((b) => def.ranges?.[b] !== undefined).sort((x, y) => def.ranges![y]! - def.ranges![x]!)[0];
   const melee = view!.state.stance[u.id] === 'melee' ? `本回合是近戰姿態，命中 −${config.MELEE_STANCE_SHOT_PENALTY}。` : '';
   const mountText = { hand: '手持', mounted: '外掛（不用拿；本身會被擊中）', integrated: '內建（不用拿；和所在部位共存亡）', housed: '內藏' }[def.mount ?? 'hand'];
   const extra = [

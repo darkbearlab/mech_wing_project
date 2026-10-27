@@ -106,7 +106,7 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
   if (isShip(u)) {
     const by = ctx.by ? ctx.state.units.find((x) => x.id === ctx.by) : undefined;
     const aimed = !ctx.unaimed && (!ctx.aimAt || ctx.aimAt === u.id) && !!by && (pilotOf(by).abilities.includes('ship_killer') || pilotOf(by).abilities.includes('called_shot'));
-    mult = shipPartMultiplier(u, ctx.unaimed ? undefined : ctx.from, aimed);
+    mult = shipPartMultiplier(u, ctx.unaimed ? undefined : ctx.from, aimed, !!by && isShip(by));
     bonus = 0;
   }
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
@@ -145,7 +145,8 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): number
   const newlyDestroyed = destroyed && !part.destroyed;
   part.destroyed = destroyed;
   ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed });
-  if (part.role === 'core') addStress(ctx, u, amount, `${part.name}受創`);
+  // 戰艦的艦體很大，挨打不會讓艦長受衝擊
+  if (part.role === 'core' && !isShip(u)) addStress(ctx, u, amount, `${part.name}受創`);
   if (newlyDestroyed) onDestroyed(ctx, u, part.id);
   return spill;
 }

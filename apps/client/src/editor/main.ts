@@ -595,7 +595,7 @@ function equipmentForm(e: EquipDef & Obj) {
         numField(e, 'arcOffset', '射界中心（度）', { optional: true, hint: '相對機體正面，負＝左、正＝右；戰艦舷側 ±90、艦尾 180' }),
         selField(e, 'pointBlank', '零距離射擊', [['true', '可以'], ['false', '不行']], { absent: 'true' }),
       )),
-      sec('距離帶命中修正（空白＝那個距離不能打）', grid(numField(r, '1', '近 R1', { optional: true }), numField(r, '2', '中 R2', { optional: true }), numField(r, '3', '遠 R3', { optional: true }))),
+      sec('距離帶命中修正（空白＝那個距離不能打）', grid(numField(r, '1', '近 R1', { optional: true }), numField(r, '2', '中 R2', { optional: true }), numField(r, '3', '遠 R3', { optional: true }), numField(r, '4', '超遠 R4', { optional: true, hint: `底板邊緣 ${C.RANGE_LIMITS.r4} 格以內；戰艦主砲用` }))),
       psycommuSec(e),
     );
   }

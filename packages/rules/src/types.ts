@@ -4,7 +4,8 @@ export type PlayerId = 0 | 1;
 /** shoot：射擊姿態，撞到別人只是擦撞；melee：近戰姿態，接觸就出手（慢咬住、快一擊脫離），射擊命中下降 */
 export type Stance = 'shoot' | 'melee';
 export type Hand = 'right' | 'left';
-export type RangeBand = 0 | 1 | 2 | 3;
+/** 距離帶：0 零距離、1 近、2 中、3 遠、4 超遠（戰艦主砲） */
+export type RangeBand = 0 | 1 | 2 | 3 | 4;
 /** 纏鬥的手法：劈砍、穿刺、纏繞（剋制環：纏繞剋劈砍、劈砍剋穿刺、穿刺剋纏繞） */
 export type Technique = 'cleave' | 'thrust' | 'entangle';
 export type GrappleChoice = Technique | 'disengage';
@@ -76,7 +77,7 @@ export interface EquipDef {
   shots?: number;
   mode?: DamageMode;
   /** 各距離帶的命中修正；沒有列出的距離帶不能射擊。Range 0 一律可用（零距離射擊）。 */
-  ranges?: Partial<Record<1 | 2 | 3, number>>;
+  ranges?: Partial<Record<1 | 2 | 3 | 4, number>>;
   /** 盾牌的防護範圍：中心相對機體正面的角度（度，負＝左、正＝右）；手持盾沒填就照持盾那隻手的側面 */
   shieldOffset?: number;
   /** 盾牌防護範圍的半角（度）；沒填是 config.SHIELD_ARC_HALF_DEG */
@@ -138,6 +139,8 @@ export interface ChassisDef {
   closeCombat?: boolean;
   /** 機上人員：unmanned 無人（飛彈、無人機），pilot 一般駕駛（預設），ship 船艦（大量人員）；新人類擊墜時的壓力依此計算 */
   crew?: 'unmanned' | 'pilot' | 'ship';
+  /** 感測距離（沒寫照 config.SENSOR_RANGE；戰艦的雷達看得比較遠） */
+  sensorRange?: number;
   /** 戰艦的防禦彈幕：range 範圍（艦體邊緣起算）、每座還能用的砲塔扣多少命中、最多扣多少 */
   barrage?: { range: number; perTurret: number; max: number };
   /** 適合的環境（沒寫＝宇宙與重力圈都可以）；不適合時機動盤最高速度 −1 */

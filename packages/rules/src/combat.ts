@@ -27,10 +27,11 @@ export function rangeBand(a: { pos: Vec; chassisId?: string }, b: { pos: Vec; ch
   if (d <= C.RANGE_LIMITS.r1) return 1;
   if (d <= C.RANGE_LIMITS.r2) return 2;
   if (d <= C.RANGE_LIMITS.r3) return 3;
+  if (d <= C.RANGE_LIMITS.r4) return 4;
   return null;
 }
 
-export const bandName = (b: RangeBand): string => ['零距離', 'Range 1', '中距離', '遠距離'][b];
+export const bandName = (b: RangeBand): string => ['零距離', 'Range 1', '中距離', '遠距離', '超遠距離'][b];
 
 /** 從 from 看 to 的方向，相對於 from 朝向的角度（絕對值，弧度） */
 export function relativeAngle(from: { pos: Vec; facing: number }, to: Vec): number {
@@ -87,7 +88,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.cover === 'smoke') chance -= C.SMOKE_SHOT_PENALTY;
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
-  if (band === 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
+  if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
   if (h.barrage) chance -= h.barrage;
   return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };

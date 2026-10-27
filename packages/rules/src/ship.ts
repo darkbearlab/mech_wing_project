@@ -57,13 +57,17 @@ export function barragePenalty(units: ShipLike[], target: ShipLike): number {
  * 打戰艦時各部位權重的倍率：從艦尾打引擎、貼近打艦橋、對艦特效（或瞄準要害）再加重弱點
  * from：射擊位置（不知道就不調整）；aimed：射擊方有對艦特效或瞄準要害
  */
-export function shipPartMultiplier(ship: ShipLike, from: Vec | undefined, aimed: boolean): (p: PartState) => number {
+export function shipPartMultiplier(ship: ShipLike, from: Vec | undefined, aimed: boolean, byShip = false): (p: PartState) => number {
   const rear = !!from && Math.abs(angleDiff(angleOf(sub(from, ship.pos)), ship.facing)) >= Math.PI - (C.SHIP_REAR_ARC_DEG * Math.PI) / 180;
   const close = !!from && dist(from, ship.pos) - radiusOf(ship) - C.BASE_RADIUS <= C.RANGE_LIMITS.r1;
+  const shipShot = byShip ? C.SHIP_VS_SHIP_WEAK_MULT : 1;
   return (p) => {
     if (p.kind !== 'body' || p.destroyed) return 1;
-    if (p.role === 'propulsion') return (rear ? C.SHIP_REAR_ENGINE_MULT : 1) * (aimed ? C.SHIP_WEAK_AIM_MULT : 1);
-    if (p.role === 'sensor') return (close ? C.SHIP_CLOSE_BRIDGE_MULT : 1) * (aimed ? C.SHIP_WEAK_AIM_MULT : 1);
+    if (p.role === 'propulsion' || p.role === 'sensor') return shipShot * weak(p);
     return 1;
   };
+  function weak(p: PartState): number {
+    if (p.role === 'propulsion') return (rear ? C.SHIP_REAR_ENGINE_MULT : 1) * (aimed ? C.SHIP_WEAK_AIM_MULT : 1);
+    return (close ? C.SHIP_CLOSE_BRIDGE_MULT : 1) * (aimed ? C.SHIP_WEAK_AIM_MULT : 1);
+  }
 }

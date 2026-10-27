@@ -185,7 +185,7 @@ function render(v: PlayerView): string {
   const out: string[] = [];
   out.push(`資料 ${contentVersion()}　房間 ${room}　你是 ${side(v.you)} 方　第 ${s.turn} 回合　步驟 ${v.phase}　已送出 A:${v.submitted[0]} B:${v.submitted[1]}`);
   out.push(`環境 ${set.environment ?? 'space'}　地形 ${set.terrain ?? '-'}　勝利條件 ${JSON.stringify({ killScore: set.killScore, decap: set.decapitation, goal: set.goal, control: set.control, turnLimit: set.turnLimit })}　擊墜分 A ${s.score[0]} / B ${s.score[1]}　旗艦 ${s.flagship.join(' / ')}`);
-  out.push(`地圖 ${config.MAP_SIZE}×${config.MAP_SIZE}，y 往 B 方增加；朝向 0° = +x、90° = +y。距離帶 R1≤${config.RANGE_LIMITS.r1} R2≤${config.RANGE_LIMITS.r2} R3≤${config.RANGE_LIMITS.r3}（底板邊緣距離）`);
+  out.push(`地圖 ${config.MAP_SIZE}×${config.MAP_SIZE}，y 往 B 方增加；朝向 0° = +x、90° = +y。距離帶 R1≤${config.RANGE_LIMITS.r1} R2≤${config.RANGE_LIMITS.r2} R3≤${config.RANGE_LIMITS.r3} R4≤${config.RANGE_LIMITS.r4}（底板邊緣距離；R4 只有戰艦主砲）`);
   if (set.goal) out.push(`達陣點 A 要去 ${pt(goalZone(1))}、B 要去 ${pt(goalZone(0))}`);
   if (set.control) out.push(`據點 ${controlPoints().map(pt).join(' ')}`);
   out.push(`障礙 ${s.obstacles.map((o) => `${o.kind}${pt(o)}r${f1(o.r)}${o.until ? `到T${o.until}` : ''}`).join(' ') || '無'}`);
@@ -309,7 +309,7 @@ function writeCatalog() {
   }
   out.push('', '== 裝備（id 名稱 費用｜傷害×發數 模式｜距離修正 R1/R2/R3｜其他）==');
   for (const e of Object.values(EQUIPMENT)) {
-    const r = e.ranges ? `R1 ${e.ranges[1] ?? '—'} R2 ${e.ranges[2] ?? '—'} R3 ${e.ranges[3] ?? '—'}` : '';
+    const r = e.ranges ? `R1 ${e.ranges[1] ?? '—'} R2 ${e.ranges[2] ?? '—'} R3 ${e.ranges[3] ?? '—'} R4 ${e.ranges[4] ?? '—'}` : '';
     const extra = [e.arc !== undefined ? `射界±${e.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : '', e.pointBlank === false ? '不能零距離' : '', e.meleeDice ? `近戰骰+${e.meleeDice}` : '', e.psycommu ? `感應武器 ${JSON.stringify(e.psycommu)}` : '', e.tags?.length ? e.tags.join(',') : ''].filter(Boolean).join(' ');
     out.push(`${e.id} ${e.name} ${e.cost ?? 0}｜${e.kind}${e.damage ? ` ${e.damage}×${e.shots ?? 1} ${e.mode ?? 'focused'}` : ''}｜${r}｜耐久${e.durability}${extra ? ` ${extra}` : ''}`);
   }

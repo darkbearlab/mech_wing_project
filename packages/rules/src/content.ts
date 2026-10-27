@@ -59,10 +59,11 @@ export function validateContent(pack: ContentPack): string[] {
       if (!isNum(e.shots ?? 1, 1)) err(w, 'shots 至少 1');
       const bands = Object.keys(e.ranges ?? {});
       if (!bands.length) err(w, '射擊武器至少要有一個距離帶修正（ranges）');
-      for (const b of bands) if (!['1', '2', '3'].includes(b) || !isNum(e.ranges![b as unknown as 1])) err(w, `ranges 的距離帶 ${b} 不正確`);
+      for (const b of bands) if (!['1', '2', '3', '4'].includes(b) || !isNum(e.ranges![b as unknown as 1])) err(w, `ranges 的距離帶 ${b} 不正確`);
     }
     if (e.mode !== undefined && e.mode !== 'focused' && e.mode !== 'scattered') err(w, `mode 不正確（${e.mode}）`);
     if (e.arc !== undefined && !(isNum(e.arc, 1) && e.arc <= 180)) err(w, 'arc 要在 1–180 度之間');
+    if (e.ranges?.[4] !== undefined && e.ranges[3] === undefined) err(w, '能打超遠距離（R4）的武器也要能打遠距離（R3）');
     if (e.arcOffset !== undefined && !(isNum(e.arcOffset, -180) && e.arcOffset <= 180)) err(w, 'arcOffset 要在 −180–180 度之間');
     if (e.ammo !== undefined && !(Number.isInteger(e.ammo) && e.ammo >= 1)) err(w, 'ammo 要是 1 以上的整數');
     for (const t of e.tags ?? []) if (!TAGS.includes(t)) err(w, `不認得的標籤 ${t}`);
