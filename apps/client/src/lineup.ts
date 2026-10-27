@@ -38,7 +38,7 @@ export interface LineupSettings {
   turnLimit: number;
   deploy: 'fixed' | 'free';
   environment: 'space' | 'gravity';
-  terrain: 'asteroid' | 'forest' | 'town';
+  terrain: 'asteroid' | 'forest' | 'town' | 'city';
 }
 const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed', environment: 'space', terrain: 'asteroid' };
 
@@ -177,8 +177,8 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       <div class="luBar"><b>出擊準備</b><span class="muted">${esc(document.getElementById('contentTag')?.textContent ?? '')}</span><span class="spacer"></span>
         <span class="muted">環境</span><select data-f="environment" ${off} title="重力圈：每回合結束時動能往 0 回正 1（地面滑行的機體例外）；不適合這個環境的機體機動盤最高速度 −1">
           <option value="space" ${set.environment === 'space' ? 'selected' : ''}>宇宙</option><option value="gravity" ${set.environment === 'gravity' ? 'selected' : ''}>重力圈</option></select>
-        <span class="muted">地形</span><select data-f="terrain" ${off} title="隕石帶：大隕石與隕石群；森林：大片森林（擋視線、穿越命中下降）；城鎮：很多建築（擋移動、射擊與視線）">
-          ${(['asteroid', 'forest', 'town'] as const).map((t) => `<option value="${t}" ${set.terrain === t ? 'selected' : ''}>${{ asteroid: '隕石帶', forest: '森林', town: '城鎮' }[t]}</option>`).join('')}</select>
+        <span class="muted">地形</span><select data-f="terrain" ${off} title="隕石帶：大隕石與隕石群；森林：大片森林（擋視線、穿越命中下降）；城鎮：幾棟圓形建築；城市：棋盤狀街道與 1–4 層的高樓（有高度、可以攀升上樓頂）">
+          ${(['asteroid', 'forest', 'town', 'city'] as const).map((t) => `<option value="${t}" ${set.terrain === t ? 'selected' : ''}>${{ asteroid: '隕石帶', forest: '森林', town: '城鎮', city: '城市' }[t]}</option>`).join('')}</select>
         <span class="muted">規模</span><select data-f="scale" ${off}>${(Object.keys(SCALES) as Scale[]).map((k) => `<option value="${k}" ${k === set.scale ? 'selected' : ''}>${SCALES[k].name}（${SCALES[k].budget} 分、最多 ${SCALES[k].maxUnits} 台）</option>`).join('')}</select>
         <button data-act="default">載入預設陣容</button><button data-act="last" ${saved ? '' : 'disabled'}>上次的陣容</button></div>
       <div class="luCols">${online ? sideHtml(online.side) : `${sideHtml(0)}${sideHtml(1)}`}</div>
@@ -217,6 +217,8 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       saveSettings();
     } else if (f === 'terrain') {
       set.terrain = el.value as LineupSettings['terrain'];
+      // 城市在地面上
+      if (set.terrain === 'city') set.environment = 'gravity';
       saveSettings();
     } else if (f === 'environment') {
       set.environment = el.value as LineupSettings['environment'];

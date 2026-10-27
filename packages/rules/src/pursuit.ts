@@ -46,7 +46,7 @@ export function pursuitOptions(state: GameState, u: UnitState): PursuitOption[] 
         targetSkill: null,
         relSpeed: relativeSpeed(info?.velocity ?? {}, u.id, t.id),
         shooterMelee: info?.stance[u.id] === 'melee',
-        cover: lineOfFire(state.obstacles, u.pos, t.pos),
+        cover: lineOfFire(state.obstacles, u.pos, t.pos, u.z, t.z),
       });
       if (h && h.band <= C.PURSUIT_MAX_BAND) out.push({ target: t.id, weapon: w.id, chance: h.chance, band: h.band });
     }

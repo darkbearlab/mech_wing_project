@@ -26,11 +26,13 @@ export function buildBeats(events: GameEvent[]): Beat[] {
   const flush = () => {
     if (cur.events.length) beats.push(cur);
   };
-  for (const e of events) {
+  // 移動中的攀升、落下會比 move 事件先出現（move 事件在移動結算完才送），也算進移動那一拍
+  const lastMove = events.map((e) => e.type).lastIndexOf('move');
+  for (const [i, e] of events.entries()) {
     if (HEADS.has(e.type)) {
       flush();
       cur = { kind: e.type as BeatKind, events: [e], duration: 0, pauses: [] };
-    } else if ((e.type === 'contact' || e.type === 'move' || e.type === 'obstacle') && cur.kind !== 'move') {
+    } else if ((e.type === 'contact' || e.type === 'move' || e.type === 'obstacle' || (e.type === 'elevate' && i < lastMove)) && cur.kind !== 'move') {
       flush();
       cur = { kind: 'move', events: [e], duration: 0, pauses: [] };
     } else {

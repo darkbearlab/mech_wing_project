@@ -12,10 +12,15 @@ export interface Positioned {
   id: string;
   chassisId: string;
   pos: Vec;
+  /** 高度（層） */
+  z?: number;
   facing: number;
   parts: Record<string, PartState>;
   equipment?: EquipState[];
 }
+
+/** 高打低：射擊方比目標高幾層（只算往下打，最多 HIGH_GROUND_MAX_LEVELS） */
+export const heightAdvantage = (a: { z?: number }, t: { z?: number }): number => Math.max(0, Math.min(C.HIGH_GROUND_MAX_LEVELS, (a.z ?? 0) - (t.z ?? 0)));
 
 export function edgeDistance(a: { pos: Vec; chassisId?: string }, b: { pos: Vec; chassisId?: string }): number {
   return dist(a.pos, b.pos) - radiusOf(a) - radiusOf(b);
@@ -59,7 +64,7 @@ export interface HitInput {
   barrage?: number;
 }
 
-export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
+export function hitChance(h: HitInput): { band: RangeBand; chance: number; high: number } | null {
   const band = rangeBand(h.attacker, h.target);
   if (band === null) return null;
   if (band === 0 && h.weapon.pointBlank === false) return null;
@@ -86,12 +91,15 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.cover === 'blocked') return null;
   if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
   if (h.cover === 'smoke') chance -= C.SMOKE_SHOT_PENALTY;
+  if (h.cover === 'cover') chance -= C.BUILDING_COVER_PENALTY;
+  const high = heightAdvantage(h.attacker, h.target);
+  chance += high * C.HIGH_GROUND_HIT;
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
   if (h.barrage) chance -= h.barrage;
-  return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };
+  return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)), high };
 }
 
 /** 每面盾牌的防護範圍（弧度）：手持盾預設在持盾那側，固定盾照資料的角度 */
@@ -141,7 +149,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     targetSkill: pilotOf(target).skill,
     relSpeed: relativeSpeed(turn.velocity, attacker.id, target.id),
     shooterMelee: turn.stance[attacker.id] === 'melee',
-    cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos),
+    cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos, attacker.z, target.z),
     dazzled: turn.dazzled?.has(attacker.id),
     // 戰艦自己的射擊不受彈幕影響
     barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
@@ -166,7 +174,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     hits++;
     const crit = roll <= h.chance - 100;
     if (crit) crits++;
-    const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1);
+    // 高打低：每發命中傷害再加（爆擊加倍之後才加）
+    const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1) + (h.high ? C.HIGH_GROUND_DAMAGE : 0);
     const victim = pool.length > 1 ? ctx.rng.pickWeighted(pool, (u) => bodyWeight(u, u === target ? aimBonus : 0)) : target;
     if (victim !== target) strays++;
     const shield = coveringShield(victim, attacker.pos)?.id;

@@ -449,5 +449,89 @@
       "arc-R-5"
     ],
     "cost": 4
+  },
+  "X-13": {
+    "id": "X-13",
+    "name": "X-13 武器腕型",
+    "weightClass": 3,
+    "propellant": 14,
+    "baseThrust": 1,
+    "maxAccel": 2,
+    "power": 3,
+    "aim": 5,
+    "evasion": 0,
+    "builtIn": [
+      {
+        "defId": "arm_cannon",
+        "host": "rarm"
+      },
+      {
+        "defId": "arm_cannon",
+        "host": "larm"
+      }
+    ],
+    "parts": {
+      "torso": {
+        "name": "軀幹",
+        "role": "core",
+        "weight": 3,
+        "durability": 10
+      },
+      "rarm": {
+        "name": "右臂",
+        "role": "rightHand",
+        "weight": 2,
+        "durability": 4
+      },
+      "larm": {
+        "name": "左臂",
+        "role": "leftHand",
+        "weight": 2,
+        "durability": 4
+      },
+      "pack": {
+        "name": "推進背包",
+        "role": "propulsion",
+        "weight": 2,
+        "durability": 4
+      },
+      "legs": {
+        "name": "腿部",
+        "role": "legs",
+        "weight": 2,
+        "durability": 4
+      },
+      "head": {
+        "name": "頭部",
+        "role": "sensor",
+        "weight": 1,
+        "durability": 2
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "straight-S-4",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "bank-L-3",
+      "bank-R-3",
+      "turn-L-1",
+      "turn-R-1",
+      "turn-L-2",
+      "turn-R-2",
+      "arc-L-4",
+      "arc-R-4",
+      "kturn-S-3",
+      "reverse-S-1",
+      "reverse-S-2",
+      "rbank-L-1",
+      "rbank-R-1"
+    ],
+    "cost": 9
   }
 }

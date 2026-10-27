@@ -30,6 +30,8 @@ export interface UnitView {
   label: string;
   chassisId: string;
   pos: Vec;
+  /** 高度（層），地面沒寫 */
+  z?: number;
   facing: number;
   parts: Record<string, PartState>;
   equipment: EquipState[];
@@ -96,6 +98,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     label: u.label,
     chassisId: u.chassisId,
     pos: { ...u.pos },
+    ...(u.z ? { z: u.z } : {}),
     facing: u.facing,
     parts: structuredClone(u.parts),
     // 內藏武器第一次拿出來之前，對手看不到
@@ -115,7 +118,7 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
-      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e)))),
+      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
@@ -135,6 +138,7 @@ export function smokeHides(state: GameState, eyes: UnitState[], at: Vec, r: numb
 export const sighting = (u: UnitState, turn: number) => ({
   turn,
   pos: { ...u.pos },
+  ...(u.z ? { z: u.z } : {}),
   facing: u.facing,
   momentum: u.momentum,
   parts: structuredClone(u.parts),
@@ -157,7 +161,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
     // 看不到的敵機：用最後目擊時的樣子當殘影；擊毀之類的結果還是知道
     const seen = s.lastSeen[viewer][u.id];
     if (!seen) continue;
-    const ghost = viewUnit({ ...u, pos: seen.pos, facing: seen.facing, momentum: seen.momentum, parts: seen.parts, equipment: seen.equipment, stress: 0 }, viewer);
+    const ghost = viewUnit({ ...u, pos: seen.pos, z: seen.z, facing: seen.facing, momentum: seen.momentum, parts: seen.parts, equipment: seen.equipment, stress: 0 }, viewer);
     units.push({ ...ghost, status: u.status === 'active' ? 'active' : ghost.status, vague: null, hidden: true, seenTurn: seen.turn });
   }
   // 欺敵氣球：在煙霧裡、對手又認不出來時看起來就像一台機體；不然就是一顆氣球

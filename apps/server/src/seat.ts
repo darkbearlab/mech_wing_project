@@ -26,6 +26,9 @@ import {
   grappleOptions,
   hitChance,
   lineOfFire,
+  wallPenetration,
+  climbBlocked,
+  heightAdvantage,
   parseManeuver,
   planCost,
   psycommuOf,
@@ -60,8 +63,9 @@ const dir = resolve(process.env.INIT_CWD ?? process.cwd(), 'logs', 'seat', `${ro
 mkdirSync(dir, { recursive: true });
 
 try {
-  const pack = process.env.PACK ? JSON.parse(readFileSync(process.env.PACK, 'utf-8')) : await (await fetch(`${API}/packs/latest`)).json();
-  useContent(pack as ContentPack);
+  // 和本機伺服器一樣：預設原創內建資料，PACK=latest 抓線上版，PACK=檔案路徑讀檔
+  const src = process.env.PACK;
+  if (src) useContent((src === 'latest' ? await (await fetch(`${API}/packs/latest`)).json() : JSON.parse(readFileSync(src, 'utf-8'))) as ContentPack);
 } catch (e) {
   console.warn('資料包讀取失敗，改用內建資料', e);
 }
@@ -105,7 +109,7 @@ function unitLine(u: UnitView): string {
   const ch = CHASSIS[u.chassisId];
   const p = u.pilotId ? PILOTS[u.pilotId] : undefined;
   const status = u.status !== 'active' ? ` 【${u.status}】` : u.hidden ? ` 【看不到，最後目擊 T${u.seenTurn}】` : u.unknown ? ' 【煙霧中不明】' : '';
-  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${status}\n  位置 ${pt(u.pos)} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
+  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ` 高度${u.z}層（樓頂）` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
   if (p) s += `\n  駕駛 ${p.name} 技能${p.skill}${p.abilities.length ? ` [${p.abilities.join(',')}]` : ''} 壓力 ${u.stress}/${u.maxStress}${u.blackout ? ' 黑視' : ''} 推進劑 ${u.propellant}/${u.maxPropellant}${u.lockOn ? ` 鎖定 ${u.lockOn}` : ''}`;
   else if (u.vague) s += `  （${u.vague}）`;
   s += `\n  部位 ${partsText(u)}\n  裝備 ${gearText(u)}`;
@@ -122,8 +126,12 @@ function maneuverTable(u: UnitView): string {
     const end = worldPose(path, 1);
     // 路徑上會不會撞到大隕石（只看自己，不含其他機體）
     const rocks = view!.state.obstacles.filter((o) => o.kind === 'rock');
-    const hit = Array.from({ length: 25 }, (_, i) => worldPose(path, i / 24).pos).some((p) => rocks.some((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + radiusOf(u)));
-    rows.push(`${id}→${pt(end.pos)}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠撞隕石' : ''}`);
+    const walls = view!.state.obstacles.filter((o) => o.kind === 'building' && o.levels! > (u.z ?? 0));
+    const pts = Array.from({ length: 25 }, (_, i) => worldPose(path, i / 24).pos);
+    const hit = pts.some((p) => rocks.some((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + radiusOf(u)));
+    const wall = walls.find((o) => pts.some((p) => wallPenetration(o, p, radiusOf(u)) > 0.05));
+    const canClimb = wall && !climbBlocked(u as unknown as UnitState, { maneuver: id }) && wall.levels! - (u.z ?? 0) <= config.CLIMB_LEVELS;
+    rows.push(`${id}→${pt(end.pos)}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠撞隕石' : ''}${wall ? ` ⚠撞${wall.id}(${wall.levels}層)${canClimb ? '，攀升可上樓頂' : ''}` : ''}`);
   }
   return `    ${rows.join('；')}`;
 }
@@ -137,6 +145,9 @@ function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: numbe
   const bp = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
   if (bp) tags.push(`目標在防禦彈幕裡 −${bp}`);
   if (cover === 'smoke') tags.push(`穿過煙霧 −${config.SMOKE_SHOT_PENALTY}`);
+  if (cover === 'cover') tags.push(`建築半掩護 −${config.BUILDING_COVER_PENALTY}`);
+  const high = from === u.pos ? heightAdvantage(u, t) : 0;
+  if (high) tags.push(`高打低 +${high * config.HIGH_GROUND_HIT}、每發傷害 +${config.HIGH_GROUND_DAMAGE}`);
   if (arc === undefined && relativeAngle({ pos: from, facing: u.facing }, t.pos) > (config.OFF_FRONT_DEG * Math.PI) / 180) tags.push(`我方正面射界外 −${config.OFF_FRONT_PENALTY}`);
   return tags.length ? `（${tags.join('・')}）` : '';
 }
@@ -144,7 +155,7 @@ function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: numbe
 /** 我方這台現在被哪些敵機看到、在誰的正面射界、被誰咬住背後（追擊） */
 function threatLine(u: UnitView, foes: UnitView[]): string {
   const live = foes.filter((e) => e.status === 'active' && !e.hidden);
-  const sees = live.filter((e) => canSee(view!.state.obstacles, e.pos, sensorRange(e), u.pos, radiusOf(e) + radiusOf(u))).map((e) => e.id);
+  const sees = live.filter((e) => canSee(view!.state.obstacles, e.pos, sensorRange(e), u.pos, radiusOf(e) + radiusOf(u), e.z, u.z)).map((e) => e.id);
   const front = live.filter((e) => relativeAngle(e, u.pos) <= (config.OFF_FRONT_DEG * Math.PI) / 180).map((e) => e.id);
   const tail = live.filter((e) => tailing(e, u)).map((e) => e.id);
   return `  威脅：看得到我 [${sees.join(',') || '無'}]　我在其正面射界 [${front.join(',') || '無'}]　咬住我背後（可追擊）[${tail.join(',') || '無'}]`;
@@ -156,7 +167,7 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
   for (const w of readyRanged(u)) {
     const def = EQUIPMENT[w.defId];
     for (const t of enemies) {
-      const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos);
+      const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
       const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never) });
       rows.push(`${w.id} ${def.name} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}` : '打不到'}`);
     }
@@ -188,7 +199,9 @@ function render(v: PlayerView): string {
   out.push(`地圖 ${config.MAP_SIZE}×${config.MAP_SIZE}，y 往 B 方增加；朝向 0° = +x、90° = +y。距離帶 R1≤${config.RANGE_LIMITS.r1} R2≤${config.RANGE_LIMITS.r2} R3≤${config.RANGE_LIMITS.r3} R4≤${config.RANGE_LIMITS.r4}（底板邊緣距離；R4 只有戰艦主砲）`);
   if (set.goal) out.push(`達陣點 A 要去 ${pt(goalZone(1))}、B 要去 ${pt(goalZone(0))}`);
   if (set.control) out.push(`據點 ${controlPoints().map(pt).join(' ')}`);
-  out.push(`障礙 ${s.obstacles.map((o) => `${o.kind}${pt(o)}r${f1(o.r)}${o.until ? `到T${o.until}` : ''}`).join(' ') || '無'}`);
+  out.push(`障礙 ${s.obstacles.filter((o) => o.kind !== 'building').map((o) => `${o.kind}${pt(o)}r${f1(o.r)}${o.until ? `到T${o.until}` : ''}`).join(' ') || '無'}`);
+  const blds = s.obstacles.filter((o) => o.kind === 'building');
+  if (blds.length) out.push(`建築（id 中心 x範圍×y範圍 層數；1 層約一台機體高，擋移動、射擊與視線，樓頂可站人）${blds.map((o) => `${o.id}${pt(o)} x${f1(o.x - o.hx!)}–${f1(o.x + o.hx!)} y${f1(o.y - o.hy!)}–${f1(o.y + o.hy!)} ${o.levels}層`).join('；')}`);
   if (s.balloons.length) out.push(`氣球 ${s.balloons.map((b) => `${side(b.owner)}${pt(b.pos)}`).join(' ')}`);
   if (s.grapples.length) out.push(`纏鬥中 ${s.grapples.map((g) => `${g.a}↔${g.b}${g.advantage ? ` 優勢${g.advantage}` : ''}`).join(' ')}`);
   if (s.reserves.length) out.push(`我方增援 ${s.reserves.map((r) => `${r.label}@T${r.turn}`).join(' ')}`);
@@ -218,10 +231,10 @@ function render(v: PlayerView): string {
   out.push(
     {
       deploy: `{"t":"deploy","deploy":{"<id>":{"x":..,"y":..,"facingDeg":角度（45 的倍數，-90 是朝 -y）,"momentum":..}}}`,
-      move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 0/±45/±90/180，正的是右轉）,"limiter"?:false,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
+      move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 0/±45/±90/180，正的是右轉）,"limiter"?:false,"climb"?:true（攀升：速度 ${config.CLIMB_MAX_SPEED} 以下，撞到 ${config.CLIMB_LEVELS} 層以內的牆就爬上樓頂）,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
       ace: `{"t":"moves","moves":{"<王牌 id>":{...同上}}}  要下指令的：${(v.aceUnits ?? []).join(', ')}`,
       pursuit: `{"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}`,
-      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":".."}|{"type":"lock","target":".."}|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swap"?:{"hand":"right|left","equip":"..|null"},"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
+      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
       over: '對戰結束',
     }[v.phase as string] ?? '',
   );
@@ -315,7 +328,7 @@ function writeCatalog() {
   }
   out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
-  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −隕石群 ${config.FIELD_SHOT_PENALTY}；超過 100 的部分是爆擊`);
+  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −隕石群 ${config.FIELD_SHOT_PENALTY} −建築半掩護 ${config.BUILDING_COVER_PENALTY} ＋高打低每層 ${config.HIGH_GROUND_HIT}（最多 ${config.HIGH_GROUND_MAX_LEVELS} 層，命中傷害 +${config.HIGH_GROUND_DAMAGE}）；超過 100 的部分是爆擊`);
   writeFileSync(resolve(dir, 'catalog.txt'), out.join('\n'));
 }
 writeCatalog();

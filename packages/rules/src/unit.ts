@@ -1,4 +1,4 @@
-import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
+import { CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
@@ -49,6 +49,30 @@ export const alwaysReady = (e: EquipState): boolean => e.location === 'mount' ||
 /** 拔出不佔行動：駕駛有快速拔刀，或武器本身是快速拔出 */
 export const freeDraw = (u: { pilotId: string }, e: EquipState): boolean =>
   pilotOf(u).abilities.includes('quick_draw') || !!EQUIPMENT[e.defId].tags?.includes('quickDraw');
+
+/** 收著的武器放在哪一側的武器架（宿主是哪隻手臂）；null 表示放在中間（背上），哪隻手都拿得到 */
+export function rackSide(u: Gear, e: EquipState): Hand | null {
+  return e.host ? handOfPart(u, e.host) : null;
+}
+
+/** 這回合的換武器：每一側換成什麼（null 收起來）；相容舊格式 swap */
+export function swapOrders(plan: Pick<ActionPlan, 'swap' | 'swaps'>): [Hand, string | null][] {
+  const out: Partial<Record<Hand, string | null>> = { ...(plan.swap ? { [plan.swap.hand]: plan.swap.equip } : {}), ...plan.swaps };
+  return (['right', 'left'] as Hand[]).filter((h) => h in out).map((h) => [h, out[h] ?? null]);
+}
+
+/** 換武器那一側的手這回合不能開火（拔出不佔行動的武器除外，見 freeDraw） */
+export function busyHands(u: Gear & { pilotId: string }, plan: Pick<ActionPlan, 'swap' | 'swaps'>): Set<Hand> {
+  const busy = new Set<Hand>();
+  for (const [hand, id] of swapOrders(plan)) {
+    const e = id ? u.equipment.find((x) => x.id === id) : null;
+    if (!e || !freeDraw(u, e)) busy.add(hand);
+  }
+  return busy;
+}
+
+/** 射擊動作用到的所有武器（主武器加上一起開火的） */
+export const shotWeapons = (a: { weapon: string; also?: string[] }): string[] => [...new Set([a.weapon, ...(a.also ?? [])])];
 
 export function heldItem(u: Gear, hand: Hand): EquipState | null {
   if (!handUsable(u, hand)) return null;
@@ -235,6 +259,10 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
     }
   }
   if (plan.purge && !armorOf(u)) errors.push(`${u.label}：沒有可以拋棄的外裝甲`);
+  if (plan.climb) {
+    const why = climbBlocked(u, plan);
+    if (why) errors.push(`${u.label}：${why}`);
+  }
   for (const id of Object.keys(plan.pods ?? {})) {
     const e = u.equipment.find((x) => x.id === id);
     if (!e || !EQUIPMENT[e.defId].psycommu) errors.push(`${u.label}：沒有這個感應武器`);
@@ -263,12 +291,24 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
     else if (!ps.wired && targets.length && a.type !== 'none') errors.push(`${u.label}：指揮無線炮群會用掉這回合的動作`);
   }
   if ((a.type === 'smoke' || a.type === 'decoy') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
-  if (plan.swap) {
-    const target = plan.swap.equip;
-    if (target !== null && !u.equipment.some((e) => e.id === target && !alwaysReady(e))) errors.push(`${u.label}：沒有這件裝備`);
-    if (handBlocked(u, plan.swap.hand)) errors.push(`${u.label}：這隻手不能握持`);
+  for (const [hand, target] of swapOrders(plan)) {
+    const e = target === null ? null : u.equipment.find((x) => x.id === target && !alwaysReady(x));
+    if (target !== null && !e) errors.push(`${u.label}：沒有這件裝備`);
+    else if (e && e.location !== 'right' && e.location !== 'left' && rackSide(u, e) && rackSide(u, e) !== hand) errors.push(`${u.label}：${EQUIPMENT[e.defId].name}在另一側的武器架上，要用${rackSide(u, e) === 'right' ? '右' : '左'}手拿`);
+    if (handBlocked(u, hand)) errors.push(`${u.label}：這隻手不能握持`);
   }
+  if (a.type === 'shoot') for (const id of shotWeapons(a)) if (!u.equipment.some((e) => e.id === id)) errors.push(`${u.label}：沒有這件武器`);
   return errors;
+}
+
+/** 不能攀升的原因（可以就是 null）：速度太快、腳壞了、推進劑不夠，戰艦與不能停的機體不能爬 */
+export function climbBlocked(u: UnitState | ManeuverLimits, plan: Pick<MovePlan, 'maneuver'>): string | null {
+  const ch = CHASSIS[u.chassisId];
+  if (ch.crew === 'ship' || (ch.minSpeed ?? 0) > 0) return '這台機體不能攀升';
+  if (moveSpeed(plan) > CLIMB_MAX_SPEED) return `速度 ${CLIMB_MAX_SPEED} 以下才能攀升（太快蹬不了牆）`;
+  if (roleLost(u, 'legs')) return '腳部損壞，不能攀升';
+  if ((u.propellant ?? 0) < CLIMB_PROPELLANT) return '推進劑不足，不能攀升';
+  return null;
 }
 
 export function defaultMove(u: UnitState): MovePlan {

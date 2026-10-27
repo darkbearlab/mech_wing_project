@@ -62,6 +62,21 @@
         "shield",
         "left"
       ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "machine_gun",
+        "left"
+      ],
+      [
+        "bazooka",
+        "stowed",
+        "larm"
+      ]
     ]
   ],
   "X-01": [
@@ -112,6 +127,21 @@
       [
         "fuel_tank",
         "mount"
+      ]
+    ],
+    [
+      [
+        "machine_gun",
+        "right"
+      ],
+      [
+        "beam_saber",
+        "left"
+      ],
+      [
+        "beam_rifle",
+        "stowed",
+        "rarm"
       ]
     ]
   ],
@@ -237,5 +267,21 @@
   ],
   "CF-01": [
     []
+  ],
+  "X-13": [
+    [
+      [
+        "missile_pod",
+        "mount",
+        "torso"
+      ]
+    ],
+    [
+      [
+        "shoulder_cannon",
+        "mount",
+        "torso"
+      ]
+    ]
   ]
 }

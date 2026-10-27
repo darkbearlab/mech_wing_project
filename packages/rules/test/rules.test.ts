@@ -722,7 +722,7 @@ describe('不需要準備的武器', () => {
     m = shootTurn(m.state, pod);
     expect(m.state.units[0].equipment.find((e) => e.id === pod)!.ammo).toBe(0);
     m = shootTurn(m.state, pod);
-    expect(m.eventsFor(0).some((e) => e.type === 'actionFail' && e.reason === '彈藥耗盡')).toBe(true);
+    expect(m.eventsFor(0).some((e) => e.type === 'actionFail' && e.reason.includes('彈藥耗盡'))).toBe(true);
   });
 
   it('手指光束砲的手完全不能握持', () => {

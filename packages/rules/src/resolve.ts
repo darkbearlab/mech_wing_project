@@ -6,10 +6,10 @@ import { resolveGrapple } from './grapple';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
 import { CHASSIS, EQUIPMENT } from './data';
-import { lineOfFire } from './terrain';
+import { lineOfFire, wallPenetration } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
-import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
+import type { ActionPlan, EquipState, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { barrageActive, inBarrage, isShip } from './ship';
@@ -17,7 +17,8 @@ import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreOb
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
-import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handUsable, heldItem, pilotOf, planCost, readyRanged } from './unit';
+import { alwaysReady, busyHands, defaultAction, defaultMove, equipAlive, handUsable, heldItem, pilotOf, planCost, rackSide, readyRanged, shotWeapons, swapOrders } from './unit';
+import { settleHeights } from './movement';
 
 export interface TurnResult {
   state: GameState;
@@ -218,8 +219,8 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   // 用眩光武器射擊的最先結算，其餘技能高者先
   const dazzles = (u: UnitState) => {
     const a = actionsByPlayer[u.owner][u.id]?.action;
-    const w = a?.type === 'shoot' ? u.equipment.find((e) => e.id === a.weapon) : undefined;
-    return w && EQUIPMENT[w.defId].tags?.includes('dazzle') ? 1 : 0;
+    const ws = a?.type === 'shoot' ? shotWeapons(a).map((id) => u.equipment.find((e) => e.id === id)) : [];
+    return ws.some((w) => w && EQUIPMENT[w.defId].tags?.includes('dazzle')) ? 1 : 0;
   };
   const order = state.units
     .filter((u) => u.status === 'active')
@@ -232,7 +233,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
     const podOrders = Object.entries(plan.pods ?? {}).filter(([, t]) => t?.length);
     const salvo = isShip(u) ? Object.entries(plan.salvo ?? {}).filter(([, t]) => !!t) : [];
     if (bumped.has(u.id)) {
-      if (plan.action.type !== 'none' || plan.swap || podOrders.length || salvo.length) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
+      if (plan.action.type !== 'none' || swapOrders(plan).length || podOrders.length || salvo.length) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
       continue;
     }
     // 戰艦的砲塔：每座各自選目標開火（砲手各自操作，不算連鎖動作）
@@ -247,15 +248,21 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       else if (shoot(ctx, turn, u, w, t)) revealed.add(u.id);
       else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：目標不在射界或射程內` });
     }
-    let actionUsed = false;
-    if (plan.swap) {
-      const drawn = u.equipment.find((e) => e.id === plan.swap!.equip);
-      doSwap(ctx, u, plan.swap.hand, plan.swap.equip);
-      actionUsed = !(drawn ? freeDraw(u, drawn) : pilotOf(u).abilities.includes('quick_draw'));
+    // 換武器：每一側的手和同側的武器架交換，那一側的手這回合不能開火（拔出不佔行動的武器除外），另一側照常
+    const busy = busyHands(u, plan);
+    // 換武器那一側換下來和換上去的武器，這回合都不能開火
+    const benched = new Set<string>();
+    for (const [hand, equip] of swapOrders(plan)) {
+      if (!busy.has(hand)) continue;
+      const held = heldItem(u, hand);
+      if (held) benched.add(held.id);
+      if (equip) benched.add(equip);
     }
+    for (const [hand, equip] of swapOrders(plan)) doSwap(ctx, u, hand, equip);
+    let actionUsed = false;
     // 指揮炮群：無線的佔這回合的行動，線控的不佔
     let wiredFired = false;
-    let usedBy = '換武器用掉了動作';
+    let usedBy = '';
     if (podOrders.length) {
       if (inGrapple(state, u.id)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '纏鬥中不能指揮炮群' });
       else {
@@ -283,7 +290,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: usedBy });
       continue;
     }
-    if (doAction(ctx, turn, u, plan)) {
+    if (doAction(ctx, turn, u, plan, benched)) {
       revealed.add(u.id);
       // 線控炮群和本體同一回合都開火：分心操作，壓力再 +1
       if (wiredFired && plan.action.type === 'shoot') addStress(ctx, u, C.PSYCOMMU_DUAL_STRESS, '同時操作有線臂與本體武器');
@@ -300,6 +307,8 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
     }
     resolveGrapple(ctx, g, a, b, actionsByPlayer[a.owner][a.id]?.grapple, actionsByPlayer[b.owner][b.id]?.grapple);
   }
+  // 被摔出、擊退到樓頂邊緣外的機體掉下去
+  settleHeights(state, ctx.events);
 
   // 回合結束：重力圈或水中動能往 0 回正（地面滑行的機體在重力圈不受影響；戰機不低於最低速度）
   const env = state.settings?.environment ?? 'space';
@@ -447,6 +456,7 @@ export function validateDeploy(state: GameState, player: PlayerId, plans: Player
     if (![d.x, d.y, d.facing, d.momentum].every(Number.isFinite)) errors.push(`${u.label}：部署資料不正確`);
     else if (d.x < z.x0 || d.x > z.x1 || d.y < z.y0 || d.y > z.y1) errors.push(`${u.label}：要放在自己的部署區`);
     else if (state.obstacles.some((o) => o.kind === 'rock' && Math.hypot(d.x - o.x, d.y - o.y) < o.r + r)) errors.push(`${u.label}：壓到大隕石`);
+    else if (state.obstacles.some((o) => o.kind === 'building' && wallPenetration(o, d, r) > 0)) errors.push(`${u.label}：壓到建築`);
     else if (placed.some((q) => Math.hypot(q.d.x - d.x, q.d.y - d.y) < q.r + r + 0.1)) errors.push(`${u.label}：和隊友重疊`);
     const step = Math.round(d.facing / (45 * DEG));
     if (Math.abs(d.facing - step * 45 * DEG) > 1e-6) errors.push(`${u.label}：朝向要是 45° 的倍數`);
@@ -478,6 +488,11 @@ function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string 
   const next = equipId ? u.equipment.find((e) => e.id === equipId && !alwaysReady(e) && equipAlive(u, e)) : null;
   if (equipId && !next) {
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '裝備已損壞，無法換上' });
+    return;
+  }
+  // 武器架在哪一側就只能用那一側的手拿（另一隻手拿著的可以換手）
+  if (next && next.location !== 'right' && next.location !== 'left' && rackSide(u, next) && rackSide(u, next) !== hand) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '武器架在另一側，這隻手拿不到' });
     return;
   }
   if (current) current.location = current.home ?? 'stowed';
@@ -517,14 +532,28 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
 }
 
 /** 回傳 true 表示有開火或鎖定（會暴露位置） */
-function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boolean {
+function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benched: Set<string> = new Set()): boolean {
   const action = plan.action;
   if (action.type === 'none') return false;
   if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
   // 打到或鎖定的是氣球：氣球破掉，這個動作就浪費了
+  // 一起開火的武器：要現在能用，而且不在換武器的那隻手上
+  const weapons: EquipState[] = [];
+  if (action.type === 'shoot') {
+    const ready = readyRanged(u);
+    for (const id of shotWeapons(action)) {
+      const w = ready.find((e) => e.id === id);
+      const def = w && EQUIPMENT[w.defId];
+      const name = EQUIPMENT[u.equipment.find((e) => e.id === id)?.defId ?? '']?.name ?? '武器';
+      if (benched.has(id)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${name}：這一側在換武器，不能開火` });
+      else if (!w) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '沒有可用的射擊武器' });
+      else if (w.ammo !== undefined && w.ammo <= 0) ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${def!.name}：彈藥耗盡` });
+      else weapons.push(w);
+    }
+    if (!weapons.length) return false;
+  }
   if ((ctx.state.decoys ?? []).some((d) => d.id === action.target)) {
-    const w = action.type === 'shoot' ? u.equipment.find((e) => e.id === action.weapon) : undefined;
-    if (w && w.ammo !== undefined) w.ammo = Math.max(0, w.ammo - 1);
+    for (const w of weapons) if (w.ammo !== undefined) w.ammo = Math.max(0, w.ammo - 1);
     popDecoy(ctx, action.target, u.id, action.type === 'shoot' ? '被擊中，原來是氣球' : '鎖定後發現是氣球');
     return true;
   }
@@ -535,14 +564,12 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boo
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: action.type === 'lock' ? '炮群不能鎖定' : '看不到炮群' });
       return false;
     }
-    const w = readyRanged(u).find((e) => e.id === action.weapon);
-    if (!w || (w.ammo !== undefined && w.ammo <= 0)) {
-      ctx.events.push({ type: 'actionFail', unit: u.id, reason: w ? '彈藥耗盡' : '沒有可用的射擊武器' });
-      return false;
+    let fired = false;
+    for (const w of weapons) {
+      if (shootPod(ctx, turn, u, w, pod.mother, pod.equip)) fired = true;
+      else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：炮群不在射程內` });
     }
-    if (shootPod(ctx, turn, u, w, pod.mother, pod.equip)) return true;
-    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '炮群不在射程內' });
-    return false;
+    return fired;
   }
   const target = ctx.state.units.find((x) => x.id === action.target);
   if (!target || target.status !== 'active') {
@@ -567,16 +594,12 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boo
     ctx.events.push({ type: 'lock', unit: u.id, target: target.id });
     return true;
   }
-  const weapon = readyRanged(u).find((e) => e.id === action.weapon);
-  if (!weapon) {
-    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '沒有可用的射擊武器' });
-    return false;
+  // 同一個目標：勾選的武器全部開火（各自擲命中，傷害照順序結算）
+  let fired = false;
+  for (const w of weapons) {
+    if (target.status !== 'active') break;
+    if (shoot(ctx, turn, u, w, target)) fired = true;
+    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
   }
-  if (weapon.ammo !== undefined && weapon.ammo <= 0) {
-    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '彈藥耗盡' });
-    return false;
-  }
-  if (shoot(ctx, turn, u, weapon, target)) return true;
-  ctx.events.push({ type: 'actionFail', unit: u.id, reason: lineOfFire(ctx.state.obstacles, u.pos, target.pos) === 'blocked' ? '射擊線被隕石擋住' : '目標不在射程內' });
-  return false;
+  return fired;
 }

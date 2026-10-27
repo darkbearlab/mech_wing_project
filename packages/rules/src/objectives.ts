@@ -21,7 +21,7 @@ export interface BattleSettings {
   /** 戰場環境（沒寫＝宇宙） */
   environment?: Environment;
   /** 地形：asteroid 隕石帶（預設）、forest 森林、town 城鎮 */
-  terrain?: 'asteroid' | 'forest' | 'town';
+  terrain?: 'asteroid' | 'forest' | 'town' | 'city';
   /** 增援：第 turn 回合開始時在 (x, y) 進場 */
   reinforcements?: { owner: PlayerId; entry: RosterEntry; turn: number; x: number; y: number; facing: number }[];
   /** 劇本的開場位置（照陣容順序；沒列的照平常排開） */

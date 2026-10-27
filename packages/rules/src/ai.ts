@@ -15,16 +15,16 @@ import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { hitChance, relativeSpeed } from './combat';
 import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './grapple';
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
-import { lineOfFire } from './terrain';
+import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
-import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { CLIMB_LEVELS, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
 import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { armorOf, availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
+import { armorOf, availableManeuvers, climbBlocked, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
@@ -40,8 +40,12 @@ const canHold = (u: UnitView) => (['right', 'left'] as Hand[]).some((h) => armOk
 const edge = (a: Vec, b: Vec) => dist(a, b) - 1;
 
 /** 拔出的武器放到哪隻手：先找空手，再找沒拿盾、也不是 keep 的那隻 */
-export function drawHand(u: Pick<UnitView, 'parts' | 'equipment'>, keep?: string): Hand {
+export function drawHand(u: Pick<UnitView, 'parts' | 'equipment'>, keep?: string, equip?: string): Hand {
   const v = u as UnitView;
+  // 武器架在哪一側就用那一側的手拿
+  const e = equip ? v.equipment.find((x) => x.id === equip) : undefined;
+  const side = e && e.location !== 'right' && e.location !== 'left' ? rackSide(v, e) : null;
+  if (side) return side;
   const hands = (['right', 'left'] as Hand[]).filter((h) => armOk(v, h));
   const held = (h: Hand) => v.equipment.find((e) => e.location === h && equipAlive(v, e));
   return hands.find((h) => !held(h)) ?? hands.find((h) => EQUIPMENT[held(h)!.defId].kind !== 'shield' && held(h)!.id !== keep) ?? hands[0] ?? 'right';
@@ -121,7 +125,7 @@ function expectedDamage(shooter: UnitView, from: Vec, facing: number | null, tar
       targetSkill,
       relSpeed: null,
       shooterMelee: false,
-      cover: lineOfFire(obstacles, from, at),
+      cover: lineOfFire(obstacles, from, at, shooter.z, target.z),
     });
     if (h) best = Math.max(best, hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1));
   }
@@ -158,7 +162,7 @@ function navDist(a: Vec, b: Vec, r: number, obstacles: Obstacle[]): number {
   const ab = sub(b, a);
   const len2 = ab.x * ab.x + ab.y * ab.y || 1;
   for (const o of obstacles) {
-    if (o.kind !== 'rock') continue;
+    if (o.kind !== 'rock' && o.kind !== 'building') continue;
     const t = Math.max(0, Math.min(1, ((o.x - a.x) * ab.x + (o.y - a.y) * ab.y) / len2));
     const gap = dist({ x: a.x + ab.x * t, y: a.y + ab.y * t }, o) - o.r - r;
     if (gap < 0.5) d += (0.5 - gap) * 2 + o.r;
@@ -254,17 +258,29 @@ function pickFocus(own: UnitView[], enemies: UnitView[], obstacles: Obstacle[], 
 }
 
 const TRACK = 12;
-function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): { score: number; end: Vec; facing: number; track: Vec[] } {
+function scoreManeuver(u0: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng, climb = false): { score: number; end: Vec; facing: number; track: Vec[] } {
+  let u = u0;
   const path = buildPath(u, { maneuver: m.id, limiter: false });
   const r = radiusOf(u);
   const rocks = team.obstacles.filter((o) => o.kind === 'rock');
-  // 模擬路徑：撞上大隕石就停在撞點，動能歸零（戰機只降到最低速度）
+  const blds = team.obstacles.filter((o) => o.kind === 'building');
+  // 模擬路徑：撞上大隕石或比自己站的地方高的牆就停在撞點，動能歸零（戰機只降到最低速度）；
+  // 攀升時爬得上去的牆就上樓頂，底板離開樓頂就掉下去
   const N = 24;
   let crashAt = -1;
+  let z = u.z ?? 0;
   for (let i = 1; i <= N && crashAt < 0; i++) {
     const p = worldPose(path, i / N).pos;
     if (rocks.some((o) => dist(p, o) < o.r + r)) crashAt = i;
+    for (const o of blds) {
+      if (crashAt >= 0 || o.levels! <= z || wallPenetration(o, p, r) <= 0.05) continue;
+      if (climb && o.levels! - z <= CLIMB_LEVELS) z = o.levels!;
+      else crashAt = i;
+    }
+    if (z && !blds.some((o) => o.levels! >= z && wallPenetration(o, p, r) > 0)) z = Math.max(0, ...blds.filter((o) => o.levels! < z && wallPenetration(o, p, r) > 0).map((o) => o.levels!));
   }
+  // 之後的火力、威脅都照終點的高度算
+  if (z !== (u.z ?? 0)) u = { ...u, z: z || undefined };
   const endT = crashAt < 0 ? 1 : (crashAt - 1) / N;
   const endPose = worldPose(path, endT);
   const track = Array.from({ length: TRACK + 1 }, (_, k) => worldPose(path, Math.min(endT, k / TRACK)).pos);
@@ -273,7 +289,8 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
   const endMomentum = crashAt < 0 ? m.endMomentum : minSpeedOf(u);
   const margin = 1.2;
   if (pos.x < margin || pos.y < margin || pos.x > MAP_SIZE - margin || pos.y > MAP_SIZE - margin) return { score: -1000, end: pos, facing, track };
-  let score = 0;
+  // 攀升多花推進劑：沒有好處就不爬
+  let score = climb ? -0.5 : 0;
   if (crashAt >= 0) score -= 12 + Math.max(0, Math.round(path.length) - ROCK_SAFE_SPEED) * 8;
   // 高速穿過隕石群可能被碎石打中
   if (m.speed > DEBRIS_SAFE_SPEED && samplePath(path, 8).some((p) => insideField(team.obstacles, p))) score -= (m.speed - DEBRIS_SAFE_SPEED) * 1.5;
@@ -579,15 +596,23 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
   // 受傷重的先決定位置（讓它先找好掩蔽），其餘照順序
   const order = [...own].sort((a, b) => hurtOf(b) - hurtOf(a));
   const chosen = new Map<string, ManeuverSpec>();
+  const climbing = new Set<string>();
   const choose = (u: UnitView) => {
     team.planned = team.planned.filter((p) => p.id !== u.id);
     prepareTeam(u, team);
     const options = availableManeuvers(u);
-    let best: { score: number; end: Vec; facing: number; track?: Vec[]; m: ManeuverSpec } = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver(cruiseManeuver(u)) };
+    let best: { score: number; end: Vec; facing: number; track?: Vec[]; m: ManeuverSpec; climb?: boolean } = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver(cruiseManeuver(u)) };
     for (const m of options) {
       const s = scoreManeuver(u, m, team, rng);
-      if (s.score > best.score) best = { ...s, m };
+      if (s.score > best.score) best = { ...s, m, climb: false };
+      // 慢速時也試試攀升（城市裡上樓頂居高臨下）
+      if (team.obstacles.some((o) => o.kind === 'building') && !climbBlocked(u as unknown as UnitState, { maneuver: m.id })) {
+        const c = scoreManeuver(u, m, team, rng, true);
+        if (c.score > best.score) best = { ...c, m, climb: true };
+      }
     }
+    if (best.climb) climbing.add(u.id);
+    else climbing.delete(u.id);
     team.planned.push({ id: u.id, pos: best.end, facing: best.facing, r: radiusOf(u), track: best.track ?? [u.pos] });
     chosen.set(u.id, best.m);
   };
@@ -610,7 +635,7 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
       continue;
     }
     const best = { m: chosen.get(u.id)! };
-    const plan: MovePlan = { ...base, maneuver: best.m.id };
+    const plan: MovePlan = { ...base, maneuver: best.m.id, ...(climbing.has(u.id) ? { climb: true } : {}) };
     // 外裝甲：穿著只能用頭部火神砲；敵機靠近要開打、或裝甲快被打光時就拋棄
     if (shouldPurge(u, enemies)) plan.purge = true;
     const target = nearest(u.pos, enemies);
@@ -720,7 +745,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
         if (!def.tags?.includes('turret') || (w.ammo !== undefined && w.ammo <= 0)) continue;
         let best: { t: UnitView; v: number } | null = null;
         for (const t of enemies) {
-          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view.state.obstacles, u.pos, t.pos) });
+          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
           if (!h || h.chance < 10) continue;
           const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
           if (!best || v > best.v) best = { t, v };
@@ -735,7 +760,8 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     if (g) {
       const opp = view.state.units.find((x) => x.id === (g.a === u.id ? g.b : g.a));
       const plan: ActionPlan = { action: { type: 'none' }, grapple: pickGrapple(u, opp, rng) };
-      if (canHold(u) && !heldOf(u, 'melee').length && stowedOf(u, 'melee').length) plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'melee')[0].id };
+      const blade = stowedOf(u, 'melee')[0];
+      if (canHold(u) && !heldOf(u, 'melee').length && blade) plan.swaps = { [drawHand(u, undefined, blade.id)]: blade.id };
       out[u.id] = plan;
       continue;
     }
@@ -746,7 +772,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       // 眩光要靠隊友接著開火才划算；AI 還不會整體協調，先不用
       if (def.tags?.includes('dazzle')) continue;
       for (const t of enemies) {
-        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos) });
+        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
         if (!h || (w.ammo !== undefined && w.ammo <= 0)) continue;
         // 集火：集火目標、受傷的、隊友已經瞄準的敵機加權
         // 誤擊風險：打到隊友的部分要倒扣，太容易打到隊友就不開火
@@ -770,12 +796,22 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     } else if (shot && shot.chance >= 12) {
       plan.action = { type: 'shoot', weapon: shot.weapon.id, target: shot.target.id };
       aimed[shot.target.id] = (aimed[shot.target.id] ?? 0) + 1;
-    } else if (canHold(u) && !heldOf(u, 'melee').length && stowedOf(u, 'melee').length && d < 7) {
-      plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'melee')[0].id };
-    } else if (canHold(u) && !heldOf(u, 'ranged').length && !heldOf(u, 'melee').length && stowedOf(u, 'ranged').length) {
-      plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'ranged')[0].id };
-    } else if (lockTarget) {
+    } else if (lockTarget && !(canHold(u) && stowedOf(u, 'melee').length && d < 7)) {
       plan.action = { type: 'lock', target: lockTarget.id };
+    }
+    // 換武器只佔那一側的手：近身了拔近戰武器，手上沒武器就拔射擊武器
+    const melee = stowedOf(u, 'melee')[0];
+    const gun = stowedOf(u, 'ranged')[0];
+    if (canHold(u) && !heldOf(u, 'melee').length && melee && d < 7) plan.swaps = { [drawHand(u, shot?.weapon.id, melee.id)]: melee.id };
+    else if (canHold(u) && !heldOf(u, 'ranged').length && !heldOf(u, 'melee').length && gun) plan.swaps = { [drawHand(u, undefined, gun.id)]: gun.id };
+    if (plan.action.type === 'shoot') {
+      // 同一個目標：其他打得到的武器一起開火（換武器那隻手上的除外）
+      const t = shot!.target;
+      const benched = new Set(Object.keys(plan.swaps ?? {}).map((h) => u.equipment.find((e) => e.location === h)?.id));
+      const guns = heldOf(u, 'ranged').filter((w) => !benched.has(w.id) && (w.ammo === undefined || w.ammo > 0) && !EQUIPMENT[w.defId].tags?.includes('dazzle'));
+      const ok = guns.filter((w) => (hitChance({ attacker: u, attackerSkill: skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos, u.z, t.z) })?.chance ?? 0) >= 12);
+      if (!ok.length) plan.action = { type: 'none' };
+      else plan.action = { type: 'shoot', weapon: ok[0].id, target: t.id, ...(ok.length > 1 ? { also: ok.slice(1).map((w) => w.id) } : {}) };
     }
     // 炮群：線控的一律一起開火；無線的比自己開火划算才指揮（會用掉行動）
     const pods = aiPodActions(view, u, enemies, focus);
@@ -783,7 +819,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     if (Object.keys(pods.wireless).length && pods.value > (plan.action.type === 'shoot' ? (shot?.value ?? 0) : 0)) {
       Object.assign(orders, pods.wireless);
       plan.action = { type: 'none' };
-      if (plan.swap) delete plan.swap;
+      if (plan.swaps) delete plan.swaps;
     }
     if (Object.keys(orders).length) plan.pods = orders;
     out[u.id] = plan;

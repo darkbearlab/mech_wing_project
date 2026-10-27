@@ -14,6 +14,7 @@
     "aisim": "tsx packages/rules/scripts/aisim.ts",
     "content:check": "tsx packages/rules/scripts/content-check.ts",
     "battle": "tsx packages/rules/scripts/battle.ts",
+    "citysim": "tsx packages/rules/scripts/citysim.ts",
     "seat": "npm run seat -w @mech/server --",
     "seat-wait": "npm run seat-wait -w @mech/server --"
   },
