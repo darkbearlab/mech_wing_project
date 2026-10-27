@@ -1,12 +1,25 @@
 // 本機替身伺服器：一個房間一個 Match，日後換成 Cloudflare Durable Object 時只換這層。
+// 開場前讀資料包：PACK=檔案路徑，否則抓線上最新版（抓不到就用內建資料）。瀏覽器的出擊準備畫面送 setup 開新的一場。
+import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { Match, type ClientMessage, type PlayerId, type ServerMessage } from '@mech/rules';
+import { Match, contentVersion, createGame, useContent, type BattleSettings, type ClientMessage, type ContentPack, type PlayerId, type RosterEntry, type ServerMessage } from '@mech/rules';
+
+const API = process.env.MECH_API ?? 'https://mech-wing-api.darkbearlab.workers.dev';
+try {
+  const pack = process.env.PACK ? JSON.parse(readFileSync(process.env.PACK, 'utf-8')) : await (await fetch(`${API}/packs/latest`)).json();
+  useContent(pack as ContentPack);
+} catch (e) {
+  console.warn('資料包讀取失敗，改用內建資料', e);
+}
+console.log(`資料 ${contentVersion()}`);
 
 const PORT = Number(process.env.MECH_SERVER_PORT ?? 8787);
 const TURN_SECONDS = Number(process.env.TURN_SECONDS ?? 0); // 0 = 不計時
 
 interface Room {
   match: Match;
+  /** 房間裡第幾場 */
+  game: number;
   sockets: [WebSocket | null, WebSocket | null];
   timer: NodeJS.Timeout | null;
   deadline: number | null;
@@ -14,8 +27,9 @@ interface Room {
 
 const rooms = new Map<string, Room>();
 
-function newRoom(): Room {
-  return { match: new Match((Math.random() * 2 ** 32) >>> 0), sockets: [null, null], timer: null, deadline: null };
+function newRoom(rosters?: [RosterEntry[], RosterEntry[]], settings?: BattleSettings): Room {
+  const seed = (Math.random() * 2 ** 32) >>> 0;
+  return { match: new Match(seed, rosters ? createGame(seed, rosters, settings) : undefined), game: 0, sockets: [null, null], timer: null, deadline: null };
 }
 
 function send(ws: WebSocket | null, msg: ServerMessage) {
@@ -23,7 +37,7 @@ function send(ws: WebSocket | null, msg: ServerMessage) {
 }
 
 function broadcastState(room: Room) {
-  for (const p of [0, 1] as PlayerId[]) send(room.sockets[p], { t: 'state', view: room.match.viewFor(p), connected: room.sockets.map((s) => !!s) as [boolean, boolean], deadline: room.deadline });
+  for (const p of [0, 1] as PlayerId[]) send(room.sockets[p], { t: 'state', view: room.match.viewFor(p), connected: room.sockets.map((s) => !!s) as [boolean, boolean], deadline: room.deadline, game: room.game });
 }
 
 function afterChange(room: Room, prevResolved: number, prevPhase: string) {
@@ -80,9 +94,15 @@ wss.on('connection', (ws, req) => {
     else if (msg.t === 'deploy') errors = r.match.submitDeploy(seat, msg.deploy);
     else if (msg.t === 'pursuits') errors = r.match.submitPursuits(seat, msg.pursuits);
     else if (msg.t === 'actions') errors = r.match.submitActions(seat, msg.actions);
-    else if (msg.t === 'reset') {
-      const fresh = newRoom();
-      r.match = fresh.match;
+    else if (msg.t === 'reset' || msg.t === 'setup') {
+      try {
+        r.match = (msg.t === 'setup' ? newRoom(msg.rosters, msg.settings) : newRoom()).match;
+        r.game++;
+      } catch (e) {
+        send(ws, { t: 'error', errors: [`陣容不正確：${(e as Error).message}`] });
+        return;
+      }
+      console.log(`[${roomId}] new match（seat ${seat} ${msg.t}）`);
       armTimer(r);
       broadcastState(r);
       return;
