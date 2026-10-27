@@ -73,7 +73,7 @@ import {
 } from '@mech/rules';
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
 import { loadContent } from './content';
-import { openLineup } from './lineup';
+import { openLineup, type LineupSettings } from './lineup';
 import { openMenu, type Side } from './menu';
 import { LocalGame, type Opponent } from './local';
 import { mechSilhouette } from './silhouette';
@@ -213,8 +213,53 @@ interface LogLine {
 const logs: [LogLine[], LogLine[]] = [[], []];
 let logOpen = false;
 
+/** 開房模式：還沒開打時的房間狀態 */
+let lobby: Extract<ServerMessage, { t: 'lobby' }> | null = null;
+/** 這一場（game 編號）已經打開過選隊畫面 */
+let lineupOpenedFor = -1;
+
+/** 開房模式：選自己的隊伍加入；已經加入就等對手 */
+function showLobby() {
+  if (!lobby) return;
+  const cover = document.getElementById('cover')!;
+  if (lobby.joined[seat]) {
+    $('lineup').hidden = true;
+    cover.innerHTML = `<div><p>已加入房間 <b>${esc(room)}</b>，你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b></p><p class="muted">等待對手選好隊伍加入${lobby.connected[seat === 0 ? 1 : 0] ? '' : '（對手還沒連線）'}…</p></div>`;
+    cover.hidden = false;
+    return;
+  }
+  cover.hidden = true;
+  // 客人：房主的條件出來了就照它重開選隊畫面
+  const key = lobby.game * 2 + (lobby.terms ? 1 : 0);
+  if (lineupOpenedFor === key) return;
+  lineupOpenedFor = key;
+  openLineup(
+    'hotseat',
+    () => {},
+    {
+      side: seat,
+      hostPrefs: seat === 1 ? ((lobby.terms?.prefs as LineupSettings | undefined) ?? null) : null,
+      onJoin: (roster, settings, scale, prefs) => sendMsg({ t: 'join', roster, ...(seat === 0 ? { terms: { settings, scale, prefs } } : {}) }),
+    },
+  );
+}
+
 function onMessage(msg: ServerMessage) {
+  if (msg.t === 'lobby') {
+    lobby = msg;
+    connected = msg.connected;
+    view = null;
+    renderStatus();
+    showLobby();
+    return;
+  }
   if (msg.t === 'state') {
+    if (lobby) {
+      // 開打了：收起選隊與等待畫面
+      lobby = null;
+      $('lineup').hidden = true;
+      document.getElementById('cover')!.hidden = true;
+    }
     connected = msg.connected;
     deadline = msg.deadline;
     if (show) pendingView = msg.view;
@@ -1599,7 +1644,7 @@ function renderStatus() {
         : `同機輪流　現在是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>`
     : `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b> <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${SIDE(other)} 方視窗</a>`;
   if (!view) {
-    $('status').textContent = '連線中…';
+    $('status').textContent = lobby ? '開房：雙方各自選好隊伍加入，到齊就開打' : '連線中…';
     return;
   }
   const phase = { deploy: '部署', move: '步驟 1：移動', ace: '步驟 1b：王牌移動', pursuit: '追擊', action: '步驟 2：行動', over: '對戰結束' }[view.phase];
@@ -2770,11 +2815,8 @@ $('logToggle').onclick = () => {
 function restart() {
   // 本機模式：回到主選單
   if (local) return showMenu();
-  // 連線房間：選好陣容與勝利條件後，請伺服器開新的一場
-  openLineup('hotseat', (rosters, _opponent, settings) => {
-    clearAndReset(false);
-    sendMsg({ t: 'setup', rosters, settings });
-  });
+  // 連線房間：回到選隊，雙方各自選好隊伍加入
+  clearAndReset();
 }
 
 /** 開一場本機對戰（第一次建立，之後重設同一個對局物件） */

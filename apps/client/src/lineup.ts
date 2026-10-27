@@ -1,4 +1,5 @@
 // 出擊準備：開戰前選雙方陣容（機型、駕駛、配裝）、隊伍規模（預算）、勝利條件與對手，帶進本機對戰。
+// 開房模式只選自己這一方：房主（A 方）決定對戰條件，客人照房主的條件選隊。
 import {
   CHASSIS,
   DEFAULT_ROSTERS,
@@ -28,7 +29,7 @@ const TURN_LIMITS = [8, 12, 16];
 const CONTROL_TARGET = 6;
 
 /** 出擊準備的選項：規模加上勝利條件（擊墜分門檻跟著規模） */
-interface LineupSettings {
+export interface LineupSettings {
   scale: Scale;
   killScore: boolean;
   decapitation: boolean;
@@ -111,13 +112,24 @@ export function toBattleSettings(s: LineupSettings): BattleSettings {
   };
 }
 
-/** 顯示出擊準備畫面；按下開始戰鬥時回呼 */
-export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, opponent: Opponent, settings: BattleSettings) => void): void {
+/** 開房模式：只選自己這一方的隊伍加入房間 */
+export interface OnlineLineup {
+  side: 0 | 1;
+  /** 客人：房主已經選好的條件（照這個選隊，不能改）；還沒有就先照自己的選，開打前會再檢查 */
+  hostPrefs?: LineupSettings | null;
+  onJoin(roster: RosterEntry[], settings: BattleSettings, scale: Scale, prefs: LineupSettings): void;
+}
+
+/** 顯示出擊準備畫面；按下開始戰鬥時回呼（開房模式按加入房間時呼叫 online.onJoin） */
+export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, opponent: Opponent, settings: BattleSettings) => void, online?: OnlineLineup): void {
   const box = document.getElementById('lineup')!;
   const saved = loadSaved();
   let rosters: Rosters = saved ?? (usableRosters(DEFAULT_ROSTERS) ? clone(DEFAULT_ROSTERS) : [randomEntries(5, 85), randomEntries(5, 85)]);
   let opp = opponent;
-  const set = loadSettings();
+  const set = online?.hostPrefs ? { ...DEFAULTS, ...online.hostPrefs } : loadSettings();
+  /** 客人照房主的條件，不能改 */
+  const locked = !!online?.hostPrefs;
+  const off = locked ? 'disabled title="房主決定"' : '';
 
   // 舊版資料沒有費用：不檢查預算與旗艦門檻
   const priced = Object.values(CHASSIS).some((c) => c.cost);
@@ -159,28 +171,33 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       </div>`;
     };
     const chip = (key: keyof typeof VICTORY_TIPS, label: string) =>
-      `<button class="chip ${set[key] ? 'on' : ''}" data-v="${key}" title="${esc(VICTORY_TIPS[key])}">${label}</button>`;
-    const ok = !problemsOf(0).length && !problemsOf(1).length;
+      `<button class="chip ${set[key] ? 'on' : ''}" data-v="${key}" title="${esc(VICTORY_TIPS[key])}" ${locked ? 'disabled' : ''}>${label}</button>`;
+    const ok = online ? !problemsOf(online.side).length : !problemsOf(0).length && !problemsOf(1).length;
     box.innerHTML = `<div class="luBox">
       <div class="luBar"><b>出擊準備</b><span class="muted">${esc(document.getElementById('contentTag')?.textContent ?? '')}</span><span class="spacer"></span>
-        <span class="muted">環境</span><select data-f="environment" title="重力圈：每回合結束時動能往 0 回正 1（地面滑行的機體例外）；不適合這個環境的機體機動盤最高速度 −1">
+        <span class="muted">環境</span><select data-f="environment" ${off} title="重力圈：每回合結束時動能往 0 回正 1（地面滑行的機體例外）；不適合這個環境的機體機動盤最高速度 −1">
           <option value="space" ${set.environment === 'space' ? 'selected' : ''}>宇宙</option><option value="gravity" ${set.environment === 'gravity' ? 'selected' : ''}>重力圈</option></select>
-        <span class="muted">地形</span><select data-f="terrain" title="隕石帶：大隕石與隕石群；森林：大片森林（擋視線、穿越命中下降）；城鎮：很多建築（擋移動、射擊與視線）">
+        <span class="muted">地形</span><select data-f="terrain" ${off} title="隕石帶：大隕石與隕石群；森林：大片森林（擋視線、穿越命中下降）；城鎮：很多建築（擋移動、射擊與視線）">
           ${(['asteroid', 'forest', 'town'] as const).map((t) => `<option value="${t}" ${set.terrain === t ? 'selected' : ''}>${{ asteroid: '隕石帶', forest: '森林', town: '城鎮' }[t]}</option>`).join('')}</select>
-        <span class="muted">規模</span><select data-f="scale">${(Object.keys(SCALES) as Scale[]).map((k) => `<option value="${k}" ${k === set.scale ? 'selected' : ''}>${SCALES[k].name}（${SCALES[k].budget} 分、最多 ${SCALES[k].maxUnits} 台）</option>`).join('')}</select>
+        <span class="muted">規模</span><select data-f="scale" ${off}>${(Object.keys(SCALES) as Scale[]).map((k) => `<option value="${k}" ${k === set.scale ? 'selected' : ''}>${SCALES[k].name}（${SCALES[k].budget} 分、最多 ${SCALES[k].maxUnits} 台）</option>`).join('')}</select>
         <button data-act="default">載入預設陣容</button><button data-act="last" ${saved ? '' : 'disabled'}>上次的陣容</button></div>
-      <div class="luCols">${sideHtml(0)}${sideHtml(1)}</div>
+      <div class="luCols">${online ? sideHtml(online.side) : `${sideHtml(0)}${sideHtml(1)}`}</div>
       <div class="luFoot luWrap"><span class="muted">勝利條件</span>
         ${chip('killScore', `擊墜分 ${SCALES[set.scale].killScore}`)}${chip('decapitation', '斬首')}${chip('goal', '達陣')}${chip('control', `據點 ${CONTROL_TARGET}`)}
         <span class="muted small" title="一方全滅一定算輸；回合上限到了比分數">可複選，先達成者勝</span>
         <span class="spacer"></span><span class="muted">部署</span>
-        <button class="chip ${set.deploy === 'fixed' ? 'on' : ''}" data-deploy="fixed" title="照順序在自己那一側排一列">固定排開</button>
-        <button class="chip ${set.deploy === 'free' ? 'on' : ''}" data-deploy="free" title="開戰前雙方暗中在自己的部署區擺好位置、朝向與起始動能，一起公布">自由部署</button>
-        <span class="muted">回合上限</span><select data-f="turnLimit">${TURN_LIMITS.map((t) => `<option value="${t}" ${t === set.turnLimit ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <div class="luFoot"><span class="muted">對手</span><select data-f="opponent">${OPPONENTS.map(([v, t]) => `<option value="${v}" ${v === opp ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <button class="chip ${set.deploy === 'fixed' ? 'on' : ''}" data-deploy="fixed" ${locked ? 'disabled' : ''} title="照順序在自己那一側排一列">固定排開</button>
+        <button class="chip ${set.deploy === 'free' ? 'on' : ''}" data-deploy="free" ${locked ? 'disabled' : ''} title="開戰前雙方暗中在自己的部署區擺好位置、朝向與起始動能，一起公布">自由部署</button>
+        <span class="muted">回合上限</span><select data-f="turnLimit" ${off}>${TURN_LIMITS.map((t) => `<option value="${t}" ${t === set.turnLimit ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      ${
+        online
+          ? `<div class="luFoot"><span class="muted">${online.side === 0 ? '你是房主（A 方）：對戰條件由你決定。對手看不到你的隊伍，雙方都加入就開打。' : locked ? '照房主的條件選隊。對手看不到你的隊伍，雙方都加入就開打。' : '房主還沒選好條件，先照這些選；開打前會照房主的條件再檢查一次。'}</span>
+        <span class="spacer"></span><button class="primary big" data-act="start" ${ok ? '' : 'disabled title="陣容有問題，先修正再出擊"'}>加入房間</button></div>`
+          : `<div class="luFoot"><span class="muted">對手</span><select data-f="opponent">${OPPONENTS.map(([v, t]) => `<option value="${v}" ${v === opp ? 'selected' : ''}>${t}</option>`).join('')}</select>
         <span class="spacer"></span>
         <label class="muted" title="只有種子、陣容和雙方指令，用來檢討 AI 與平衡"><input type="checkbox" data-f="upload" ${uploadEnabled() ? 'checked' : ''}> 上傳對戰紀錄</label>
-        <button class="primary big" data-act="start" ${ok ? '' : 'disabled title="陣容有問題，先修正再出擊"'}>開始戰鬥</button></div>
+        <button class="primary big" data-act="start" ${ok ? '' : 'disabled title="陣容有問題，先修正再出擊"'}>開始戰鬥</button></div>`
+      }
     </div>`;
   };
 
@@ -244,9 +261,10 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       try {
         localStorage.setItem(KEY, JSON.stringify(rosters));
       } catch {}
-      saveSettings();
+      if (!locked) saveSettings();
       box.hidden = true;
-      onStart(clone(rosters), opp, toBattleSettings(set));
+      if (online) online.onJoin(clone(rosters[online.side]), toBattleSettings(set), set.scale, { ...set });
+      else onStart(clone(rosters), opp, toBattleSettings(set));
       return;
     }
     render();
