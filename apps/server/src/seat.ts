@@ -28,6 +28,7 @@ import {
   lineOfFire,
   wallPenetration,
   climbBlocked,
+  climbLimits,
   heightAdvantage,
   parseManeuver,
   planCost,
@@ -71,7 +72,11 @@ try {
 }
 
 const f1 = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
-const deg = (r: number) => Math.round((r * 180) / Math.PI);
+/** 角度（度），換算到 −180–180 */
+const deg = (r: number) => {
+  const d = Math.round((r * 180) / Math.PI) % 360;
+  return d > 180 ? d - 360 : d <= -180 ? d + 360 : d;
+};
 const pt = (p: Vec) => `(${f1(p.x)},${f1(p.y)})`;
 const side = (p: number) => (p === 0 ? 'A' : 'B');
 
@@ -130,7 +135,7 @@ function maneuverTable(u: UnitView): string {
     const pts = Array.from({ length: 25 }, (_, i) => worldPose(path, i / 24).pos);
     const hit = pts.some((p) => rocks.some((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + radiusOf(u)));
     const wall = walls.find((o) => pts.some((p) => wallPenetration(o, p, radiusOf(u)) > 0.05));
-    const canClimb = wall && !climbBlocked(u as unknown as UnitState, { maneuver: id }) && wall.levels! - (u.z ?? 0) <= config.CLIMB_LEVELS;
+    const canClimb = wall && !climbBlocked(u as unknown as UnitState, { maneuver: id }) && wall.levels! - (u.z ?? 0) <= climbLimits(u as unknown as UnitState).levels;
     rows.push(`${id}→${pt(end.pos)}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠撞隕石' : ''}${wall ? ` ⚠撞${wall.id}(${wall.levels}層)${canClimb ? '，攀升可上樓頂' : ''}` : ''}`);
   }
   return `    ${rows.join('；')}`;
@@ -169,7 +174,9 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
     for (const t of enemies) {
       const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
       const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never) });
-      rows.push(`${w.id} ${def.name} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}` : '打不到'}`);
+      // 打不到的不列（太多了）；彈藥用完的標出來
+      if (!h) continue;
+      rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}`}`);
     }
   }
   // 放出去的炮群：從炮群的位置算（炮群本身當作不動）
@@ -380,16 +387,28 @@ function connect() {
 connect();
 
 // 指令檔：出現就送出，然後改名留底
+let badText = '';
+let badSince = 0;
 setInterval(() => {
   const file = resolve(dir, 'orders.json');
   if (!existsSync(file) || ws.readyState !== WebSocket.OPEN) return;
+  const text = readFileSync(file, 'utf-8');
   try {
-    const msg = normalizeOrders(JSON.parse(readFileSync(file, 'utf-8')));
+    const msg = normalizeOrders(JSON.parse(text));
     ws.send(JSON.stringify(msg));
     renameSync(file, resolve(dir, `sent-${Date.now()}.json`));
     console.log(`SENT ${msg.t}`);
+    badSince = 0;
   } catch (e) {
+    // 檔案可能還在寫：內容有變就再等等，同一份內容讀不懂超過 3 秒才當成壞掉
+    if (text !== badText) {
+      badText = text;
+      badSince = Date.now();
+      return;
+    }
+    if (Date.now() - badSince < 3000) return;
     console.log(`ERROR 指令檔讀不懂：${(e as Error).message}`);
     renameSync(file, resolve(dir, `bad-${Date.now()}.json`));
+    badText = '';
   }
 }, 500);

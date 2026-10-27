@@ -143,6 +143,21 @@
         "stowed",
         "rarm"
       ]
+    ],
+    [
+      [
+        "beam_saber",
+        "right"
+      ],
+      [
+        "machine_gun",
+        "left"
+      ],
+      [
+        "grapnel",
+        "mount",
+        "legs"
+      ]
     ]
   ],
   "X-02": [
@@ -190,6 +205,21 @@
       [
         "heat_axe",
         "stowed"
+      ]
+    ],
+    [
+      [
+        "heat_axe",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "grapnel",
+        "mount",
+        "legs"
       ]
     ]
   ],

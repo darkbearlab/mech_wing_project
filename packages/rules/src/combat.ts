@@ -36,7 +36,7 @@ export function rangeBand(a: { pos: Vec; chassisId?: string }, b: { pos: Vec; ch
   return null;
 }
 
-export const bandName = (b: RangeBand): string => ['零距離', 'Range 1', '中距離', '遠距離', '超遠距離'][b];
+export const bandName = (b: RangeBand): string => ['零距離', '近距離', '中距離', '遠距離', '超遠距離'][b];
 
 /** 從 from 看 to 的方向，相對於 from 朝向的角度（絕對值，弧度） */
 export function relativeAngle(from: { pos: Vec; facing: number }, to: Vec): number {
@@ -174,8 +174,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     hits++;
     const crit = roll <= h.chance - 100;
     if (crit) crits++;
-    // 高打低：每發命中傷害再加（爆擊加倍之後才加）
-    const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1) + (h.high ? C.HIGH_GROUND_DAMAGE : 0);
+    // 高打低（高出 HIGH_GROUND_DAMAGE_FROM 層以上）：每發命中傷害再加（爆擊加倍之後才加）
+    const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1) + (h.high >= C.HIGH_GROUND_DAMAGE_FROM ? C.HIGH_GROUND_DAMAGE : 0);
     const victim = pool.length > 1 ? ctx.rng.pickWeighted(pool, (u) => bodyWeight(u, u === target ? aimBonus : 0)) : target;
     if (victim !== target) strays++;
     const shield = coveringShield(victim, attacker.pos)?.id;

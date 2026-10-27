@@ -1,4 +1,4 @@
-import { CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
+import { CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
@@ -303,11 +303,25 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   return errors;
 }
 
+/** 攀升的上限：一次能爬幾層、速度多少以下才能爬（錨鉤之類的模組會加；被打壞就沒了） */
+export function climbLimits(u: { parts: Record<string, PartState>; equipment?: EquipState[] }): { levels: number; speed: number } {
+  let levels = CLIMB_LEVELS;
+  let speed = CLIMB_MAX_SPEED;
+  for (const e of u.equipment ?? []) {
+    const b = EQUIPMENT[e.defId]?.climbBoost;
+    if (!b || !equipAlive(u as Gear, e)) continue;
+    levels += b.levels;
+    speed += b.speed;
+  }
+  return { levels, speed };
+}
+
 /** 不能攀升的原因（可以就是 null）：速度太快、腳壞了、推進劑不夠，戰艦與不能停的機體不能爬 */
 export function climbBlocked(u: UnitState | ManeuverLimits, plan: Pick<MovePlan, 'maneuver'>): string | null {
   const ch = CHASSIS[u.chassisId];
   if (ch.crew === 'ship' || (ch.minSpeed ?? 0) > 0) return '這台機體不能攀升';
-  if (moveSpeed(plan) > CLIMB_MAX_SPEED) return `速度 ${CLIMB_MAX_SPEED} 以下才能攀升（太快蹬不了牆）`;
+  const max = climbLimits(u).speed;
+  if (moveSpeed(plan) > max) return `速度 ${max} 以下才能攀升（太快蹬不了牆）`;
   if (roleLost(u, 'legs')) return '腳部損壞，不能攀升';
   if ((u.propellant ?? 0) < CLIMB_PROPELLANT) return '推進劑不足，不能攀升';
   return null;

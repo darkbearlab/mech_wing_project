@@ -4,7 +4,7 @@
     "name": "光束步槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 2,
+    "durability": 3,
     "damage": 3,
     "shots": 1,
     "mode": "focused",
@@ -20,7 +20,7 @@
     "name": "機槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 2,
+    "durability": 3,
     "damage": 1,
     "shots": 4,
     "mode": "scattered",
@@ -35,7 +35,7 @@
     "name": "狙擊步槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 2,
+    "durability": 3,
     "damage": 4,
     "shots": 1,
     "mode": "focused",
@@ -50,12 +50,12 @@
     "name": "火箭砲",
     "kind": "ranged",
     "weight": 2,
-    "durability": 2,
+    "durability": 3,
     "damage": 5,
     "shots": 1,
     "mode": "focused",
     "ranges": {
-      "1": 0,
+      "1": 10,
       "2": -5
     },
     "cost": 3
@@ -174,7 +174,7 @@
     },
     "arc": 20,
     "pointBlank": false,
-    "cost": 3
+    "cost": 4
   },
   "missile_pod": {
     "id": "missile_pod",
@@ -221,7 +221,7 @@
     "weight": 0,
     "durability": 0,
     "damage": 1,
-    "shots": 6,
+    "shots": 4,
     "mode": "scattered",
     "ranges": {
       "1": 5,
@@ -305,5 +305,18 @@
       "3": -15
     },
     "cost": 2
+  },
+  "grapnel": {
+    "id": "grapnel",
+    "name": "錨鉤",
+    "kind": "module",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 2,
+    "climbBoost": {
+      "levels": 1,
+      "speed": 2
+    },
+    "cost": 1
   }
 }

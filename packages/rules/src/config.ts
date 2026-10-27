@@ -33,10 +33,13 @@ export const BUILDING_COVER_PENALTY = 20;
 export const CLIMB_MAX_SPEED = 3;
 export const CLIMB_LEVELS = 2;
 export const CLIMB_PROPELLANT = 1;
-/** 高打低：每高 1 層命中 +，最多算幾層；比目標高時每發命中的傷害 + */
-export const HIGH_GROUND_HIT = 10;
+/** 有建築的地圖上，戰機（不能停的機體）飛行的高度（層） */
+export const FLIGHT_LEVEL = 2;
+/** 高打低：每高 1 層命中 +，最多算幾層；高出 HIGH_GROUND_DAMAGE_FROM 層以上時每發命中的傷害 + */
+export const HIGH_GROUND_HIT = 5;
 export const HIGH_GROUND_MAX_LEVELS = 3;
 export const HIGH_GROUND_DAMAGE = 1;
+export const HIGH_GROUND_DAMAGE_FROM = 2;
 /** 城市地圖：街廓大小、街道寬、街廓是空地的機率、最高幾層 */
 export const CITY_BLOCK = 4;
 export const CITY_STREET = 1.6;

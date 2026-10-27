@@ -552,7 +552,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
       const def = w && EQUIPMENT[w.defId];
       const name = EQUIPMENT[u.equipment.find((e) => e.id === id)?.defId ?? '']?.name ?? '武器';
       if (benched.has(id)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${name}：這一側在換武器，不能開火` });
-      else if (!w) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '沒有可用的射擊武器' });
+      else if (!w) ctx.events.push({ type: 'actionFail', unit: u.id, reason: u.equipment.some((e) => e.id === id) ? `${name}：已經損壞或拿不到` : '沒有可用的射擊武器' });
       else if (w.ammo !== undefined && w.ammo <= 0) ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${def!.name}：彈藥耗盡` });
       else weapons.push(w);
     }

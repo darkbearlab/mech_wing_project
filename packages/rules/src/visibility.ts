@@ -235,6 +235,7 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
       case 'reposition':
       case 'swap':
       case 'pod':
+      case 'elevate':
         if (known(e.unit)) out.push(e);
         break;
       case 'podHit':

@@ -17,14 +17,14 @@ import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
-import { CLIMB_LEVELS, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
 import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { armorOf, availableManeuvers, climbBlocked, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
+import { armorOf, availableManeuvers, climbBlocked, climbLimits, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
@@ -274,11 +274,14 @@ function scoreManeuver(u0: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng, 
     if (rocks.some((o) => dist(p, o) < o.r + r)) crashAt = i;
     for (const o of blds) {
       if (crashAt >= 0 || o.levels! <= z || wallPenetration(o, p, r) <= 0.05) continue;
-      if (climb && o.levels! - z <= CLIMB_LEVELS) z = o.levels!;
+      if (climb && o.levels! - z <= climbLimits(u0).levels) z = o.levels!;
       else crashAt = i;
     }
-    if (z && !blds.some((o) => o.levels! >= z && wallPenetration(o, p, r) > 0)) z = Math.max(0, ...blds.filter((o) => o.levels! < z && wallPenetration(o, p, r) > 0).map((o) => o.levels!));
+    if (z && !climb && !blds.some((o) => o.levels! >= z && wallPenetration(o, p, r) > 0)) z = Math.max(0, ...blds.filter((o) => o.levels! < z && wallPenetration(o, p, r) > 0).map((o) => o.levels!));
   }
+  // 攀升（跳躍）在空中，移動結束才落下
+  const endPos = worldPose(path, crashAt < 0 ? 1 : (crashAt - 1) / N).pos;
+  if (z && climb && !blds.some((o) => o.levels! >= z && wallPenetration(o, endPos, r) > 0)) z = Math.max(0, ...blds.filter((o) => o.levels! < z && wallPenetration(o, endPos, r) > 0).map((o) => o.levels!));
   // 之後的火力、威脅都照終點的高度算
   if (z !== (u.z ?? 0)) u = { ...u, z: z || undefined };
   const endT = crashAt < 0 ? 1 : (crashAt - 1) / N;

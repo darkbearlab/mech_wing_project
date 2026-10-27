@@ -4,7 +4,7 @@ import { CHASSIS, EQUIPMENT } from './data';
 import type { Rng } from './rng';
 import type { DamageMode, GameEvent, GameState, UnitState, Vec } from './types';
 import { isShip, shipPartMultiplier } from './ship';
-import { corePart, handOfPart, roleLost } from './body';
+import { corePart, handOfPart, handPart, roleLost } from './body';
 import { equipDef, heldItem, pilotOf } from './unit';
 
 export interface Ctx {
@@ -148,6 +148,13 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): number
   // 戰艦的艦體很大，挨打不會讓艦長受衝擊
   if (part.role === 'core' && !isShip(u)) addStress(ctx, u, amount, `${part.name}受創`);
   if (newlyDestroyed) onDestroyed(ctx, u, part.id);
+  // 裝備（武器、盾、收著的東西）被打穿：多出來的傷害打進拿著它或掛著它的部位，不會被一件小裝備整發吸掉
+  if (spill > 0 && part.kind === 'equip' && (u.status as string) !== 'destroyed') {
+    const e = u.equipment.find((x) => x.id === part.id);
+    const carrier = e && (e.location === 'right' || e.location === 'left') ? handPart(u, e.location) : e?.host;
+    hitPart(ctx, u, carrier && u.parts[carrier] ? carrier : corePart(u), spill);
+    return 0;
+  }
   return spill;
 }
 

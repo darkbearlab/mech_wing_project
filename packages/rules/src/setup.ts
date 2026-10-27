@@ -1,4 +1,4 @@
-import { MAP_SIZE, ROSTER_MODE, SMOKE_RADIUS, SMOKE_TURNS_GRAVITY, SMOKE_TURNS_SPACE, START_MOMENTUM, UNSUITED_SPEED_CUT } from './config';
+import { FLIGHT_LEVEL, MAP_SIZE, ROSTER_MODE, SMOKE_RADIUS, SMOKE_TURNS_GRAVITY, SMOKE_TURNS_SPACE, START_MOMENTUM, UNSUITED_SPEED_CUT } from './config';
 import { contentVersion } from './content';
 import { Rng } from './rng';
 import { generateObstacles } from './terrain';
@@ -92,6 +92,9 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
   // 有據點時，大隕石與隕石群要避開據點；劇本的開場位置與增援進場點也要空出來
   const avoid = [...(settings.control ? controlPoints() : []), ...(settings.placements ?? []), ...(settings.reinforcements ?? [])].map((p) => ({ x: p.x, y: p.y }));
   const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0), avoid, settings.terrain ?? 'asteroid');
+  // 有建築的地圖：戰機一直在 FLIGHT_LEVEL 層的高度飛（飛得過比較矮的建築）
+  if (obstacles.some((o) => o.kind === 'building'))
+    for (const u of [...units, ...reserves.map((r) => r.unit)]) if ((CHASSIS[u.chassisId].minSpeed ?? 0) > 0) u.z = FLIGHT_LEVEL;
   const free = settings.deploy === 'free';
   // 不適合這個環境的機體：機動盤最高速度 −1
   const env = settings.environment ?? 'space';
