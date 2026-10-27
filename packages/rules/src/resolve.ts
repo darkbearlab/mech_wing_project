@@ -5,7 +5,7 @@ import { addStress, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
-import { EQUIPMENT } from './data';
+import { CHASSIS, EQUIPMENT } from './data';
 import { lineOfFire } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
@@ -208,6 +208,18 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
     }
     if (doAction(ctx, turn, u, plan)) revealed.add(u.id);
   }
+
+  // 回合結束：重力圈或水中動能往 0 回正（地面滑行的機體在重力圈不受影響；戰機不低於最低速度）
+  const env = state.settings?.environment ?? 'space';
+  const decay = env === 'gravity' ? C.GRAVITY_DECAY : env === 'water' ? C.WATER_DECAY : 0;
+  if (decay)
+    for (const u of state.units) {
+      if (u.status !== 'active' || inGrapple(state, u.id) || (env === 'gravity' && CHASSIS[u.chassisId].hover)) continue;
+      const min = minSpeedOf(u);
+      const m = u.momentum;
+      const next = m > 0 ? Math.max(0, m - decay) : Math.min(0, m + decay);
+      u.momentum = min > 0 ? Math.max(min, next) : next;
+    }
 
   // 回合結束：壓力分級、恢復
   for (const u of state.units) {

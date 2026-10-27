@@ -6,7 +6,7 @@
 // 陣容模式：config（照設定）、random、mirror、default。PACK=資料包.json 用指定的資料包。
 // FROM=logs/battle-12.json：用那場紀錄的地圖與陣容開局，雙方都交給 AI（--stats 時每場 AI 的亂數不同）。
 // AI_OLD=../src/ai_old.ts：一方換成另一份 AI（兩邊輪流換），統計分成「新」「舊」比較。
-// 勝利條件：WIN=kill50,decap,goal,control6（預設 kill50,decap）、TURNS=12、DEPLOY=free（預設照順序排開）。
+// 勝利條件：WIN=kill50,decap,goal,control6（預設 kill50,decap）、TURNS=12、DEPLOY=free（預設照順序排開）、ENV=gravity（預設宇宙）、SEED0=起始種子。
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
@@ -78,6 +78,7 @@ function settingsFromEnv(): BattleSettings {
     control: num('control'),
     turnLimit: Number(process.env.TURNS ?? 12),
     deploy: process.env.DEPLOY === 'free' ? 'free' : 'fixed',
+    environment: process.env.ENV === 'gravity' ? 'gravity' : 'space',
   };
 }
 const settings = settingsFromEnv();

@@ -15,7 +15,7 @@ export interface ManeuverSpec {
 }
 
 const TURN_ANGLE: Partial<Record<ManeuverKind, number>> = { bank: 45 * DEG, turn: 90 * DEG, arc: 30 * DEG, rbank: 45 * DEG };
-const KIND_NAMES: Record<ManeuverKind, string> = { straight: '直線', bank: '緩轉', turn: '急轉', arc: '弧線突進', kturn: '急停反轉', hover: '懸停', reverse: '後退', rbank: '斜後退' };
+const KIND_NAMES: Record<ManeuverKind, string> = { straight: '直線', bank: '緩轉', turn: '急轉', arc: '弧線突進', kturn: '急停反轉', hover: '懸停', reverse: '後退', rbank: '斜後退', slide: '側移' };
 
 export function parseManeuver(id: string): ManeuverSpec {
   const [kindStr, dirStr, speedStr] = id.split('-');
@@ -31,7 +31,7 @@ export function parseManeuver(id: string): ManeuverSpec {
     kind,
     dir,
     speed,
-    endMomentum: kind === 'hover' || kind === 'kturn' ? 0 : backward ? -speed : speed,
+    endMomentum: kind === 'hover' || kind === 'kturn' || kind === 'slide' ? 0 : backward ? -speed : speed,
     hard: kind === 'turn' || kind === 'kturn',
   };
 }
@@ -48,6 +48,8 @@ export function localPose(spec: ManeuverSpec, length: number, t: number): LocalP
   const phi = TURN_ANGLE[spec.kind];
   if (spec.kind === 'hover' || length <= 0) return { pos: { x: 0, y: 0 }, facing: 0, tangent: 0 };
   if (spec.kind === 'reverse') return { pos: { x: -length * t, y: 0 }, facing: 0, tangent: Math.PI };
+  // 側移：朝向不變，往左右平移
+  if (spec.kind === 'slide') return { pos: { x: 0, y: spec.dir * length * t }, facing: 0, tangent: (spec.dir * Math.PI) / 2 };
   if (spec.kind === 'rbank' && phi !== undefined) {
     // 斜後退：像倒車，車尾往指定那側走，機頭往反方向轉
     const r = length / phi;

@@ -90,6 +90,18 @@ export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;
 
+// ---- 側移與環境 ----
+/** 側移只能在動能 ±這個值以內使用 */
+export const SLIDE_MAX_MOMENTUM = 1;
+/** 最大加減速達到這個值的機體可以側移 2 */
+export const SLIDE2_MIN_ACCEL = 3;
+/** 重力圈：每回合結束時動能往 0 回正多少（地面滑行的機體不受影響） */
+export const GRAVITY_DECAY = 1;
+/** 水中（之後的水中戰用）：動能回正多少 */
+export const WATER_DECAY = 2;
+/** 不適合的環境：機動盤最高速度減掉多少 */
+export const UNSUITED_SPEED_CUT = 1;
+
 // ---- 王牌移動、追擊、新人類 ----
 /** 新人類擱置移動、而對方也有新人類在場時付的壓力 */
 export const ACE_DEFER_STRESS = 1;

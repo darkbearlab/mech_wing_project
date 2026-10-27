@@ -1,4 +1,4 @@
-import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL } from './config';
+import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
@@ -91,6 +91,8 @@ export function shieldHand(u: UnitState): Hand | null {
 
 export interface ManeuverLimits {
   chassisId: string;
+  /** 不適合目前環境：機動盤最高速度減掉這麼多 */
+  speedCut?: number;
   parts: Record<string, PartState>;
   /** 目前的動能（沿朝向，後退為負） */
   momentum: number;
@@ -128,6 +130,8 @@ function turnCost(m: ManeuverSpec): { propellant: number; stress: number } {
       return { propellant: 1, stress: 0 };
     case 'kturn':
       return { propellant: 1, stress: 1 };
+    case 'slide':
+      return { propellant: s, stress: s - 1 };
     default:
       return { propellant: 0, stress: 0 };
   }
@@ -144,8 +148,9 @@ export function maneuverCost(u: ManeuverLimits, m: ManeuverSpec, limiter = false
   const maxDv = lim.max + (limiter ? 1 : 0);
   let blocked: string | null = null;
   const min = minSpeedOf(u);
-  const slow = m.kind === 'hover' || m.kind === 'kturn' || m.kind === 'reverse' || m.kind === 'rbank' || m.speed < min;
-  if (min > 0 && slow) blocked = `最低速度 ${min}，不能懸停、後退或慢於 ${min}`;
+  const slow = m.kind === 'hover' || m.kind === 'kturn' || m.kind === 'reverse' || m.kind === 'rbank' || m.kind === 'slide' || m.speed < min;
+  if (min > 0 && slow) blocked = `最低速度 ${min}，不能懸停、後退、側移或慢於 ${min}`;
+  else if (m.kind === 'slide' && Math.abs(u.momentum) > SLIDE_MAX_MOMENTUM) blocked = `側移只能在懸停或慢速（動能 ±${SLIDE_MAX_MOMENTUM} 以內）時使用`;
   else if (m.hard && (roleLost(u, 'legs') || u.blackout)) blocked = '腳部損壞或黑視，不能急轉、急停';
   else if (dv > maxDv) blocked = `速度變化 ${dv} 超過這台機體一回合的極限 ${maxDv}`;
   else if (propellant > 0 && !lim.canBurn) blocked = '推進背包損壞，不能耗用推進劑';
@@ -155,7 +160,25 @@ export function maneuverCost(u: ManeuverLimits, m: ManeuverSpec, limiter = false
 
 /** 這回合做得到的機動（依動能、最大加減速、部位損壞、黑視與剩餘推進劑） */
 export function availableManeuvers(u: ManeuverLimits, limiter = false): ManeuverSpec[] {
-  return CHASSIS[u.chassisId].dial.map(parseManeuver).filter((m) => maneuverCost(u, m, limiter).blocked === null);
+  return dialOf(u).map(parseManeuver).filter((m) => maneuverCost(u, m, limiter).blocked === null);
+}
+
+/**
+ * 這台機體實際的機動盤：機型的機動盤＋通用的側移（會停的機體才有；最大加減速 3 以上可以側移 2），
+ * 不適合目前環境時拿掉最快的那幾段
+ */
+export function dialOf(u: Pick<ManeuverLimits, 'chassisId' | 'speedCut'>): string[] {
+  const ch = CHASSIS[u.chassisId];
+  const dial = [...ch.dial];
+  if (!(ch.minSpeed ?? 0)) {
+    dial.push('slide-L-1', 'slide-R-1');
+    if (ch.maxAccel >= SLIDE2_MIN_ACCEL) dial.push('slide-L-2', 'slide-R-2');
+  }
+  const cut = u.speedCut ?? 0;
+  if (!cut) return dial;
+  const top = Math.max(...ch.dial.map((id) => parseManeuver(id).speed));
+  const keep = dial.filter((id) => parseManeuver(id).speed <= top - cut);
+  return keep.length ? keep : dial;
 }
 
 /** 這回合走的速度大小（近戰姿態判斷快慢用） */
@@ -174,7 +197,7 @@ export function cruiseManeuver(u: ManeuverLimits): string {
   options.sort((a, b) => a.c.propellant - b.c.propellant || a.c.dv - b.c.dv || Number(b.m.kind === 'straight') - Number(a.m.kind === 'straight'));
   if (options[0]) return options[0].m.id;
   // 什麼都做不到時：會停的懸停，不能停的（戰機）沿機動盤上最接近目前動能的直線滑行
-  const dial = CHASSIS[u.chassisId].dial.map(parseManeuver);
+  const dial = dialOf(u).map(parseManeuver);
   if (minSpeedOf(u) === 0 || !dial.some((m) => m.kind === 'straight')) return 'hover-S-0';
   return dial.filter((m) => m.kind === 'straight').sort((a, b) => Math.abs(a.speed - u.momentum) - Math.abs(b.speed - u.momentum))[0].id;
 }
@@ -187,7 +210,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
     return errors;
   }
   if (!grappled) {
-    if (!CHASSIS[u.chassisId].dial.includes(plan.maneuver)) errors.push(`${u.label}：沒有機動 ${plan.maneuver}`);
+    if (!dialOf(u).includes(plan.maneuver)) errors.push(`${u.label}：沒有機動 ${plan.maneuver}`);
     else {
       const blocked = planCost(u, plan).blocked;
       if (blocked) errors.push(`${u.label}：${blocked}`);

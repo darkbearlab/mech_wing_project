@@ -35,6 +35,7 @@ const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
 const ABILITIES = ['quick_draw', 'ace_move', 'newtype'];
 const NT_SENSES = ['numb', 'strong', 'sensitive', 'fragile'];
 const CREWS = ['unmanned', 'pilot', 'ship'];
+const ENVS = ['space', 'gravity', 'water'];
 const isNum = (v: unknown, min = -Infinity) => typeof v === 'number' && Number.isFinite(v) && v >= min;
 
 /** 檢查資料包，回傳所有問題（空陣列代表沒問題） */
@@ -87,6 +88,8 @@ export function validateContent(pack: ContentPack): string[] {
     if (c.closeCombat !== undefined && typeof c.closeCombat !== 'boolean') err(w, 'closeCombat 要是 true 或 false');
     if (c.crew !== undefined && !CREWS.includes(c.crew)) err(w, `crew 要是 ${CREWS.join('／')}`);
     if (c.cost !== undefined && !isNum(c.cost, 0)) err(w, '費用要是 0 以上的數字');
+    if (c.envs !== undefined && (!Array.isArray(c.envs) || !c.envs.length || c.envs.some((e) => !ENVS.includes(e)))) err(w, `適合環境要是 ${ENVS.join('／')} 的組合`);
+    if (c.hover !== undefined && typeof c.hover !== 'boolean') err(w, 'hover 要是 true 或 false');
     const min = c.minSpeed ?? 0;
     if (min > 0 && !(c.dial ?? []).some((m) => m.startsWith('straight-') && Number(m.split('-')[2]) >= min)) err(w, `最低速度 ${min}：機動盤至少要有一個速度 ≥ ${min} 的直線`);
     if (!c.dial?.length) err(w, '機動盤是空的');
