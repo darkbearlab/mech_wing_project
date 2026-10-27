@@ -153,3 +153,7 @@ button[data-limiter][data-off] { opacity: 0.35; cursor: not-allowed; }
 .luWrap { flex-wrap: wrap; }
 .luFoot .chip { padding: 3px 10px; border-radius: 12px; }
 .luFoot .chip.on { border-color: #ffcf4a; color: #ffcf4a; }
+
+/* 部署：朝向九宮格 */
+.faceGrid { display: grid; grid-template-columns: repeat(3, 32px); gap: 3px; margin: 2px 0 6px; }
+.faceGrid button { padding: 3px 0; }

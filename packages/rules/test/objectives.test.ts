@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ROSTERS, PILOTS, type RosterEntry } from '../src/data';
+import { DEFAULT_ROSTERS, PILOTS, randomRoster, type RosterEntry } from '../src/data';
 import { Match } from '../src/match';
 import { DEFAULT_SETTINGS, entryCost, flagshipOf, goalZone, killScoreOf, lineupProblems, rosterCost, type BattleSettings } from '../src/objectives';
 import { resolveTurn, validateDeploy } from '../src/resolve';
@@ -123,5 +123,18 @@ describe('自由部署', () => {
     const rng = new Rng(1);
     for (const p of [0, 1] as const) expect(submitStep(m, { seat: p, phase: 'deploy', orders: aiOrders(m.viewFor(p), rng) })).toEqual([]);
     expect(m.phase).toBe('move');
+  });
+
+  it('電腦自動部署：各種陣容（最多 8 台）與勝利條件都合法，而且很快算完', () => {
+    const t = Date.now();
+    for (let seed = 1; seed <= 60; seed++) {
+      const r = new Rng(seed);
+      const n = 1 + (seed % 8);
+      const rosters: [RosterEntry[], RosterEntry[]] = [randomRoster(() => r.next(), n), randomRoster(() => r.next(), n)];
+      const st = createGame(seed, rosters, { ...DEFAULT_SETTINGS, goal: seed % 2 === 0, control: seed % 3 === 0 ? 6 : undefined, deploy: 'free' });
+      const m = new Match(seed, st);
+      for (const p of [0, 1] as const) expect(validateDeploy(st, p, aiOrders(m.viewFor(p), r) as never)).toEqual([]);
+    }
+    expect(Date.now() - t).toBeLessThan(5000);
   });
 });

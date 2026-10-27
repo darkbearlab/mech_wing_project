@@ -7,6 +7,7 @@
 // MECH_API 可以指定 API 位址（例如本機 http://localhost:8788）
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { DEFAULT_CONTENT } from '@mech/rules';
 
 const API = process.env.MECH_API ?? 'https://mech-wing-api.darkbearlab.workers.dev';
@@ -31,7 +32,8 @@ async function call(method: string, path: string, body?: unknown) {
 }
 
 if (cmd === 'import') {
-  const pack = arg ? JSON.parse(readFileSync(arg, 'utf-8')) : DEFAULT_CONTENT;
+  // npm -w 會把工作目錄換成 apps/api；相對路徑照下指令時的目錄解析
+  const pack = arg ? JSON.parse(readFileSync(resolve(process.env.INIT_CWD ?? '.', arg), 'utf-8')) : DEFAULT_CONTENT;
   console.log(await call('POST', '/draft/import', pack));
 } else if (cmd === 'publish') {
   console.log(await call('POST', '/publish', { note: arg, bump }));

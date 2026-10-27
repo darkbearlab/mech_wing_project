@@ -451,12 +451,24 @@ export function aiDeploy(view: PlayerView, rng: Rng): PlayerDeploy {
     const gz = goalZone(view.you);
     out[guardU.id] = { x: clampX(gz.x + (lane < gz.x ? 2 : -2)), y: back, facing, momentum: momentum(guardU) };
   }
-  // 同一排擠到一起時往後挪
-  const placed: { x: number; y: number }[] = [];
+  // 擠到一起時在附近找空位：左右錯開、或往後一排（有限次數，找不到就留在原地）
+  const placed: { x: number; y: number; r: number }[] = [];
   for (const u of own) {
     const d = out[u.id];
-    while (placed.some((q) => Math.hypot(q.x - d.x, q.y - d.y) < 2.6)) d.x = clampX(d.x + 2.7);
-    placed.push(d);
+    const r = radiusOf(u);
+    // 間隔照實際底板半徑，留一點空隙
+    const free = (x: number, y: number) => !placed.some((q) => Math.hypot(q.x - x, q.y - y) < q.r + r + 0.4);
+    if (!free(d.x, d.y)) {
+      // 部署區切成格子，挑離原本位置最近的空格
+      const spots: { x: number; y: number }[] = [];
+      for (let x = z.x0 + 0.8; x <= z.x1 - 0.8; x += 1.3) for (let y = z.y0 + 0.6; y <= z.y1 - 0.6; y += 1.3) spots.push({ x, y });
+      const spot = spots.filter((q) => free(q.x, q.y)).sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y))[0];
+      if (spot) {
+        d.x = Math.round(spot.x * 10) / 10;
+        d.y = Math.round(spot.y * 10) / 10;
+      }
+    }
+    placed.push({ x: d.x, y: d.y, r });
   }
   return out;
 }
