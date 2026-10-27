@@ -130,7 +130,7 @@ select, input { background: #0f1419; color: var(--text); border: 1px solid var(-
 .luSide1 { border-top-color: var(--b); }
 .luHead { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .luHead .tag { font-weight: 600; }
-.luSlot { display: grid; grid-template-columns: 26px minmax(0, 1.3fr) minmax(0, 1fr) 28px; gap: 4px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.luSlot { display: grid; grid-template-columns: 26px minmax(0, 1.3fr) minmax(0, 1fr) 30px 28px; gap: 4px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
 .luSlot select { min-width: 0; width: 100%; }
 .luSlot .load { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); }
 .luSlot .x { padding: 2px 0; }
@@ -142,3 +142,14 @@ button.big { font-size: 15px; padding: 6px 16px; }
 .ctrlRow.deferred button:not([data-defer]), .ctrlRow.deferred input, .ctrlRow.deferred select, .ctrlRow.deferred .sec { opacity: 0.3; pointer-events: none; }
 /* 懸停時不能解除限制器 */
 button[data-limiter][data-off] { opacity: 0.35; cursor: not-allowed; }
+
+/* 出擊準備：費用、預算條、旗艦、勝利條件 */
+.luSlot .cost { text-align: right; font-weight: 600; }
+.luSlot .crown { color: #ffcf4a; font-size: 16px; }
+.luBudget { height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin: 2px 0 4px; }
+.luBudget i { display: block; height: 100%; background: var(--a); }
+.luSide1 .luBudget i { background: var(--b); }
+.luBudget i.over { background: #e24b4a; }
+.luWrap { flex-wrap: wrap; }
+.luFoot .chip { padding: 3px 10px; border-radius: 12px; }
+.luFoot .chip.on { border-color: #ffcf4a; color: #ffcf4a; }

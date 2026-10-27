@@ -4,12 +4,13 @@ import type { ContentPack } from './content';
 import type { RosterEntry } from './data';
 import { Match } from './match';
 import { createGame } from './setup';
-import type { PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
+import type { PlayerActions, PlayerDeploy, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
+import type { BattleSettings } from './objectives';
 
 export interface BattleStep {
   seat: PlayerId;
   phase: TurnPhase;
-  orders: PlayerMoves | PlayerActions | PlayerPursuits;
+  orders: PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy;
 }
 
 export interface BattleRecord {
@@ -21,6 +22,8 @@ export interface BattleRecord {
   pack?: ContentPack;
   /** 出擊準備選的陣容；沒有就是照資料包的隨機規則 */
   rosters?: [RosterEntry[], RosterEntry[]];
+  /** 勝利條件與部署方式（舊紀錄沒有：當時是先少一台就輸，重播結果可能對不上） */
+  settings?: BattleSettings;
   /** 各席位由誰操作 */
   seats: ['human' | 'ai', 'human' | 'ai'];
   /** 客戶端版本（git commit），重播結果對不上時用來判斷是不是規則改過 */
@@ -33,7 +36,7 @@ export interface BattleRecord {
 }
 
 export const MAX_RECORD_BYTES = 512 * 1024;
-const PHASES: string[] = ['move', 'ace', 'pursuit', 'action'];
+const PHASES: string[] = ['deploy', 'move', 'ace', 'pursuit', 'action'];
 
 /** 粗略檢查上傳的紀錄格式，回傳問題說明（沒問題回傳 null） */
 export function checkRecord(r: unknown): string | null {
@@ -52,6 +55,7 @@ export function checkRecord(r: unknown): string | null {
 export function submitStep(match: Match, s: BattleStep): string[] {
   if (s.phase === 'move' || s.phase === 'ace') return match.submitMoves(s.seat, s.orders as PlayerMoves);
   if (s.phase === 'pursuit') return match.submitPursuits(s.seat, s.orders as PlayerPursuits);
+  if (s.phase === 'deploy') return match.submitDeploy(s.seat, s.orders as PlayerDeploy);
   return match.submitActions(s.seat, s.orders as PlayerActions);
 }
 
@@ -60,7 +64,7 @@ export function submitStep(match: Match, s: BattleStep): string[] {
  * onResolved 在每次結算後呼叫，帶這次結算前各席位送出的指令。
  */
 export function replayRecord(rec: BattleRecord, onResolved?: (m: Match, phase: TurnPhase, orders: [BattleStep['orders'] | null, BattleStep['orders'] | null]) => void): { match: Match; errors: string[] } {
-  const match = new Match(rec.seed, createGame(rec.seed, rec.rosters));
+  const match = new Match(rec.seed, createGame(rec.seed, rec.rosters, rec.settings));
   const errors: string[] = [];
   let pending: [BattleStep['orders'] | null, BattleStep['orders'] | null] = [null, null];
   for (const [i, s] of rec.steps.entries()) {

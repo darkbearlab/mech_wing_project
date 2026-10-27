@@ -1,3 +1,4 @@
+import type { BattleSettings, ObjectiveState, WinReason } from './objectives';
 export type Vec = { x: number; y: number };
 export type PlayerId = 0 | 1;
 /** shoot：射擊姿態，撞到別人只是擦撞；melee：近戰姿態，接觸就出手（慢咬住、快一擊脫離），射擊命中下降 */
@@ -43,6 +44,8 @@ export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow' | 'da
 export type EquipMount = 'hand' | 'mounted' | 'integrated' | 'housed';
 
 export interface EquipDef {
+  /** 費用：出擊時帶上就加（機型的標準裝備不算） */
+  cost?: number;
   id: string;
   name: string;
   kind: 'ranged' | 'melee' | 'shield' | 'tank';
@@ -98,6 +101,8 @@ export interface ChassisDef {
   closeCombat?: boolean;
   /** 機上人員：unmanned 無人（飛彈、無人機），pilot 一般駕駛（預設），ship 船艦（大量人員）；新人類擊墜時的壓力依此計算 */
   crew?: 'unmanned' | 'pilot' | 'ship';
+  /** 費用（不含駕駛與另外帶的裝備；標準裝備已含在內） */
+  cost?: number;
 }
 
 /**
@@ -117,6 +122,10 @@ export interface PilotDef {
   abilities: PilotAbility[];
   /** 新人類才需要 */
   ntSense?: NtSense;
+  /** 費用（組隊預算與擊墜分） */
+  cost?: number;
+  /** 具名駕駛：一隊只能出擊一次 */
+  unique?: boolean;
 }
 
 // ---- 動態狀態 ----
@@ -152,6 +161,8 @@ export interface EquipState {
 export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';
 
 export interface UnitState {
+  /** 出擊費用（機型＋駕駛＋裝備），擊墜分與旗艦用 */
+  cost?: number;
   id: string;
   owner: PlayerId;
   label: string;
@@ -199,9 +210,10 @@ export interface GrappleState {
 }
 
 /**
+ * deploy 開戰前的部署（自由部署才有，只在第 1 回合前）；
  * 每回合的步驟：move 移動 → ace 王牌移動（有人擱置才有）→ pursuit 追擊（有機體咬住敵機背後才有）→ action 動作
  */
-export type TurnPhase = 'move' | 'ace' | 'pursuit' | 'action';
+export type TurnPhase = 'deploy' | 'move' | 'ace' | 'pursuit' | 'action';
 
 /** 移動結算後、動作結算前要保留的本回合資訊 */
 export interface TurnInfoState {
@@ -230,6 +242,11 @@ export interface GameState {
   /** 開場時使用的資料包版本（重播、對戰都以這版為準） */
   contentVersion: string;
   winner: PlayerId | 'draw' | null;
+  /** 開戰前選的勝利條件與部署方式（舊紀錄沒有，照 DEFAULT_SETTINGS） */
+  settings?: BattleSettings;
+  /** 達陣、據點的進度 */
+  objectives?: ObjectiveState;
+  winReason?: WinReason;
 }
 
 // ---- 指令 ----
@@ -263,6 +280,14 @@ export interface PursuitPlan {
   target: string;
 }
 export type PlayerPursuits = Record<string, PursuitPlan | null>;
+/** 部署：位置、朝向（弧度，45° 的倍數）與起始動能 */
+export interface DeployPlan {
+  x: number;
+  y: number;
+  facing: number;
+  momentum: number;
+}
+export type PlayerDeploy = Record<string, DeployPlan>;
 export type PlayerActions = Record<string, ActionPlan>;
 
 // ---- 事件 ----
@@ -309,4 +334,5 @@ export type GameEvent =
   | { type: 'dazzle'; unit: string; by: string }
   | { type: 'actionFail'; unit: string; reason: string }
   | { type: 'fuelFire'; unit: string }
-  | { type: 'gameOver'; winner: PlayerId | 'draw' };
+  | { type: 'gameOver'; winner: PlayerId | 'draw'; reason?: WinReason }
+  | { type: 'objective'; side: PlayerId; text: string }

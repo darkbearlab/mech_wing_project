@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS, flagshipOf, killScoreOf, newObjectives, type BattleSettings, type ObjectiveState, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { canSee, sensorRange } from './vision';
 import type { EquipState, GameEvent, GameState, GrappleState, Obstacle, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
@@ -28,6 +29,8 @@ export interface UnitView {
   propellant?: number;
   maxPropellant?: number;
   lockOn?: string | null;
+  /** 出擊費用（只看得到自己的；對手的駕駛不明） */
+  cost?: number;
   blackout?: boolean;
 }
 
@@ -38,6 +41,15 @@ export interface StateView {
   bumped: string[];
   /** 擱置移動、還在等王牌移動步驟的機體 */
   deferred: string[];
+  /** 勝利條件與部署方式 */
+  settings: BattleSettings;
+  /** 達陣、據點進度 */
+  objectives: ObjectiveState;
+  /** 雙方的旗艦（斬首用，雙方都知道） */
+  flagship: [string | null, string | null];
+  /** 雙方的擊墜分 */
+  score: [number, number];
+  winReason?: WinReason;
   /** 本回合各機的移動向量（動作階段才有；看不到的敵機不列） */
   velocity: Record<string, Vec>;
   /** 自己機體本回合的姿態（動作階段才有） */
@@ -63,7 +75,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     vague: u.status === 'active' && u.stress >= u.maxStress ? 'sluggish' : null,
   };
   if (u.owner !== viewer) return base;
-  return { ...base, pilotId: u.pilotId, stress: u.stress, maxStress: u.maxStress, propellant: u.propellant, maxPropellant: u.maxPropellant, lockOn: u.lockOn, blackout: u.blackout };
+  return { ...base, pilotId: u.pilotId, cost: u.cost, stress: u.stress, maxStress: u.maxStress, propellant: u.propellant, maxPropellant: u.maxPropellant, lockOn: u.lockOn, blackout: u.blackout };
 }
 
 /** 依目前位置重算雙方看得到哪些敵機，並更新最後目擊紀錄。revealed：這一步開火或鎖定而暴露位置的機體 */
@@ -106,7 +118,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */

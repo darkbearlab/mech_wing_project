@@ -5,7 +5,8 @@
     "skill": 1,
     "maxStress": 5,
     "recovery": 1,
-    "abilities": []
+    "abilities": [],
+    "cost": 0
   },
   "veteran": {
     "id": "veteran",
@@ -13,7 +14,8 @@
     "skill": 3,
     "maxStress": 7,
     "recovery": 2,
-    "abilities": []
+    "abilities": [],
+    "cost": 3
   },
   "ace": {
     "id": "ace",
@@ -23,6 +25,7 @@
     "recovery": 2,
     "abilities": [
       "quick_draw"
-    ]
+    ],
+    "cost": 7
   }
 }
