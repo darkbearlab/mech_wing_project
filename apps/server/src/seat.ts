@@ -10,7 +10,10 @@ import WebSocket from 'ws';
 import {
   CHASSIS,
   EQUIPMENT,
+  LOADOUTS,
   PILOTS,
+  SCALES,
+  entryCost,
   bandName,
   bitsLeft,
   buildPath,
@@ -98,8 +101,12 @@ function maneuverTable(u: UnitView): string {
   for (const id of dialOf(u as unknown as UnitState)) {
     const c = planCost(u as unknown as UnitState, { maneuver: id, limiter: false });
     if (c.blocked) continue;
-    const end = worldPose(buildPath(u as unknown as UnitState, { maneuver: id, limiter: false }), 1);
-    rows.push(`${id}(${parseManeuver(id).name}) → ${pt(end.pos)} 朝${deg(end.facing)}° 終速${parseManeuver(id).endMomentum} 推-${c.propellant} 壓+${c.stress}`);
+    const path = buildPath(u as unknown as UnitState, { maneuver: id, limiter: false });
+    const end = worldPose(path, 1);
+    // 路徑上會不會撞到大隕石（只看自己，不含其他機體）
+    const rocks = view!.state.obstacles.filter((o) => o.kind === 'rock');
+    const hit = Array.from({ length: 25 }, (_, i) => worldPose(path, i / 24).pos).some((p) => rocks.some((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + radiusOf(u)));
+    rows.push(`${id}(${parseManeuver(id).name}) → ${pt(end.pos)} 朝${deg(end.facing)}° 終速${parseManeuver(id).endMomentum} 推-${c.propellant} 壓+${c.stress}${hit ? ' ⚠撞隕石' : ''}`);
   }
   return rows.map((r) => `    ${r}`).join('\n');
 }
@@ -192,6 +199,30 @@ function eventText(e: GameEvent): string {
   }
 }
 
+/** 開房模式：選隊用的目錄（機型、駕駛、配裝與費用）和房主的條件 */
+function renderLobby(msg: Extract<ServerMessage, { t: 'lobby' }>): string {
+  const out: string[] = [];
+  out.push(`房間 ${room}　你是 ${side(seat)} 方　開房模式：還沒開打　已加入 A:${msg.joined[0]} B:${msg.joined[1]}　連線 A:${msg.connected[0]} B:${msg.connected[1]}`);
+  out.push(msg.terms ? `房主條件：規模 ${msg.terms.scale}（預算 ${SCALES[msg.terms.scale].budget}、最多 ${SCALES[msg.terms.scale].maxUnits} 台）　${JSON.stringify(msg.terms.settings)}` : '房主還沒選條件');
+  out.push(`規模：${Object.entries(SCALES).map(([k, s]) => `${k}=${s.budget}分/${s.maxUnits}台`).join('　')}；斬首時旗艦（最貴的那台）至少 15 分；具名駕駛（unique）一隊只能一次`);
+  out.push('', '== 機型（id 名稱 費用 環境；下面是可選的配裝）==');
+  for (const c of Object.values(CHASSIS)) {
+    const sets = LOADOUTS[c.id]?.length ? LOADOUTS[c.id] : [[]];
+    out.push(`${c.id} ${c.name} ${c.cost ?? 0} [${(c.envs ?? ['space', 'gravity']).join(',')}]`);
+    sets.forEach((g, i) => out.push(`    配裝${i}：${JSON.stringify(g)}（${g.map(([d, loc]) => `${EQUIPMENT[d]?.name ?? d}@${loc}`).join('・') || '只有標準裝備'}；配裝費 +${g.reduce((n, [d]) => n + (EQUIPMENT[d]?.cost ?? 0), 0)}）`));
+  }
+  out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
+  for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
+  out.push('', `一台的費用 = 機型 + 駕駛 + 配裝（例：${(() => { const c = Object.values(CHASSIS)[0]; const e = { chassis: c.id, pilot: 'veteran', equipment: (LOADOUTS[c.id] ?? [[]])[0] ?? [] }; return `${c.id}+veteran+配裝0 = ${entryCost(e)}`; })()}）`);
+  out.push('', `指令（寫到 ${resolve(dir, 'orders.json')}）：`);
+  out.push(
+    seat === 0
+      ? `{"t":"join","roster":[{"chassis":"..","pilot":"..","equipment":[["裝備id","位置"],...]}],"terms":{"scale":"standard","settings":{"killScore":50,"decapitation":true,"turnLimit":12,"deploy":"fixed","environment":"space","terrain":"asteroid"}}}`
+      : `{"t":"join","roster":[{"chassis":"..","pilot":"..","equipment":[["裝備id","位置"],...]}]}  （equipment 直接抄配裝選項的 JSON）`,
+  );
+  return out.join('\n');
+}
+
 /** 這一席現在要不要下指令 */
 function needsOrders(v: PlayerView): boolean {
   if (v.phase === 'over' || v.submitted[v.you]) return false;
@@ -206,7 +237,15 @@ function connect() {
   ws.on('open', () => console.log(`CONNECTED room=${room} seat=${seat} 資料 ${contentVersion()} 資料夾 ${dir}`));
   ws.on('message', (data) => {
     const msg = JSON.parse(String(data)) as ServerMessage;
-    if (msg.t === 'state') {
+    if (msg.t === 'lobby') {
+      view = null;
+      writeFileSync(resolve(dir, 'view.txt'), renderLobby(msg));
+      const key = `lobby-${msg.game}-${msg.joined[seat]}-${!!msg.terms}`;
+      if (!msg.joined[seat] && key !== lastPrompt) {
+        lastPrompt = key;
+        console.log(`YOUR_TURN lobby（選隊加入）${msg.terms ? '' : ' 房主還沒選條件'}`);
+      }
+    } else if (msg.t === 'state') {
       view = msg.view;
       writeFileSync(resolve(dir, 'view.json'), JSON.stringify(msg.view));
       writeFileSync(resolve(dir, 'view.txt'), render(msg.view));
