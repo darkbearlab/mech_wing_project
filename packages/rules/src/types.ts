@@ -111,12 +111,13 @@ export interface ChassisDef {
 
 /**
  * 駕駛能力：quick_draw 快拔；ace_move 王牌移動（移動步驟可以等其他人動完再決定）；
+ * called_shot 瞄準要害（命中時比較容易打到核心部位）；
  * newtype 新人類（要搭配 ntSense，擊墜會累積壓力；有王牌移動時，對方也有新人類就要付壓力才能擱置）
  */
 /** 戰場環境：宇宙、重力圈（地面）；水中之後再做 */
 export type Environment = 'space' | 'gravity' | 'water';
 
-export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype';
+export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot';
 /** 新人類對擊墜的感受：numb 麻木（後期阿姆羅、夏亞）、strong 心智堅強（捷度）、sensitive 敏感（剛上戰場）、fragile 纖細（卡蜜兒） */
 export type NtSense = 'numb' | 'strong' | 'sensitive' | 'fragile';
 

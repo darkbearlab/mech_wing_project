@@ -12,7 +12,7 @@ export type ClashDefense = 'blade' | 'shield' | 'dodge' | 'none';
 /** 這台機體在對決中的骰數（防守方沒拿近戰武器時另外處理） */
 export function meleePool(u: UnitState, charging: boolean, sidePenalty: boolean): number {
   const weapon = readyMelee(u);
-  let n = C.MELEE_BASE_DICE + pilotOf(u).skill;
+  let n = C.MELEE_BASE_DICE + Math.min(pilotOf(u).skill, C.SKILL_CAP_CLOSE);
   if (charging) n += C.MELEE_CHARGE_DIE;
   if (weapon) n += EQUIPMENT[weapon.defId].meleeDice ?? 0;
   if (sidePenalty) n -= C.MELEE_SIDE_PENALTY;

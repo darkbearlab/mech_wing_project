@@ -41,7 +41,7 @@ export function resolveGrapple(ctx: Ctx, g: GrappleState, a: UnitState, b: UnitS
   let ended = false;
   const notes: string[] = [];
 
-  const pushTotal = (u: UnitState) => chassisOf(u).power + chassisOf(u).weightClass + Math.floor(pilotOf(u).skill / 2) + ctx.rng.die(6) + (adv(u) ? C.ADVANTAGE_PUSH : 0);
+  const pushTotal = (u: UnitState) => chassisOf(u).power + chassisOf(u).weightClass + Math.floor(Math.min(pilotOf(u).skill, C.SKILL_CAP_CLOSE) / 2) + ctx.rng.die(6) + (adv(u) ? C.ADVANTAGE_PUSH : 0);
   const pushCheck = (): { winner: UnitState | null; loser: UnitState | null; margin: number } => {
     const ta = pushTotal(a);
     const tb = pushTotal(b);

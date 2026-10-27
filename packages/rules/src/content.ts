@@ -32,7 +32,7 @@ export function useContent(pack: ContentPack): void {
 const KINDS = ['ranged', 'melee', 'shield', 'tank'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
-const ABILITIES = ['quick_draw', 'ace_move', 'newtype'];
+const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot'];
 const NT_SENSES = ['numb', 'strong', 'sensitive', 'fragile'];
 const CREWS = ['unmanned', 'pilot', 'ship'];
 const ENVS = ['space', 'gravity', 'water'];

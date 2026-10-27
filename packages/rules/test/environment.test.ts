@@ -7,6 +7,8 @@ import { availableManeuvers, dialOf, maneuverCost } from '../src/unit';
 import { parseManeuver } from '../src/maneuvers';
 import type { PlayerMoves } from '../src/types';
 import { makeState, rifleX00 } from './helpers';
+import { rollPart } from '../src/damage';
+import { Rng } from '../src/rng';
 
 beforeEach(() => {
   const pack: ContentPack = structuredClone({ ...DEFAULT_CONTENT, version: 'test-env' });
@@ -58,5 +60,20 @@ describe('環境', () => {
     // 宇宙：不回正
     const sp = createGame(3, rosters, { ...DEFAULT_SETTINGS, killScore: undefined, decapitation: false, environment: 'space' });
     expect(resolveTurn(sp, [{ ...straight(sp.units[0].id), ...straight(sp.units[1].id) }, straight(sp.units[2].id)]).state.units[0].momentum).toBe(3);
+  });
+});
+
+describe('瞄準要害', () => {
+  it('核心部位的抽中機率明顯提高', () => {
+    const s = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 90 }]);
+    const u = s.units[0];
+    const rate = (bonus: number) => {
+      const rng = new Rng(9);
+      let n = 0;
+      for (let i = 0; i < 3000; i++) if (rollPart(rng, u, bonus) === 'torso') n++;
+      return n / 3000;
+    };
+    expect(rate(0)).toBeLessThan(0.3);
+    expect(rate(10)).toBeGreaterThan(0.45);
   });
 });
