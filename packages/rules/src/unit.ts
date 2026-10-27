@@ -297,6 +297,8 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
     else if (e && e.location !== 'right' && e.location !== 'left' && rackSide(u, e) && rackSide(u, e) !== hand) errors.push(`${u.label}：${EQUIPMENT[e.defId].name}在另一側的武器架上，要用${rackSide(u, e) === 'right' ? '右' : '左'}手拿`);
     if (handBlocked(u, hand)) errors.push(`${u.label}：這隻手不能握持`);
   }
+  const drawn = swapOrders(plan).map(([, id]) => id).filter((id): id is string => !!id);
+  if (new Set(drawn).size < drawn.length) errors.push(`${u.label}：兩隻手不能換成同一件裝備`);
   if (a.type === 'shoot') for (const id of shotWeapons(a)) if (!u.equipment.some((e) => e.id === id)) errors.push(`${u.label}：沒有這件武器`);
   return errors;
 }

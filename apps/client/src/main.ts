@@ -2685,7 +2685,9 @@ function swapControls(u: UnitView, plan: ActionPlan): string {
   for (const hand of ['right', 'left'] as Hand[]) {
     if (!handUsable(u, hand)) continue;
     const held = heldItem(u as unknown as UnitState, hand);
-    const choices = swapChoices(u, hand);
+    // 另一隻手已經選了要拿的不能再選
+    const other = orders.get(hand === 'right' ? 'left' : 'right');
+    const choices = swapChoices(u, hand).filter((e) => e.id !== other);
     if (!choices.length && !held) continue;
     const cur = orders.has(hand) ? (orders.get(hand) ?? '__holster') : '';
     html += `<div class="row"><span class="small muted">${HAND_NAME[hand]}${held ? `（${esc(EQUIPMENT[held.defId].name)}）` : '（空手）'}</span>`;

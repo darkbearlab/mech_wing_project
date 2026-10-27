@@ -4,6 +4,7 @@ import { hitChance } from '../src/combat';
 import type { RosterEntry } from '../src/data';
 import { EQUIPMENT } from '../src/data';
 import { Match } from '../src/match';
+import { resolveActions } from '../src/resolve';
 import { Rng } from '../src/rng';
 import { buildingBlocks, generateCity, inFootprint, lineOfFire, supportAt } from '../src/terrain';
 import type { GameEvent, GameState, Obstacle } from '../src/types';
@@ -200,6 +201,20 @@ describe('行動：多武器一起開火、同側換武器', () => {
     const u = m.state.units[0];
     expect(u.equipment.find((e) => e.defId === 'bazooka')!.location).toBe('left');
     expect(u.equipment.find((e) => e.defId === 'machine_gun')!.location).toBe('stowed');
+  });
+
+  it('兩隻手不能換成同一件裝備；結算時也只換第一隻手', () => {
+    const blade: RosterEntry = { chassis: 'X-00', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['machine_gun', 'left'], ['beam_saber', 'stowed']] };
+    const st = pair(blade);
+    const swaps = { right: id(st, 'beam_saber'), left: id(st, 'beam_saber') };
+    expect(validateAction(st.units[0], { action: { type: 'none' }, swaps }).join()).toContain('同一件');
+    // 規則結算端的保險：就算指令沒被擋下，也只換第一隻手
+    const m = new Match(7, st);
+    m.submitMoves(0, { [st.units[0].id]: plan({ maneuver: 'hover-S-0' }) });
+    m.submitMoves(1, { [st.units[1].id]: plan({ maneuver: 'hover-S-0' }) });
+    const u = resolveActions(m.state, [{ [st.units[0].id]: { action: { type: 'none' }, swaps } }, {}]).state.units[0];
+    expect(u.equipment.find((e) => e.defId === 'beam_saber')!.location).toBe('right');
+    expect(u.equipment.find((e) => e.defId === 'machine_gun')!.location).toBe('left');
   });
 
   it('另一側武器架上的武器拿不到', () => {
