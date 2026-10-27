@@ -25,3 +25,4 @@ export * from './terrain';
 export * from './vision';
 export { Rng } from './rng';
 export type * from './protocol';
+export * from './loadout';

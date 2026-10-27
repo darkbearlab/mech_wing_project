@@ -182,3 +182,23 @@ button[data-limiter][data-off] { opacity: 0.35; cursor: not-allowed; }
 @media (max-width: 640px) { .mnSc { grid-template-columns: 1fr; } .mnGrid { grid-template-columns: 1fr; } }
 /* 增援 */
 .ucard.reserve { opacity: 0.6; border-style: dashed; }
+
+/* 武裝編輯器 */
+.luSlot .edit { grid-column: 4 / 6; font-size: 12px; padding: 2px 4px; }
+.ldBody { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; padding: 12px; }
+.ldFig { position: relative; width: 240px; height: 300px; flex: none; border: 1px solid var(--line); border-radius: 8px; }
+.ldDot { position: absolute; font-size: 11px; padding: 1px 4px; color: var(--muted); white-space: nowrap; }
+.ldDot.full { color: var(--text); border-color: #5a6675; }
+.ldRows { display: flex; flex-direction: column; gap: 4px; }
+.ldRow { display: grid; grid-template-columns: 76px minmax(0, 1fr) 24px; gap: 8px; text-align: left; align-items: center; }
+.ldRow b { font-weight: 500; }
+.ldRow span:last-child { text-align: right; }
+.ldFixed { font-size: 12px; margin-top: 4px; }
+.ldFixed button { padding: 0 4px; }
+.ldCap { padding: 0 12px; }
+.ldPicks { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; padding: 0 12px 12px; }
+.ldPick { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.ldPick b { font-weight: 500; }
+.ldPick span { font-size: 11.5px; color: var(--muted); }
+.ldPick .tagOn { color: var(--accent); font-style: normal; font-size: 11px; }
+@media (max-width: 720px) { .ldBody { grid-template-columns: 1fr; } .ldFig { margin: 0 auto; } }
