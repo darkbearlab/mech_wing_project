@@ -253,8 +253,8 @@ export function simulateMovement(
     const hitA = braced(a, Math.max(1, vc + wb - wa));
     const hitB = braced(b, Math.max(1, vc + wa - wb));
     const both = rammers.length === 2;
-    dealtBy(ctx, b.unit, () => damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered'));
-    dealtBy(ctx, a.unit, () => damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered'));
+    dealtBy(ctx, b.unit, () => damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered'), false);
+    dealtBy(ctx, a.unit, () => damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered'), false);
     addStress(ctx, a.unit, Math.floor(vc / 2), '撞擊');
     addStress(ctx, b.unit, Math.floor(vc / 2), '撞擊');
     if (wa === wb) return;

@@ -14,16 +14,21 @@ export interface Ctx {
   by?: string;
   /** 射擊瞄準的機體：瞄準要害只加在它身上（誤擊到旁邊纏鬥的機體不算） */
   aimAt?: string;
+  /** 沒辦法瞄準的傷害（撞擊）：瞄準要害不生效 */
+  unaimed?: boolean;
 }
 
 /** 以 by 的名義造成傷害（擊墜歸屬），結束後還原 */
-export function dealtBy(ctx: Ctx, by: UnitState | null | undefined, fn: () => void): void {
+export function dealtBy(ctx: Ctx, by: UnitState | null | undefined, fn: () => void, aimed = true): void {
   const prev = ctx.by;
+  const prevUnaimed = ctx.unaimed;
   ctx.by = by?.id;
+  ctx.unaimed = !aimed;
   try {
     fn();
   } finally {
     ctx.by = prev;
+    ctx.unaimed = prevUnaimed;
   }
 }
 
@@ -89,7 +94,7 @@ export function shotBy(ctx: Ctx, by: UnitState, aim: UnitState, fn: () => void):
 /** overflow：打壞部位後多出來的傷害，每 1 點再擲一次命中部位、各造成 1 點（火箭砲的爆風） */
 export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string, overflow = false): void {
   if (amount <= 0) return;
-  const bonus = ctx.aimAt && ctx.aimAt !== u.id ? 0 : calledShotBonus(ctx);
+  const bonus = ctx.unaimed || (ctx.aimAt && ctx.aimAt !== u.id) ? 0 : calledShotBonus(ctx);
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {
     const armor = u.equipment.find((e) => EQUIPMENT[e.defId]?.kind === 'armor' && e.location === 'mount' && u.parts[e.id] && !u.parts[e.id].destroyed);
