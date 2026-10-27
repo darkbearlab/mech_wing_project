@@ -519,7 +519,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boo
     }
     const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, relSpeed: null, shooterMelee: false });
     if (!band) {
-      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標超出鎖定距離' });
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: `目標超出鎖定距離（底板邊緣 ${C.RANGE_LIMITS.r3} 格以內才能鎖定）` });
       return false;
     }
     u.lockOn = target.id;

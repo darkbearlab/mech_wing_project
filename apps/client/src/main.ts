@@ -2325,14 +2325,14 @@ function podActionControls(u: UnitView, plan: ActionPlan): string {
 /** 部署：朝向（以你面對敵方的方向為上）與起始動能 */
 function deployControls(u: UnitView): string {
   const d = deployDrafts[u.id];
-  const s = view!.you === 0 ? 1 : -1;
   const dirs: [string, number, number][] = [['↖', -1, 1], ['↑', 0, 1], ['↗', 1, 1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, -1], ['↓', 0, -1], ['↘', 1, -1]];
   const grid = dirs
     .map(([g, dx, dy]) => {
       if (!g) return '<span></span>';
-      const f = snapFacing(Math.atan2(dy * s, dx * s));
+      // 照目前的視角：箭頭指哪個方向，機頭在畫面上就朝哪個方向
+      const f = snapFacing(cam.screenToGroundAngle(dx, dy));
       const on = Math.abs(Math.atan2(Math.sin(f - d.facing), Math.cos(f - d.facing))) < 0.01;
-      return tip(`<button class="${on ? 'on' : ''}" data-face="${f}">${g}</button>`, '機頭朝向（以你面對敵方的方向為上）');
+      return tip(`<button class="${on ? 'on' : ''}" data-face="${f}">${g}</button>`, '機頭朝向（照目前畫面的方向；旋轉視角後箭頭也跟著轉）');
     })
     .join('');
   const [lo, hi] = momentumRange(u);

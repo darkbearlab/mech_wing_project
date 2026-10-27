@@ -31,6 +31,15 @@ export class Camera {
     this.ty = mapSize / 2;
   }
 
+  /** 畫面上的方向（往右 dx、往畫面裡 dy）換成地面上的角度：部署朝向的九宮格照目前的視角 */
+  screenToGroundAngle(dx: number, dy: number): number {
+    const fx = Math.sin(this.yaw);
+    const fy = -Math.cos(this.yaw);
+    const rx = Math.cos(this.yaw);
+    const ry = Math.sin(this.yaw);
+    return Math.atan2(dx * ry + dy * fy, dx * rx + dy * fx);
+  }
+
   private basis() {
     const cp = Math.cos(this.pitch);
     const sp = Math.sin(this.pitch);
