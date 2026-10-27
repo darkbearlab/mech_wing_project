@@ -66,7 +66,8 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
     const y = owner === 0 ? 2 : MAP_SIZE - 2;
     const facing = owner === 0 ? Math.PI / 2 : -Math.PI / 2;
     roster.forEach((entry, i) => {
-      const x = MAP_SIZE / 2 + (i - (roster.length - 1) / 2) * 4;
+      // 和地形一樣以地圖中心點對稱：B 方從右排到左，B1 正好在 A1 的對稱位置
+      const x = MAP_SIZE / 2 + (owner === 0 ? 1 : -1) * (i - (roster.length - 1) / 2) * 4;
       units.push(createUnit(entry, owner as PlayerId, i, { x, y }, facing));
     });
   });
