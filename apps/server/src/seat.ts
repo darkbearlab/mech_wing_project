@@ -121,6 +121,16 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
       rows.push(`${w.id} ${def.name} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%` : '打不到'}`);
     }
   }
+  // 放出去的炮群：從炮群的位置算（炮群本身當作不動）
+  for (const e of u.equipment) {
+    if (!e.pod) continue;
+    const def = EQUIPMENT[e.defId];
+    const at = e.pod.pos;
+    for (const t of enemies) {
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
+      rows.push(`${e.id} 炮群@${pt(at)} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%（每支 ${def.shots ?? 1} 發）` : '打不到'}`);
+    }
+  }
   return rows.map((r) => `    ${r}`).join('\n');
 }
 
