@@ -419,7 +419,8 @@ const cam = new Camera(config.MAP_SIZE);
 let W = 800;
 let H = 600;
 /** 機體浮在地面上的視覺高度（規則上不存在，只用來表現） */
-const UNIT_Z = 0.8;
+/** 效果與連線的高度：雷達式畫在地面上 */
+const UNIT_Z = 0;
 const color = (owner: number, alpha = 1) => (owner === 0 ? `rgba(74,163,255,${alpha})` : `rgba(255,93,93,${alpha})`);
 /** 本機輪流時各席位各自記住視角 */
 const savedViews: [CameraView | null, CameraView | null] = [null, null];
@@ -1022,28 +1023,39 @@ function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
     .forEach((x) => drawUnit(x.u, x.pos, x.f));
 }
 
+/** 機體名稱拆成型號與名稱：「RX-78-2 鋼彈」→ 型號 RX-78-2、名稱 鋼彈 */
+function modelAndName(u: UnitView): { model: string; name: string } {
+  const full = CHASSIS[u.chassisId]?.name ?? u.chassisId;
+  const i = full.indexOf(' ');
+  return i > 0 ? { model: full.slice(0, i), name: full.slice(i + 1) } : { model: u.chassisId, name: full };
+}
+
+/** 雷達式：地面上的光點、占用半徑外框、朝向線與盾弧，光點上方兩行標籤（編號＋名稱、型號） */
 function drawUnit(u: UnitView, pos: Vec, facing: number) {
-  const out = u.status !== 'active' || !!u.unknown;
+  const out = u.status !== 'active';
   const R = radiusOf(u);
-  const top = pr(pos.x, pos.y, UNIT_Z);
-  const base = pr(pos.x, pos.y, 0);
-  if (!top.visible || !base.visible) return;
-  // 看不到的敵機：在最後目擊的位置畫成半透明殘影
-  if (u.hidden) g.globalAlpha = 0.35;
-  // 地面底板與朝向
-  g.fillStyle = out ? 'rgba(80,80,80,0.25)' : color(u.owner, 0.18);
+  const c = pr(pos.x, pos.y, 0);
+  if (!c.visible) return;
+  // 看不到的敵機：在最後目擊的位置畫成虛線殘影
+  if (u.hidden) {
+    g.globalAlpha = 0.45;
+    g.setLineDash([3, 3]);
+  }
+  // 占用半徑與朝向
   g.strokeStyle = out ? '#555' : color(u.owner, 0.7);
   ringWorld(pos.x, pos.y, R);
-  g.fill();
   g.stroke();
-  g.strokeStyle = out ? '#555' : 'rgba(255,255,255,0.75)';
-  polyWorld([
-    [pos.x, pos.y, 0],
-    [pos.x + Math.cos(facing) * R * 1.5, pos.y + Math.sin(facing) * R * 1.5, 0],
-  ]);
-  g.stroke();
-  // 盾弧
   if (!out) {
+    g.strokeStyle = 'rgba(255,255,255,0.75)';
+    polyWorld([
+      [pos.x, pos.y, 0],
+      [pos.x + Math.cos(facing) * R * 1.5, pos.y + Math.sin(facing) * R * 1.5, 0],
+    ]);
+    g.stroke();
+  }
+  g.setLineDash([]);
+  // 盾弧
+  if (!out && !u.hidden) {
     for (const s of shieldArcs(u, facing)) {
       g.strokeStyle = '#e6e6a0';
       g.lineWidth = 3;
@@ -1052,37 +1064,82 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
       g.lineWidth = 1;
     }
   }
-  // 垂直線與浮空標記
-  g.strokeStyle = out ? '#444' : color(u.owner, 0.5);
-  g.beginPath();
-  g.moveTo(base.x, base.y);
-  g.lineTo(top.x, top.y);
-  g.stroke();
-  const r = Math.max(5, top.k * 0.3);
-  g.fillStyle = out ? '#3a3f45' : color(u.owner, 0.95);
-  g.beginPath();
-  g.arc(top.x, top.y, r, 0, Math.PI * 2);
-  g.fill();
-  if (u.id === selected) {
-    g.strokeStyle = '#ffcf4a';
+  // 光點：亮核心加兩圈淡光暈（陣營色；煙霧中的不明機體琥珀色；退場是灰色 ×）
+  const k = Math.max(1, c.k * 0.06);
+  const rgb = u.unknown ? '239,159,39' : u.owner === 0 ? '133,183,235' : '240,149,149';
+  if (out) {
+    g.strokeStyle = '#6a6a66';
     g.lineWidth = 2;
+    const d = 4 * k;
     g.beginPath();
-    g.arc(top.x, top.y, r + 3, 0, Math.PI * 2);
+    g.moveTo(c.x - d, c.y - d);
+    g.lineTo(c.x + d, c.y + d);
+    g.moveTo(c.x + d, c.y - d);
+    g.lineTo(c.x - d, c.y + d);
+    g.stroke();
+    g.lineWidth = 1;
+  } else if (u.hidden) {
+    g.strokeStyle = `rgba(${rgb},0.9)`;
+    g.setLineDash([2, 2]);
+    g.beginPath();
+    g.arc(c.x, c.y, 5 * k, 0, Math.PI * 2);
+    g.stroke();
+    g.setLineDash([]);
+  } else {
+    for (const [r, a] of [
+      [11, 0.12],
+      [6, 0.35],
+    ] as const) {
+      g.fillStyle = `rgba(${rgb},${a})`;
+      g.beginPath();
+      g.arc(c.x, c.y, r * k, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = u.unknown ? '#faeeda' : u.owner === 0 ? '#e6f1fb' : '#fcebeb';
+    g.beginPath();
+    g.arc(c.x, c.y, 2.8 * k, 0, Math.PI * 2);
+    g.fill();
+  }
+  // 選取：四角括號
+  if (u.id === selected) {
+    const h = 13 * k;
+    const l = 5 * k;
+    g.strokeStyle = '#ffcf4a';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    for (const [sx, sy] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ]) {
+      g.moveTo(c.x + sx * h, c.y + sy * (h - l));
+      g.lineTo(c.x + sx * h, c.y + sy * h);
+      g.lineTo(c.x + sx * (h - l), c.y + sy * h);
+    }
     g.stroke();
     g.lineWidth = 1;
   }
-  const nose = pr(pos.x + Math.cos(facing) * 0.6, pos.y + Math.sin(facing) * 0.6, UNIT_Z);
-  g.strokeStyle = '#fff';
-  g.beginPath();
-  g.moveTo(top.x, top.y);
-  g.lineTo(nose.x, nose.y);
-  g.stroke();
-  g.fillStyle = out ? '#777' : '#fff';
-  g.font = '11px sans-serif';
+  // 標籤
   g.textAlign = 'center';
   const flag = view?.state.settings.decapitation && view.state.flagship.includes(u.id) ? '♛' : '';
-  const tag = u.unknown ? '？不明' : flag + u.label.split(' ')[0] + (u.hidden ? `? T${u.seenTurn}` : u.vague === 'sluggish' ? ' ⚠' : '');
-  g.fillText(tag, top.x, top.y - r - 5);
+  const { model, name } = modelAndName(u);
+  const id = u.label.split(' ')[0];
+  const top = c.y - 14 * k;
+  const light = out ? '#888780' : u.unknown ? '#fac775' : u.owner === 0 ? '#b5d4f4' : '#f7c1c1';
+  const dim = out ? '#6a6a66' : u.unknown ? '#ef9f27' : u.owner === 0 ? '#85b7eb' : '#f09595';
+  if (u.unknown) {
+    g.font = 'bold 12px sans-serif';
+    g.fillStyle = light;
+    g.fillText('？不明', c.x, top);
+  } else {
+    g.font = 'bold 12px sans-serif';
+    g.fillStyle = light;
+    g.fillText(`${flag}${id} ${name}${u.vague === 'sluggish' ? ' ⚠' : ''}`, c.x, top - 13);
+    g.font = '11px sans-serif';
+    g.fillStyle = dim;
+    g.fillText(out ? ({ destroyed: '擊毀', withdrawn: '脫離戰場', unconscious: '駕駛昏迷' } as Record<string, string>)[u.status] ?? '停止動作' : u.hidden ? `${model}・最後目擊 T${u.seenTurn}` : model, c.x, top);
+  }
   g.globalAlpha = 1;
 }
 
