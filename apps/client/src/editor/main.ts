@@ -470,6 +470,17 @@ function selField(obj: Obj, key: string, name: string, options: [string, string]
   };
   return h('label', { class: 'field', title: o.hint }, h('small', {}, name), s);
 }
+/** 適合環境：存成陣列，兩種都可以時不寫 */
+function envField(c: Obj) {
+  const cur = Array.isArray(c.envs) ? (c.envs as string[]).join(',') : 'space,gravity';
+  const s = h('select', { disabled: !canEdit(), title: '不適合的環境：機動盤最高速度 −1' }, ...[['space,gravity', '宇宙與重力圈'], ['space', '只有宇宙'], ['gravity', '只有重力圈']].map(([v, t]) => h('option', { value: v, selected: v === cur }, t)));
+  s.onchange = () => {
+    if (s.value === 'space,gravity') delete c.envs;
+    else c.envs = s.value.split(',');
+    changed();
+  };
+  return h('label', { class: 'field' }, h('small', {}, '適合環境'), s);
+}
 function chips(arr: string[] | undefined, options: [string, string][], set: (v: string[] | undefined) => void) {
   const cur = new Set(arr ?? []);
   return h('div', { class: 'chips' }, ...options.map(([v, t]) =>
@@ -614,6 +625,8 @@ function chassisForm(c: ChassisDef & Obj) {
       radiusField(c),
       numField(c, 'minSpeed', '最低速度', { optional: true, hint: '空白＝0（可以懸停）。戰機填 2 之類：不能懸停、後退或慢於這個速度' }),
       selField(c, 'closeCombat', '近身戰鬥', [['true', '可以'], ['false', '不行（只能射擊姿態，被纏鬥只能脫離）']], { absent: 'true' }),
+      envField(c),
+      selField(c, 'hover', '地面滑行', [['false', '否'], ['true', '是（重力圈動能不回正，例如德姆）']], { absent: 'false' }),
       selField(c, 'crew', '機上人員', [['pilot', '一般駕駛'], ['unmanned', '無人（飛彈、無人機）'], ['ship', '船艦（大量人員）']], { absent: 'pilot', hint: '新人類擊墜時的壓力：無人不累積，船艦大量累積' }),
     )),
     sec('部位（功能決定規則效果：核心壞了退場、手壞了不能握持…）', h('table', {},
@@ -835,7 +848,7 @@ const FIELD_NAMES: Record<string, string> = {
   name: '名稱', kind: '種類', mount: '安裝方式', weight: '受擊權重', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
   pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
   baseThrust: '免費加速', maxAccel: '最大加速', power: '出力', aim: '瞄準', evasion: '迴避', parts: '部位', dial: '機動盤', builtIn: '內建武裝', skill: '技術',
-  maxStress: '壓力上限', recovery: '壓力恢復', abilities: '能力', ntSense: '擊墜感受', crew: '機上人員', cost: '費用', unique: '具名',
+  maxStress: '壓力上限', recovery: '壓力恢復', abilities: '能力', ntSense: '擊墜感受', crew: '機上人員', cost: '費用', unique: '具名', envs: '適合環境', hover: '地面滑行',
 };
 const short = (v: unknown) => {
   if (v === undefined) return '（無）';

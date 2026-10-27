@@ -29,6 +29,8 @@ export interface UnitView {
   propellant?: number;
   maxPropellant?: number;
   lockOn?: string | null;
+  /** 不適合目前環境：機動盤最高速度減掉這麼多 */
+  speedCut?: number;
   /** 出擊費用（只看得到自己的；對手的駕駛不明） */
   cost?: number;
   blackout?: boolean;
@@ -72,6 +74,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     equipment: structuredClone(u.owner === viewer ? u.equipment : u.equipment.filter((e) => e.location !== 'housed' || e.revealed)),
     status: u.status === 'unconscious' && u.owner !== viewer ? 'disabled' : u.status,
     momentum: u.momentum,
+    speedCut: u.speedCut,
     vague: u.status === 'active' && u.stress >= u.maxStress ? 'sluggish' : null,
   };
   if (u.owner !== viewer) return base;

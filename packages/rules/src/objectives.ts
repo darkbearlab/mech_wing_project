@@ -3,7 +3,7 @@
 import * as C from './config';
 import { CHASSIS, EQUIPMENT, PILOTS, type RosterEntry } from './data';
 import { dist } from './geometry';
-import type { GameState, PlayerId, UnitState, Vec } from './types';
+import type { Environment, GameState, PlayerId, UnitState, Vec } from './types';
 
 export interface BattleSettings {
   /** 擊墜分：擊墜敵機的費用加總到這個門檻就獲勝；沒設定就不用這個條件 */
@@ -18,6 +18,8 @@ export interface BattleSettings {
   turnLimit: number;
   /** 部署：fixed 照順序排開；free 開戰前各自在部署區暗中擺好、一起公布 */
   deploy: 'fixed' | 'free';
+  /** 戰場環境（沒寫＝宇宙） */
+  environment?: Environment;
 }
 
 export const DEFAULT_SETTINGS: BattleSettings = { killScore: 50, decapitation: true, turnLimit: C.TURN_LIMIT, deploy: 'fixed' };

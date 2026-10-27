@@ -1,4 +1,4 @@
-import { MAP_SIZE, ROSTER_MODE, START_MOMENTUM } from './config';
+import { MAP_SIZE, ROSTER_MODE, START_MOMENTUM, UNSUITED_SPEED_CUT } from './config';
 import { contentVersion } from './content';
 import { Rng } from './rng';
 import { generateObstacles } from './terrain';
@@ -74,6 +74,12 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
   // 有據點時，大隕石與隕石群要避開據點
   const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0), settings.control ? controlPoints() : []);
   const free = settings.deploy === 'free';
+  // 不適合這個環境的機體：機動盤最高速度 −1
+  const env = settings.environment ?? 'space';
+  for (const u of units) {
+    const envs = CHASSIS[u.chassisId].envs ?? ['space', 'gravity'];
+    if (!envs.includes(env)) u.speedCut = UNSUITED_SPEED_CUT;
+  }
   const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null, settings: structuredClone(settings), objectives: newObjectives() };
   // 固定排開時雙方都知道對方的部署位置（第 0 回合的目擊），之後就要靠視野；自由部署則看不到
   if (!free) for (const u of units) state.lastSeen[(1 - u.owner) as PlayerId][u.id] = sighting(u, 0);

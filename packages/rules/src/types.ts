@@ -75,7 +75,7 @@ export interface EquipDef {
   fuel?: number;
 }
 
-export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hover' | 'reverse' | 'rbank';
+export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hover' | 'reverse' | 'rbank' | 'slide';
 
 export interface ChassisDef {
   id: string;
@@ -101,6 +101,10 @@ export interface ChassisDef {
   closeCombat?: boolean;
   /** 機上人員：unmanned 無人（飛彈、無人機），pilot 一般駕駛（預設），ship 船艦（大量人員）；新人類擊墜時的壓力依此計算 */
   crew?: 'unmanned' | 'pilot' | 'ship';
+  /** 適合的環境（沒寫＝宇宙與重力圈都可以）；不適合時機動盤最高速度 −1 */
+  envs?: Environment[];
+  /** 地面滑行（德姆）：重力圈裡動能不會回正 */
+  hover?: boolean;
   /** 費用（不含駕駛與另外帶的裝備；標準裝備已含在內） */
   cost?: number;
 }
@@ -109,6 +113,9 @@ export interface ChassisDef {
  * 駕駛能力：quick_draw 快拔；ace_move 王牌移動（移動步驟可以等其他人動完再決定）；
  * newtype 新人類（要搭配 ntSense，擊墜會累積壓力；有王牌移動時，對方也有新人類就要付壓力才能擱置）
  */
+/** 戰場環境：宇宙、重力圈（地面）；水中之後再做 */
+export type Environment = 'space' | 'gravity' | 'water';
+
 export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype';
 /** 新人類對擊墜的感受：numb 麻木（後期阿姆羅、夏亞）、strong 心智堅強（捷度）、sensitive 敏感（剛上戰場）、fragile 纖細（卡蜜兒） */
 export type NtSense = 'numb' | 'strong' | 'sensitive' | 'fragile';
@@ -161,6 +168,8 @@ export interface EquipState {
 export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';
 
 export interface UnitState {
+  /** 不適合目前環境：機動盤最高速度減掉這麼多 */
+  speedCut?: number;
   /** 出擊費用（機型＋駕駛＋裝備），擊墜分與旗艦用 */
   cost?: number;
   id: string;

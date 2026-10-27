@@ -36,8 +36,9 @@ interface LineupSettings {
   control: boolean;
   turnLimit: number;
   deploy: 'fixed' | 'free';
+  environment: 'space' | 'gravity';
 }
-const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed' };
+const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed', environment: 'space' };
 
 const VICTORY_TIPS: Record<'killScore' | 'decapitation' | 'goal' | 'control', string> = {
   killScore: '擊墜敵機的費用加總到門檻就獲勝（飛出地圖也算）',
@@ -104,6 +105,7 @@ export function toBattleSettings(s: LineupSettings): BattleSettings {
     control: s.control ? CONTROL_TARGET : undefined,
     turnLimit: s.turnLimit,
     deploy: s.deploy,
+    environment: s.environment,
   };
 }
 
@@ -135,7 +137,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
             (cur < 0 ? `<option value="cur" selected>${esc(gearLabel(u.equipment))}</option>` : '');
           return `<div class="luSlot">
             <b ${i === flag ? 'class="crown" title="旗艦：被擊墜就輸（斬首）"' : ''}>${i === flag ? '♛' : `${SIDES[s]}${i + 1}`}</b>
-            <select data-s="${s}" data-i="${i}" data-f="chassis">${Object.values(CHASSIS).map((c) => `<option value="${esc(c.id)}" ${c.id === u.chassis ? 'selected' : ''}>${esc(c.name)}（${c.cost ?? 0}）</option>`).join('')}</select>
+            <select data-s="${s}" data-i="${i}" data-f="chassis">${Object.values(CHASSIS).map((c) => `<option value="${esc(c.id)}" ${c.id === u.chassis ? 'selected' : ''}>${esc(c.name)}（${c.cost ?? 0}）${(c.envs ?? ['space', 'gravity']).includes(set.environment) ? '' : '・不適合'}</option>`).join('')}</select>
             <select data-s="${s}" data-i="${i}" data-f="pilot">${Object.values(PILOTS).map((p) => `<option value="${esc(p.id)}" ${p.id === u.pilot ? 'selected' : ''}>${esc(p.name)}（技能 ${p.skill}・${p.cost ?? 0}）</option>`).join('')}</select>
             <span class="cost" title="機型＋駕駛＋裝備">${costs[i]}</span>
             <button class="x" data-s="${s}" data-i="${i}" data-act="remove" title="移除這台" ${rosters[s].length <= 1 ? 'disabled' : ''}>×</button>
@@ -159,6 +161,8 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     const ok = !problemsOf(0).length && !problemsOf(1).length;
     box.innerHTML = `<div class="luBox">
       <div class="luBar"><b>出擊準備</b><span class="muted">${esc(document.getElementById('contentTag')?.textContent ?? '')}</span><span class="spacer"></span>
+        <span class="muted">環境</span><select data-f="environment" title="重力圈：每回合結束時動能往 0 回正 1（地面滑行的機體例外）；不適合這個環境的機體機動盤最高速度 −1">
+          <option value="space" ${set.environment === 'space' ? 'selected' : ''}>宇宙</option><option value="gravity" ${set.environment === 'gravity' ? 'selected' : ''}>重力圈</option></select>
         <span class="muted">規模</span><select data-f="scale">${(Object.keys(SCALES) as Scale[]).map((k) => `<option value="${k}" ${k === set.scale ? 'selected' : ''}>${SCALES[k].name}（${SCALES[k].budget} 分、最多 ${SCALES[k].maxUnits} 台）</option>`).join('')}</select>
         <button data-act="default">載入預設陣容</button><button data-act="last" ${saved ? '' : 'disabled'}>上次的陣容</button></div>
       <div class="luCols">${sideHtml(0)}${sideHtml(1)}</div>
@@ -189,6 +193,9 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     if (f === 'opponent') opp = el.value as Opponent;
     else if (f === 'scale') {
       set.scale = el.value as Scale;
+      saveSettings();
+    } else if (f === 'environment') {
+      set.environment = el.value as LineupSettings['environment'];
       saveSettings();
     } else if (f === 'turnLimit') {
       set.turnLimit = Number(el.value);

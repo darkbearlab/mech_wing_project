@@ -48,6 +48,7 @@ import {
   Rng,
   type TurnPhase,
   type WinReason,
+  dialOf,
   CONTROL_RADIUS,
   GOAL_RADIUS,
   controlPoints,
@@ -1716,7 +1717,7 @@ function controlsHtml(u: UnitView | undefined): string {
 }
 
 const DIAL_COLUMNS = ['turn-L', 'bank-L', 'straight-S', 'bank-R', 'turn-R'];
-const GLYPH: Record<string, string> = { 'turn-L': '↰', 'bank-L': '↖', 'straight-S': '↑', 'bank-R': '↗', 'turn-R': '↱', 'arc-L': '⤺', 'arc-R': '⤻', 'kturn-S': '⥁', 'hover-S': '◎', 'reverse-S': '↓', 'rbank-L': '↙', 'rbank-R': '↘' };
+const GLYPH: Record<string, string> = { 'turn-L': '↰', 'bank-L': '↖', 'straight-S': '↑', 'bank-R': '↗', 'turn-R': '↱', 'arc-L': '⤺', 'arc-R': '⤻', 'kturn-S': '⥁', 'hover-S': '◎', 'reverse-S': '↓', 'rbank-L': '↙', 'rbank-R': '↘', 'slide-L': '⇠', 'slide-R': '⇢' };
 /** 後退那一排對齊前進的欄位：斜後退放在緩轉的位置 */
 const REVERSE_COLUMNS: Record<string, string> = { 'bank-L': 'rbank-L', 'straight-S': 'reverse-S', 'bank-R': 'rbank-R' };
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
@@ -1724,7 +1725,7 @@ const dialKey = (m: ManeuverSpec) => `${m.kind}-${m.dir === -1 ? 'L' : m.dir ===
 
 /** 機動盤：每個機動一顆按鈕，滑鼠停上去會在地圖預覽 */
 function dialHtml(u: UnitView, plan: MovePlan): string {
-  const dial = CHASSIS[u.chassisId].dial.map(parseManeuver);
+  const dial = dialOf(u).map(parseManeuver);
   const button = (m: ManeuverSpec) => {
     const c = maneuverCost(u, m, plan.limiter);
     const ok = c.blocked === null;
@@ -1752,7 +1753,7 @@ function dialHtml(u: UnitView, plan: MovePlan): string {
     }
   }
   html += '</div><div class="dialExtra">';
-  for (const key of ['arc-L', 'kturn-S', 'hover-S', 'arc-R']) for (const m of dial.filter((x) => dialKey(x) === key)) html += button(m);
+  for (const key of ['slide-L', 'arc-L', 'kturn-S', 'hover-S', 'arc-R', 'slide-R']) for (const m of dial.filter((x) => dialKey(x) === key)) html += button(m);
   return html + '</div>';
 }
 
