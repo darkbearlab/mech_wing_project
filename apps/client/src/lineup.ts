@@ -114,7 +114,9 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
   let opp = opponent;
   const set = loadSettings();
 
-  const problemsOf = (s: 0 | 1) => lineupProblems(rosters[s], set.scale, set);
+  // 舊版資料沒有費用：不檢查預算與旗艦門檻
+  const priced = Object.values(CHASSIS).some((c) => c.cost);
+  const problemsOf = (s: 0 | 1) => lineupProblems(rosters[s], set.scale, set).filter((p) => priced || !/預算|旗艦/.test(p));
 
   const render = () => {
     const scale = SCALES[set.scale];
