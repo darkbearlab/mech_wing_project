@@ -34,7 +34,8 @@ export interface ChassisPart {
  * overflow 溢出傷害（打壞部位後多出來的傷害，每 1 點再擲一次命中部位、造成 1 點傷害，例如火箭砲）；
  * dazzle 眩光（命中的目標本回合射擊命中下降；用它的行動最先結算，例如德姆的擴散光束砲）
  */
-export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow' | 'dazzle';
+/** turret：戰艦的砲塔（各自選目標開火，見 ActionPlan.salvo） */
+export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow' | 'dazzle' | 'turret';
 
 /**
  * 安裝方式：
@@ -60,6 +61,8 @@ export interface EquipDef {
   mount?: EquipMount;
   /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
   arc?: number;
+  /** 固定射界的中心相對機體正面的角度（度，負＝左、正＝右）；戰艦的舷側、艦尾砲塔用 */
+  arcOffset?: number;
   /** false：不能在接觸距離開火 */
   pointBlank?: boolean;
   /** 佔手的手臂內建武器：那隻手完全不能握持 */
@@ -135,6 +138,8 @@ export interface ChassisDef {
   closeCombat?: boolean;
   /** 機上人員：unmanned 無人（飛彈、無人機），pilot 一般駕駛（預設），ship 船艦（大量人員）；新人類擊墜時的壓力依此計算 */
   crew?: 'unmanned' | 'pilot' | 'ship';
+  /** 戰艦的防禦彈幕：range 範圍（艦體邊緣起算）、每座還能用的砲塔扣多少命中、最多扣多少 */
+  barrage?: { range: number; perTurret: number; max: number };
   /** 適合的環境（沒寫＝宇宙與重力圈都可以）；不適合時機動盤最高速度 −1 */
   envs?: Environment[];
   /** 地面滑行（德姆）：重力圈裡動能不會回正 */
@@ -152,7 +157,8 @@ export interface ChassisDef {
 export type Environment = 'space' | 'gravity' | 'water';
 
 /** cyber_newtype 強化人：和新人類一樣能用感應武器（Z 鋼彈之後才有） */
-export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot' | 'brawler' | 'cyber_newtype';
+/** ship_killer 對艦特效：打戰艦時艦橋與引擎的權重大幅提高 */
+export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot' | 'brawler' | 'cyber_newtype' | 'ship_killer';
 /** 新人類對擊墜的感受：numb 麻木（後期阿姆羅、夏亞）、strong 心智堅強（捷度）、sensitive 敏感（剛上戰場）、fragile 纖細（卡蜜兒） */
 export type NtSense = 'numb' | 'strong' | 'sensitive' | 'fragile';
 
@@ -359,6 +365,8 @@ export interface ActionPlan {
   action: Action;
   /** 纏鬥中的機體選的手法（所有射擊結算完才結算纏鬥） */
   grapple?: GrappleChoice;
+  /** 戰艦：每座砲塔各自的目標（key 是砲塔的裝備 id）；和本體的動作分開，不算連鎖動作 */
+  salvo?: Record<string, string>;
   /** 指揮炮群攻擊（key 是裝備 id，值是 1–2 個目標）：無線的佔這回合的行動，線控的不佔 */
   pods?: Record<string, string[]>;
 }
@@ -417,6 +425,10 @@ export type GameEvent =
   | { type: 'status'; unit: string; status: 'destroyed' | 'withdrawn' | 'disabled'; by?: string }
   | { type: 'defer'; unit: string }
   | { type: 'purge'; unit: string }
+  /** 戰艦引擎被打壞後殉爆 */
+  | { type: 'shipExplode'; unit: string; by?: string }
+  /** 防禦彈幕打傷彈幕裡的單位 */
+  | { type: 'barrage'; ship: string; unit: string }
   /** 炮群：放出、收回、失控（離母機太遠或母機不能指揮）、全滅 */
   | { type: 'pod'; unit: string; equip: string; what: 'launch' | 'recall' | 'lost' | 'destroyed'; at?: Vec; reason?: string }
   | { type: 'podHit'; unit: string; equip: string; by: string; bits: number }

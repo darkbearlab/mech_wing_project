@@ -1,3 +1,4 @@
+import { isShip } from './ship';
 import { clinchAdvantage } from './grapple';
 import { radiusOf } from './body';
 import * as C from './config';
@@ -205,7 +206,8 @@ export function simulateMovement(
     const bladed = attackers.filter((m) => readyMelee(m.unit));
     let result: ContactResult;
     if (melee.length === 0) result = 'bump';
-    else if (vc <= C.CLINCH_MAX_VC || attackers.length === 0) result = 'clinch';
+    // 戰艦咬不住也不會被拖進纏鬥：低速接觸只是擦撞
+    else if (vc <= C.CLINCH_MAX_VC || attackers.length === 0) result = isShip(a.unit) || isShip(b.unit) ? 'bump' : 'clinch';
     else result = bladed.length ? 'hitrun' : 'ram';
     emit(vc, result);
     // 承受衝擊：慢速近戰被高速衝進來，站穩硬吃，壓力 +相對速度 ÷ 2

@@ -568,7 +568,7 @@ function deleteButton(k: Kind, id: string) {
 
 const KIND_OPTS: [string, string][] = [['ranged', '射擊'], ['melee', '近戰'], ['shield', '盾牌'], ['tank', '燃料槽'], ['armor', '外裝甲（可拋棄）'], ['utility', '戰術道具']];
 const MOUNT_OPTS: [string, string][] = [['hand', '手持'], ['mounted', '外掛'], ['integrated', '內建（部位的一部分）'], ['housed', '內藏（藏在手臂裡）']];
-const TAG_OPTS: [string, string][] = [['quickDraw', '快速拔出'], ['secondary', '副武裝'], ['volatile', '易爆'], ['overflow', '溢出傷害'], ['dazzle', '眩光']];
+const TAG_OPTS: [string, string][] = [['quickDraw', '快速拔出'], ['secondary', '副武裝'], ['volatile', '易爆'], ['overflow', '溢出傷害'], ['dazzle', '眩光'], ['turret', '砲塔（戰艦齊射）']];
 
 function equipmentForm(e: EquipDef & Obj) {
   const mount = e.mount ?? 'hand';
@@ -592,6 +592,7 @@ function equipmentForm(e: EquipDef & Obj) {
         selField(e, 'mode', '傷害模式', [['focused', '集中（同一部位）'], ['scattered', '分散（每發各抽部位）']], { absent: 'focused' }),
         numField(e, 'ammo', '彈數', { optional: true, hint: '空白＝無限' }),
         numField(e, 'arc', '射界半角（度）', { optional: true, hint: '空白＝照手持規則（正面外命中 −20）；有填就是固定射界，射界外打不到' }),
+        numField(e, 'arcOffset', '射界中心（度）', { optional: true, hint: '相對機體正面，負＝左、正＝右；戰艦舷側 ±90、艦尾 180' }),
         selField(e, 'pointBlank', '零距離射擊', [['true', '可以'], ['false', '不行']], { absent: 'true' }),
       )),
       sec('距離帶命中修正（空白＝那個距離不能打）', grid(numField(r, '1', '近 R1', { optional: true }), numField(r, '2', '中 R2', { optional: true }), numField(r, '3', '遠 R3', { optional: true }))),
@@ -682,8 +683,15 @@ function chassisForm(c: ChassisDef & Obj) {
       selField(c, 'closeCombat', '近身戰鬥', [['true', '可以'], ['false', '不行（只能射擊姿態，被纏鬥只能脫離）']], { absent: 'true' }),
       envField(c),
       selField(c, 'hover', '地面滑行', [['false', '否'], ['true', '是（重力圈動能不回正，例如德姆）']], { absent: 'false' }),
-      selField(c, 'crew', '機上人員', [['pilot', '一般駕駛'], ['unmanned', '無人（飛彈、無人機）'], ['ship', '船艦（大量人員）']], { absent: 'pilot', hint: '新人類擊墜時的壓力：無人不累積，船艦大量累積' }),
+      selField(c, 'crew', '機上人員', [['pilot', '一般駕駛'], ['unmanned', '無人（飛彈、無人機）'], ['ship', '船艦（大量人員）']], { absent: 'pilot', hint: '新人類擊墜時的壓力：無人不累積，船艦大量累積。船艦：感測部位是艦橋、推進部位是引擎（全毀時殉爆）', rerender: true }),
     )),
+    ...(c.crew === 'ship'
+      ? [sec('防禦彈幕（艦首與兩舷；有敵機進來才生效）', grid(
+          numField((c.barrage ??= { range: 4, perTurret: 8, max: 32 }) as Obj, 'range', '範圍（艦體邊緣起算）'),
+          numField(c.barrage as Obj, 'perTurret', '每座砲塔扣命中'),
+          numField(c.barrage as Obj, 'max', '最多扣多少'),
+        ))]
+      : []),
     sec('部位（功能決定規則效果：核心壞了退場、手壞了不能握持…）', h('table', {},
       h('tr', {}, h('th', {}, 'id'), h('th', {}, '名稱'), h('th', {}, '功能'), h('th', {}, '受擊權重'), h('th', {}, '耐久'), h('th', {})),
       ...chassisParts(c).map((info) => {
@@ -760,7 +768,7 @@ function partOptions(chassisId: string | undefined, cur: string | undefined): HT
 function pilotForm(p: PilotDef & Obj) {
   return [
     sec('基本', grid(textField(p, 'name', '名稱'), numField(p, 'skill', '技術', { hint: `每點命中 +${C.HIT_PER_SKILL}、迴避 +${C.EVADE_PER_SKILL}` }), numField(p, 'maxStress', '壓力上限'), numField(p, 'recovery', '每回合壓力恢復'), numField(p, 'cost', '費用', { optional: true, hint: '組隊預算與擊墜分；空白＝0' }), selField(p, 'unique', '出擊限制', [['false', '可以重複'], ['true', '具名：一隊只能一位']], { absent: 'false' }))),
-    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害'], ['brawler', '擅長肉搏'], ['cyber_newtype', '強化人']], (v) => {
+    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害'], ['brawler', '擅長肉搏'], ['cyber_newtype', '強化人'], ['ship_killer', '對艦特效']], (v) => {
       p.abilities = (v ?? []) as PilotDef['abilities'];
       // 新人類一定要有擊墜感受；取消新人類就拿掉
       if (p.abilities.includes('newtype')) p.ntSense ??= 'sensitive';

@@ -45,6 +45,11 @@ import {
   techniqueUse,
   normalizeChoice,
   dangerClose,
+  isShip,
+  barrageStrength,
+  barrageActive,
+  barragePenalty,
+  inBarrage,
   availableManeuvers,
   coveringShield,
   psycommuOf,
@@ -713,6 +718,7 @@ function drawFrame(now: number) {
   if (!show) {
     if (view.phase === 'deploy') drawDeployZones();
     else {
+      drawBarrages();
       drawRanges();
       drawReach();
       drawPreviews();
@@ -1246,6 +1252,33 @@ function drawPods(list: { u: UnitView; pos: Vec }[]) {
   }
 }
 
+/** 戰艦的防禦彈幕範圍（艦首與兩舷；艦尾沒有） */
+function drawBarrages() {
+  for (const sh of view?.state.units ?? []) {
+    if (!isShip(sh) || sh.status !== 'active' || sh.hidden) continue;
+    const def = CHASSIS[sh.chassisId].barrage;
+    if (!def || !barrageStrength(sh as never)) continue;
+    const active = barrageActive(view!.state.units as never, sh as never);
+    const r = radiusOf(sh) + def.range;
+    const rear = (config.BARRAGE_REAR_DEG * Math.PI) / 180;
+    g.fillStyle = color(sh.owner, active ? 0.1 : 0.03);
+    g.strokeStyle = color(sh.owner, active ? 0.6 : 0.25);
+    g.setLineDash(active ? [] : [3, 6]);
+    g.beginPath();
+    const c = pr(sh.pos.x, sh.pos.y, 0);
+    g.moveTo(c.x, c.y);
+    for (let i = 0; i <= 40; i++) {
+      const a = sh.facing - (Math.PI - rear) + (2 * (Math.PI - rear) * i) / 40;
+      const q = pr(sh.pos.x + Math.cos(a) * r, sh.pos.y + Math.sin(a) * r, 0);
+      g.lineTo(q.x, q.y);
+    }
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.setLineDash([]);
+  }
+}
+
 /** 炮群的指令預覽：選取母機時畫控制距離（以移動後位置為中心）、炮群的移動範圍；已下的移動指令畫黃色虛線 */
 function drawPodPlans() {
   if (view?.phase === 'move' || view?.phase === 'ace') {
@@ -1297,6 +1330,18 @@ function drawPodPlans() {
     for (const [id, plan] of Object.entries(actionDrafts)) {
       const u = unitView(id);
       if (!u) continue;
+      for (const tid of Object.values(plan.salvo ?? {})) {
+        const t = unitView(tid);
+        if (!t) continue;
+        g.strokeStyle = 'rgba(255,170,90,0.75)';
+        g.setLineDash([3, 5]);
+        polyWorld([
+          [u.pos.x, u.pos.y, 0],
+          [t.pos.x, t.pos.y, 0],
+        ]);
+        g.stroke();
+        g.setLineDash([]);
+      }
       for (const [eid, targets] of Object.entries(plan.pods ?? {})) {
         const pod = u.equipment.find((e) => e.id === eid)?.pod;
         if (!pod) continue;
@@ -2332,7 +2377,7 @@ function moveControls(u: UnitView, plan: MovePlan): string {
     .join('');
   html += '</div>';
   if (m.kind === 'hover') {
-    html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
+    html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.filter((f) => !isShip(u) || Math.abs(f) <= config.SHIP_TURN_MAX_DEG).map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
   }
   const limiterTip = `限制器解除：這回合最大加減速 +1，壓力 +${config.LIMITER_STRESS}。${m.kind === 'hover' ? '懸停時不能用。' : ''}`;
   const purgeBtn = armorOf(u)
@@ -2373,6 +2418,27 @@ function podMoveControls(u: UnitView, plan: MovePlan): string {
     if (e.pod) html += tip(`<button class="${order && 'recall' in order ? 'on' : ''}" data-pod-recall="${e.id}">收回</button>`, ps.wired ? '收回有線臂：裝回去就是一般的手臂，手指炮照常能直接開火。' : `收回${EQUIPMENT[e.defId].name}：充能 ${config.PSYCOMMU_RECHARGE_TURNS} 個完整回合後才能再放出。`);
     html += '</div>';
     if (picking) html += '<div class="small" style="color:#ffcf4a">點地圖選目標點（超出範圍會自動拉回）。</div>';
+  }
+  return html;
+}
+
+/** 戰艦的齊射：每座砲塔各自選一個目標（照它自己的射界） */
+function salvoControls(u: UnitView, plan: ActionPlan): string {
+  if (!isShip(u)) return '';
+  const turrets = readyRanged(u).filter((e) => EQUIPMENT[e.defId].tags?.includes('turret'));
+  if (!turrets.length) return '';
+  const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active' && !x.hidden);
+  let html = '<div class="sec">砲塔齊射（每座各自選目標，不佔本體動作）</div>';
+  for (const w of turrets) {
+    const def = EQUIPMENT[w.defId];
+    const cur = plan.salvo?.[w.id];
+    html += `<div class="row"><span class="small muted">${esc(def.name)}</span>`;
+    for (const t of enemies) {
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, u.pos, t.pos) });
+      if (!h) continue;
+      html += tip(`<button class="${cur === t.id ? 'on' : ''}" data-salvo="${w.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${def.name} → ${t.label}：${bandName(h.band)}・${chanceText(h.chance)}`);
+    }
+    html += tip(`<button class="${cur ? '' : 'on'}" data-salvo="${w.id}|">不開火</button>`, '這座砲塔這回合不開火（射界內沒有目標時也只能這樣）。') + '</div>';
   }
   return html;
 }
@@ -2460,6 +2526,7 @@ function equipOptions(u: UnitView): EquipOption[] {
   const canHold = (['right', 'left'] as Hand[]).some((h) => handUsable(u, h));
   for (const e of readyRanged(u)) {
     const def = EQUIPMENT[e.defId];
+    if (def.tags?.includes('turret')) continue;
     const hostHand = alwaysReady(e) && e.host ? handOfPart(u, e.host) : null;
     const side = hostHand ? `（${hostHand === 'right' ? '右' : '左'}）` : '';
     const notes = [def.arc !== undefined ? `前方±${def.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : ''].filter(Boolean).join('・');
@@ -2518,10 +2585,11 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     if (def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return '射界外';
     if (def.pointBlank === false && rangeBand(u, t) === 0) return '太近，不能開火';
   }
-  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover }) : null;
+  const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
+  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage }) : null;
   const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
   const shield = coveringShield(t as unknown as UnitState, u.pos) ? '・對方盾弧內（可能被盾擋）' : '';
-  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${shield}${danger}` : '射程外';
+  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${shield}${barrage ? `・目標在防禦彈幕裡 −${barrage}` : ''}${danger}` : '射程外';
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
@@ -2568,7 +2636,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, grappleTip(u, o)))
       .join('')}</div><div class="warn small">纏鬥中不能射擊、鎖定或用道具，可以換武器。</div>`;
   }
-  if (!grappled) html += podActionControls(u, plan);
+  if (!grappled) html += podActionControls(u, plan) + salvoControls(u, plan);
   html += '<div class="sec">選一件裝備</div><div class="optList">';
   html += equipOptions(u)
     .filter((o) => !grappled || o.kind === 'draw' || o.kind === 'none')
@@ -2665,6 +2733,18 @@ function bindControls(u: UnitView | undefined) {
       (b.onclick = () => {
         move.pods = { ...move.pods, [b.dataset.podRecall!]: { recall: true } };
         podPick = null;
+        changed();
+      }),
+  );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-salvo]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (!plan) return;
+        const [wid, tid] = b.dataset.salvo!.split('|');
+        const salvo = { ...plan.salvo };
+        if (tid) salvo[wid] = tid;
+        else delete salvo[wid];
+        plan.salvo = Object.keys(salvo).length ? salvo : undefined;
         changed();
       }),
   );
@@ -2897,6 +2977,10 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 被 ${L(e.by)} 的眩光照到，本回合射擊命中 −${config.DAZZLE_PENALTY}`;
     case 'actionFail':
       return `${L(e.unit)} 動作落空：${e.reason}`;
+    case 'shipExplode':
+      return `${L(e.unit)} 引擎殉爆，擊沉！${e.by ? `（${L(e.by)}）` : ''}`;
+    case 'barrage':
+      return `${L(e.ship)} 的防禦彈幕打中 ${L(e.unit)}`;
     case 'fuelFire':
       return `${L(e.unit)} 燃料槽引燃！`;
     case 'obstacle':

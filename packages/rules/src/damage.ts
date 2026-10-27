@@ -2,7 +2,8 @@ import * as C from './config';
 import { FUEL_IGNITE_CHANCE, FUEL_IGNITE_DAMAGE } from './config';
 import { CHASSIS, EQUIPMENT } from './data';
 import type { Rng } from './rng';
-import type { DamageMode, GameEvent, GameState, UnitState } from './types';
+import type { DamageMode, GameEvent, GameState, UnitState, Vec } from './types';
+import { isShip, shipPartMultiplier } from './ship';
 import { corePart, handOfPart, roleLost } from './body';
 import { equipDef, heldItem, pilotOf } from './unit';
 
@@ -16,6 +17,8 @@ export interface Ctx {
   aimAt?: string;
   /** 沒辦法瞄準的傷害（撞擊）：瞄準要害不生效 */
   unaimed?: boolean;
+  /** 射擊位置（打戰艦時決定比較容易打到哪裡） */
+  from?: Vec;
 }
 
 /** 以 by 的名義造成傷害（擊墜歸屬），結束後還原 */
@@ -67,8 +70,8 @@ const partCandidates = (u: UnitState) => Object.values(u.parts).filter((p) => p.
 const partWeight = (p: UnitState['parts'][string], coreBonus: number) => p.weight + (p.kind === 'body' && p.role === 'core' && !p.destroyed ? coreBonus : 0);
 
 /** 抽命中部位；coreBonus：核心部位多加的權重（瞄準要害） */
-export function rollPart(rng: Rng, u: UnitState, coreBonus = 0): string {
-  return rng.pickWeighted(partCandidates(u), (p) => partWeight(p, coreBonus)).id;
+export function rollPart(rng: Rng, u: UnitState, coreBonus = 0, mult?: (p: UnitState['parts'][string]) => number): string {
+  return rng.pickWeighted(partCandidates(u), (p) => partWeight(p, coreBonus) * (mult ? mult(p) : 1)).id;
 }
 
 /** 這台機體的部位權重總和（射進纏鬥時決定打到誰） */
@@ -83,18 +86,29 @@ function calledShotBonus(ctx: Ctx): number {
 /** 以 by 的名義、瞄準 aim 造成傷害 */
 export function shotBy(ctx: Ctx, by: UnitState, aim: UnitState, fn: () => void): void {
   const prev = ctx.aimAt;
+  const prevFrom = ctx.from;
   ctx.aimAt = aim.id;
+  ctx.from = { ...by.pos };
   try {
     dealtBy(ctx, by, fn);
   } finally {
     ctx.aimAt = prev;
+    ctx.from = prevFrom;
   }
 }
 
 /** overflow：打壞部位後多出來的傷害，每 1 點再擲一次命中部位、各造成 1 點（火箭砲的爆風） */
 export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string, overflow = false): void {
   if (amount <= 0) return;
-  const bonus = ctx.unaimed || (ctx.aimAt && ctx.aimAt !== u.id) ? 0 : calledShotBonus(ctx);
+  let bonus = ctx.unaimed || (ctx.aimAt && ctx.aimAt !== u.id) ? 0 : calledShotBonus(ctx);
+  // 戰艦：不加核心權重，改成看方位與對艦特效加重弱點
+  let mult: ((p: UnitState['parts'][string]) => number) | undefined;
+  if (isShip(u)) {
+    const by = ctx.by ? ctx.state.units.find((x) => x.id === ctx.by) : undefined;
+    const aimed = !ctx.unaimed && (!ctx.aimAt || ctx.aimAt === u.id) && !!by && (pilotOf(by).abilities.includes('ship_killer') || pilotOf(by).abilities.includes('called_shot'));
+    mult = shipPartMultiplier(u, ctx.unaimed ? undefined : ctx.from, aimed);
+    bonus = 0;
+  }
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {
     const armor = u.equipment.find((e) => EQUIPMENT[e.defId]?.kind === 'armor' && e.location === 'mount' && u.parts[e.id] && !u.parts[e.id].destroyed);
@@ -107,10 +121,10 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
     }
   }
   if (mode === 'focused') {
-    const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus), amount);
-    if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u, bonus), 1);
+    const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus, mult), amount);
+    if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u, bonus, mult), 1);
   } else {
-    for (let i = 0; i < amount; i++) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus), 1);
+    for (let i = 0; i < amount; i++) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus, mult), 1);
   }
 }
 
@@ -149,6 +163,12 @@ function onDestroyed(ctx: Ctx, u: UnitState, partId: string): void {
   // 掛在這個部位上的外掛武裝一起掉落；內建與內藏的會跟著失效（不需要另外處理）
   for (const e of u.equipment) if (e.host === partId && u.parts[e.id]) destroyPart(ctx, u, e.id);
   const role = u.parts[partId]?.role;
+  // 戰艦的引擎全毀：擲殉爆，成功就擊沉
+  if (role === 'propulsion' && isShip(u) && roleLost(u, 'propulsion') && u.status === 'active' && ctx.rng.d100() <= C.SHIP_ENGINE_EXPLODE) {
+    ctx.events.push({ type: 'shipExplode', unit: u.id, ...(ctx.by ? { by: ctx.by } : {}) });
+    for (const p of Object.values(u.parts)) if (p.role === 'core' && !p.destroyed) destroyPart(ctx, u, p.id);
+    return;
+  }
   if (role === 'core' && roleLost(u, 'core')) {
     u.status = 'destroyed';
     ctx.events.push({ type: 'status', unit: u.id, status: 'destroyed', ...(ctx.by ? { by: ctx.by } : {}) });
