@@ -45,6 +45,7 @@ import {
   techniqueUse,
   normalizeChoice,
   dangerClose,
+  coveringShield,
   psycommuOf,
   canPsycommu,
   podDestination,
@@ -2432,7 +2433,8 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   }
   const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover }) : null;
   const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
-  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${danger}` : '射程外';
+  const shield = coveringShield(t as unknown as UnitState, u.pos) ? '・對方盾弧內（可能被盾擋）' : '';
+  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${shield}${danger}` : '射程外';
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
