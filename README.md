@@ -21,7 +21,7 @@ npm run dev
 - `npm test`：規則引擎測試
 - `npm run sim -- 500`：批次隨機對戰，粗看數值分布
 - `npm run aisim -- 200`：批次 AI 對 AI，看勝負與退場原因
-- `npm run battle -- 7 mirror`：印出一場 AI 對戰的逐回合紀錄；`npm run battle -- --stats 300 mirror` 統計撞隕石、友軍互撞、集火等問題（`PACK=資料包.json` 可指定資料）
+- `npm run battle -- 7 mirror`：印出一場 AI 對戰的逐回合紀錄；`npm run battle -- --stats 300 mirror` 統計撞隕石、落單（被以多打少）、低命中開火、鎖定、友軍互撞、集火等問題（`PACK=資料包.json` 可指定資料）。`FROM=logs/battle-<id>.json` 用某場紀錄的地圖與陣容開局；`AI_OLD=舊版 ai.ts 的副本` 讓新舊 AI 輪流換邊對打比較
 - 對戰紀錄：本機模式每場打完（或中途重開、關掉分頁）會把種子、陣容和雙方指令上傳到內容 API（出擊準備畫面可以關掉）。`npm run admin -w @mech/api -- battles` 看列表、`battle <id>` 下載到 `logs/`，再用 `npm run battle -- --replay logs/battle-<id>.json` 重播出逐回合紀錄；規則改過導致結果對不上時會提示
 - `npm run content:check [資料包.json]`：檢查機型／武器／駕駛／配裝資料
 - `TURN_SECONDS=60 npm run dev`：開啟回合計時
