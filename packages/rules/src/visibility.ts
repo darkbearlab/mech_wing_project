@@ -4,6 +4,7 @@ import * as C from './config';
 import { DEFAULT_SETTINGS, flagshipOf, killScoreOf, newObjectives, type BattleSettings, type ObjectiveState, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { canSee, sensorRange } from './vision';
+import { podSeen } from './psycommu';
 import type { EquipState, GameEvent, GameState, GrappleState, Obstacle, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
 
 /** 對手看得到機體，看不到駕駛 */
@@ -155,6 +156,17 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
       units.push({ id: d.id, owner: d.owner, label: '不明機體', chassisId: d.chassisId, pos: { ...d.pos }, facing: d.facing, parts: structuredClone(d.parts), equipment: structuredClone(d.equipment.filter((e) => e.location !== 'housed' || e.revealed)), status: 'active', momentum: 0, vague: null, unknown: true });
     else balloons.push({ id: d.id, owner: d.owner, pos: { ...d.pos } });
   }
+  // 對手的炮群：看得到才顯示（殘影也照現在的狀況）
+  for (const v of units) {
+    if (v.owner === viewer) continue;
+    const real = s.units.find((u) => u.id === v.id);
+    if (!real) continue;
+    for (const e of v.equipment) {
+      const now = real.equipment.find((x) => x.id === e.id);
+      if (now?.pod && podSeen(s, real, now, viewer)) e.pod = structuredClone(now.pod);
+      else delete e.pod;
+    }
+  }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
   return { turn: s.turn, balloons, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
@@ -200,7 +212,11 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
       case 'knockback':
       case 'reposition':
       case 'swap':
+      case 'pod':
         if (known(e.unit)) out.push(e);
+        break;
+      case 'podHit':
+        if (mine(e.unit) || mine(e.by)) out.push(e);
         break;
       default:
         out.push(e);

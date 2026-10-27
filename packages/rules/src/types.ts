@@ -83,6 +83,30 @@ export interface EquipDef {
   /** 纏鬥的三種手法：骰數修正與得手時的傷害；有寫就照寫的（沒寫的手法不能用），沒寫照 meleeDice 與 damage 劈砍、穿刺 */
   melee?: Partial<Record<Technique, { dice: number; damage: number }>>;
   fuel?: number;
+  /** 感應武器（炮群）：只有新人類、強化人能用；只能在宇宙用。射擊照這件武器的 damage、shots（每支每次）與 ranges */
+  psycommu?: PsycommuDef;
+}
+
+export interface PsycommuDef {
+  /** 支數（有線臂是 1） */
+  count: number;
+  /** 每支能攻擊幾次，用完要收回母機充能；沒寫是線控、母機供能，不限 */
+  charge?: number;
+  /** 控制距離：炮群離母機超過這個距離就不受控制 */
+  range: number;
+  /** 炮群每回合最多移動多遠 */
+  move: number;
+  /** 線控（吉翁克的有線臂）：宿主部位（手臂）就是炮群；指揮不佔母機的行動；被打中是打那隻手臂 */
+  wired?: boolean;
+  /** 被射擊時的迴避（很小的感應炮很難打中） */
+  evasion?: number;
+}
+
+/** 放出去的炮群（掛在那件感應武器上） */
+export interface PodState {
+  pos: Vec;
+  /** 剩餘攻擊次數（線控沒有） */
+  charge?: number;
 }
 
 export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hover' | 'reverse' | 'rbank' | 'slide';
@@ -127,7 +151,8 @@ export interface ChassisDef {
 /** 戰場環境：宇宙、重力圈（地面）；水中之後再做 */
 export type Environment = 'space' | 'gravity' | 'water';
 
-export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot' | 'brawler';
+/** cyber_newtype 強化人：和新人類一樣能用感應武器（Z 鋼彈之後才有） */
+export type PilotAbility = 'quick_draw' | 'ace_move' | 'newtype' | 'called_shot' | 'brawler' | 'cyber_newtype';
 /** 新人類對擊墜的感受：numb 麻木（後期阿姆羅、夏亞）、strong 心智堅強（捷度）、sensitive 敏感（剛上戰場）、fragile 纖細（卡蜜兒） */
 export type NtSense = 'numb' | 'strong' | 'sensitive' | 'fragile';
 
@@ -174,6 +199,12 @@ export interface EquipState {
   ammo?: number;
   /** 內藏武器已經被對手看過 */
   revealed?: boolean;
+  /** 感應武器：放出去的炮群（收在母機上時沒有） */
+  pod?: PodState;
+  /** 感應武器：還剩幾支（被打掉就少；沒有表示滿的） */
+  bits?: number;
+  /** 感應武器：充能完畢、可以再放出去的回合 */
+  readyTurn?: number;
 }
 
 export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';
@@ -316,7 +347,11 @@ export interface MovePlan {
   defer?: boolean;
   /** 拋棄外裝甲（免費，和限制器同一層級的操作） */
   purge?: boolean;
+  /** 感應武器（key 是裝備 id）：放出或移動到 to，或收回 */
+  pods?: Record<string, PodOrder>;
 }
+
+export type PodOrder = { to: Vec } | { recall: true };
 
 /** 第二步：移動結算後選的動作 */
 export interface ActionPlan {
@@ -324,6 +359,8 @@ export interface ActionPlan {
   action: Action;
   /** 纏鬥中的機體選的手法（所有射擊結算完才結算纏鬥） */
   grapple?: GrappleChoice;
+  /** 指揮炮群攻擊（key 是裝備 id，值是 1–2 個目標）：無線的佔這回合的行動，線控的不佔 */
+  pods?: Record<string, string[]>;
 }
 
 export type PlayerMoves = Record<string, MovePlan>;
@@ -371,7 +408,7 @@ export type GameEvent =
       /** 防守方承受衝擊並把攻擊方拖進纏鬥 */
       caught: boolean;
     }
-  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number }
+  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number; pod?: string; from?: Vec }
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
   | { type: 'stress'; unit: string; amount: number; total: number; reason: string }
@@ -380,6 +417,9 @@ export type GameEvent =
   | { type: 'status'; unit: string; status: 'destroyed' | 'withdrawn' | 'disabled'; by?: string }
   | { type: 'defer'; unit: string }
   | { type: 'purge'; unit: string }
+  /** 炮群：放出、收回、失控（離母機太遠或母機不能指揮）、全滅 */
+  | { type: 'pod'; unit: string; equip: string; what: 'launch' | 'recall' | 'lost' | 'destroyed'; at?: Vec; reason?: string }
+  | { type: 'podHit'; unit: string; equip: string; by: string; bits: number }
   | { type: 'smoke'; unit: string; at: Vec; r: number }
   | { type: 'decoy'; unit: string; decoy: string }
   | { type: 'decoyPop'; decoy: string; by?: string; reason: string }

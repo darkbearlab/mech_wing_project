@@ -626,9 +626,59 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     if (heldOf(u, 'melee').length && d < 8) stance = 'melee';
     else if (swordsman && moveSpeed(plan) <= SLOW_MAX_SPEED && rng.next() < braceChance) stance = 'melee';
     plan.stance = closeCombatOf(u) ? stance : 'shoot';
+    const pods = aiPodMoves(view, u, team.focus ?? target, enemies);
+    if (pods) plan.pods = pods;
     out[u.id] = plan;
   }
   return out;
+}
+
+/** 炮群的攻擊位置：目標背後近距離（閃過正面的盾） */
+const podSpot = (t: UnitView): Vec => ({ x: t.pos.x - Math.cos(t.facing) * (radiusOf(t) + 2.5), y: t.pos.y - Math.sin(t.facing) * (radiusOf(t) + 2.5) });
+
+/** 感應武器的移動指令：敵人夠近就放出去繞到目標背後；無線炮群能量用完就收回 */
+function aiPodMoves(view: PlayerView, u: UnitView, focus: UnitView | null, enemies: UnitView[]): MovePlan['pods'] | null {
+  const pilot = PILOTS[u.pilotId!];
+  if (!pilot?.abilities.some((a) => a === 'newtype' || a === 'cyber_newtype') || (view.state.settings.environment ?? 'space') !== 'space') return null;
+  const out: NonNullable<MovePlan['pods']> = {};
+  for (const e of u.equipment) {
+    const ps = EQUIPMENT[e.defId]?.psycommu;
+    if (!ps || !equipAlive(u, e)) continue;
+    if (e.pod) {
+      if (e.pod.charge !== undefined && e.pod.charge <= 0) out[e.id] = { recall: true };
+      else if (focus) out[e.id] = { to: podSpot(focus) };
+      continue;
+    }
+    if ((e.readyTurn ?? 0) > view.state.turn || (e.bits ?? ps.count) <= 0 || !focus) continue;
+    if (dist(u.pos, focus.pos) <= ps.range + ps.move) out[e.id] = { to: podSpot(focus) };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** 指揮炮群：每個炮群挑命中期望最高的敵機；回傳線控與無線的指令，以及無線炮群的期望值 */
+function aiPodActions(view: PlayerView, u: UnitView, enemies: UnitView[], focus: UnitView | null): { wired: Record<string, string[]>; wireless: Record<string, string[]>; value: number } {
+  const res = { wired: {} as Record<string, string[]>, wireless: {} as Record<string, string[]>, value: 0 };
+  const skill = PILOTS[u.pilotId!]?.skill ?? 1;
+  for (const e of u.equipment) {
+    const ps = EQUIPMENT[e.defId]?.psycommu;
+    if (!ps || !e.pod || (e.pod.charge !== undefined && e.pod.charge <= 0) || dist(u.pos, e.pod.pos) > ps.range || u.blackout) continue;
+    const def = EQUIPMENT[e.defId];
+    let best: { t: UnitView; v: number } | null = null;
+    for (const t of enemies) {
+      const at = e.pod.pos;
+      const h = hitChance({ attacker: { ...u, pos: at, facing: angleOf(sub(t.pos, at)) }, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: null, shooterMelee: false, cover: lineOfFire(view.state.obstacles, at, t.pos) });
+      if (!h || h.chance < 10) continue;
+      const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (e.bits ?? ps.count) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
+      if (!best || v > best.v) best = { t, v };
+    }
+    if (!best) continue;
+    if (ps.wired) res.wired[e.id] = [best.t.id];
+    else {
+      res.wireless[e.id] = [best.t.id];
+      res.value += best.v;
+    }
+  }
+  return res;
 }
 
 /** 追擊步驟：每台能追擊的機體挑期望傷害最高的一槍（集火目標、受傷的敵機加權） */
@@ -707,6 +757,15 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     } else if (lockTarget) {
       plan.action = { type: 'lock', target: lockTarget.id };
     }
+    // 炮群：線控的一律一起開火；無線的比自己開火划算才指揮（會用掉行動）
+    const pods = aiPodActions(view, u, enemies, focus);
+    const orders: Record<string, string[]> = { ...pods.wired };
+    if (Object.keys(pods.wireless).length && pods.value > (plan.action.type === 'shoot' ? (shot?.value ?? 0) : 0)) {
+      Object.assign(orders, pods.wireless);
+      plan.action = { type: 'none' };
+      if (plan.swap) delete plan.swap;
+    }
+    if (Object.keys(orders).length) plan.pods = orders;
     out[u.id] = plan;
   }
   return out;

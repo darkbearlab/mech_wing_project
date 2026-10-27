@@ -102,6 +102,7 @@ const ordersOf = (ai: Ai, v: PlayerView, rng: Rng) =>
 
 function rosters(seed: number): [RosterEntry[], RosterEntry[]] {
   if (scenario) return scenario.rosters();
+  if (process.env.ROSTERS) return JSON.parse(readFileSync(process.env.ROSTERS, 'utf-8'));
   if (from) return structuredClone(from.rosters ?? pickRosters(from.seed));
   if (mode === 'default') return structuredClone(DEFAULT_ROSTERS);
   const rng = new Rng(seed * 2654435761);
