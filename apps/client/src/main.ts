@@ -951,7 +951,12 @@ function drawGround() {
   g.stroke();
   g.lineWidth = 1;
   for (const o of view?.state.obstacles ?? []) if (o.kind === 'field') drawField(o);
-  for (const o of view?.state.obstacles ?? []) if (o.kind === 'rock') drawRock(o);
+  // 由遠到近畫，近的蓋在遠的上面（旋轉視角後順序才不會錯）
+  (view?.state.obstacles ?? [])
+    .filter((o) => o.kind === 'rock')
+    .map((o) => ({ o, k: pr(o.x, o.y, 0).k }))
+    .sort((a, b) => a.k - b.k)
+    .forEach(({ o }) => drawRock(o));
   for (const o of view?.state.obstacles ?? []) if (o.kind === 'smoke') drawSmoke(o);
   drawBalloons();
 }
