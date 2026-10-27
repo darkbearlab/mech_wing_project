@@ -160,6 +160,14 @@ export const SHIELD_BLOCK_PER_SKILL = 5;
 // 纏鬥
 /** 纏鬥：被剋的一方對手多幾顆骰（脫離、不擅長的徒手肉搏一律算被剋）——暫定，模擬後調整 */
 export const COUNTER_DICE = 2;
+/** 感應武器：炮群在場上的每一回合壓力 +1（不管放出幾組）；線控炮群和本體同一回合都開火再 +1 */
+export const PSYCOMMU_STRESS = 1;
+export const PSYCOMMU_DUAL_STRESS = 1;
+/** 無線炮群收回後要充能幾個完整回合才能再放出去 */
+export const PSYCOMMU_RECHARGE_TURNS = 1;
+/** 看得到無線炮群的距離（底板邊緣起算）：一般駕駛只有很近才看得到，新人類感應得到 */
+export const POD_SIGHT = 3;
+export const POD_SIGHT_NEWTYPE = 12;
 /** 纏鬥優勢（從側面或背後抓住、互相纏繞僵持時較重的一方）多幾顆骰 */
 export const GRAPPLE_ADV_DICE = 1;
 /** 徒手肉搏的三種手法（拳、掌、摔） */

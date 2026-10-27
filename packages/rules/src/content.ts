@@ -32,7 +32,7 @@ export function useContent(pack: ContentPack): void {
 const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
-const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot', 'brawler'];
+const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot', 'brawler', 'cyber_newtype'];
 const NT_SENSES = ['numb', 'strong', 'sensitive', 'fragile'];
 const CREWS = ['unmanned', 'pilot', 'ship'];
 const ENVS = ['space', 'gravity', 'water'];
@@ -68,6 +68,14 @@ export function validateContent(pack: ContentPack): string[] {
     if (e.blocksHand && mount !== 'integrated') err(w, 'blocksHand 只能用在內建武器');
     if (e.shieldArc !== undefined && !(isNum(e.shieldArc, 1) && e.shieldArc <= 180)) err(w, 'shieldArc 要在 1–180 度之間');
     if (e.shieldOffset !== undefined && !(isNum(e.shieldOffset, -180) && e.shieldOffset <= 180)) err(w, 'shieldOffset 要在 −180–180 度之間');
+    if (e.psycommu) {
+      const ps = e.psycommu;
+      if (e.kind !== 'ranged') err(w, '感應武器要是射擊武器');
+      if (!(Number.isInteger(ps.count) && ps.count >= 1)) err(w, 'psycommu.count 要是 1 以上的整數');
+      if (ps.charge !== undefined && !(Number.isInteger(ps.charge) && ps.charge >= 1)) err(w, 'psycommu.charge 要是 1 以上的整數');
+      if (!isNum(ps.range, 1) || !isNum(ps.move, 1)) err(w, 'psycommu.range、move 至少 1');
+      if (ps.wired && mount !== 'integrated') err(w, '線控感應武器要是內建在手臂上的武器');
+    }
   }
 
   for (const [key, c] of Object.entries(pack.chassis ?? {})) {

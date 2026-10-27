@@ -51,6 +51,8 @@ export interface HitInput {
   cover?: Cover;
   /** 射擊方這回合被眩光照到 */
   dazzled?: boolean;
+  /** 目標不是機體（炮群）：用這個迴避代替機型的迴避 */
+  targetEvasion?: number;
 }
 
 export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
@@ -63,9 +65,9 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   const rangeMod = band === 0 ? C.ZERO_RANGE_BONUS : h.weapon.ranges?.[band];
   if (rangeMod === undefined) return null;
   const atk = chassisOf(h.attacker);
-  const def = chassisOf(h.target);
+  const evasion = h.targetEvasion ?? chassisOf(h.target).evasion;
   // 穿著外裝甲：迴避下降
-  let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - def.evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
+  let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
   if (h.targetSkill !== null) {
     chance -= h.targetSkill * C.EVADE_PER_SKILL;
     // 技能差距太大：只有身手相當的人才打得到
@@ -121,7 +123,7 @@ export interface TurnInfo {
 /**
  * 開火。opts.pursuit 標記為追擊射擊；opts.later 有給的話，命中的傷害先放進去、由呼叫端一起結算（同時開火用）
  */
-export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState, opts: { pursuit?: boolean; later?: (() => void)[] } = {}): boolean {
+export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState, opts: { pursuit?: boolean; later?: (() => void)[]; shots?: number; pod?: string; from?: Vec } = {}): boolean {
   const def = equipDef(weapon);
   const h = hitChance({
     attacker,
@@ -137,7 +139,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   if (!h) return false;
   if (weapon.ammo !== undefined) weapon.ammo--;
   if (attacker.lockOn === target.id) attacker.lockOn = null;
-  const shots = def.shots ?? 1;
+  const shots = opts.shots ?? def.shots ?? 1;
   const overflow = !!def.tags?.includes('overflow');
   let hits = 0;
   let blocked = 0;
@@ -165,7 +167,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
       pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', undefined, overflow)));
     }
   }
-  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}) });
+  ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}), ...(opts.pod ? { pod: opts.pod, from: { ...opts.from! } } : {}) });
   if (hits > blocked && def.tags?.includes('dazzle') && !turn.dazzled?.has(target.id)) {
     turn.dazzled?.add(target.id);
     ctx.events.push({ type: 'dazzle', unit: target.id, by: attacker.id });
@@ -174,7 +176,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   else for (const p of pending) p();
   // 零距離開火可能傷到自己的武器；內建武器沒有自己的部位，傷到宿主
   const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;
-  if (h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', selfPart);
+  if (!opts.pod && h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', selfPart);
   return true;
 }
 

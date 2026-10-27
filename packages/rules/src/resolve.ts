@@ -11,6 +11,7 @@ import { updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
+import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
@@ -119,6 +120,8 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, new Set([...frozen, ...deferred]));
   const movers = new Set(Object.keys(plans).filter((id) => !deferred.has(id)));
   settleMomentum(ctx, plans, movers, frozen, stopped);
+  // 炮群跟著母機的新位置放出、移動或收回（擱置的王牌在王牌移動步驟才動）
+  movePods(ctx, plans, movers, (id) => inGrapple(state, id));
 
   // 第一步裡被碰撞（擦撞、撞擊、近戰、咬住）的王牌就失去這次王牌移動：敵人已經在眼前，看穿也來不及反應
   exposeDecoys(ctx);
@@ -156,6 +159,7 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   const frozen = new Set(state.units.filter((u) => u.status === 'active' && !aces.has(u.id)).map((u) => u.id));
   const result = simulateMovement(ctx, plans, stance, frozen);
   settleMomentum(ctx, plans, aces, new Set(), result.stopped);
+  movePods(ctx, plans, aces, (id) => inGrapple(state, id));
   const velocity = { ...info.velocity };
   for (const id of aces) velocity[id] = result.velocity[id] ?? { x: 0, y: 0 };
   exposeDecoys(ctx);
@@ -208,8 +212,9 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   for (const u of order) {
     if (u.status !== 'active') continue;
     const plan = actionsByPlayer[u.owner][u.id] ?? defaultAction();
+    const podOrders = Object.entries(plan.pods ?? {}).filter(([, t]) => t?.length);
     if (bumped.has(u.id)) {
-      if (plan.action.type !== 'none' || plan.swap) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
+      if (plan.action.type !== 'none' || plan.swap || podOrders.length) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
       continue;
     }
     let actionUsed = false;
@@ -218,16 +223,41 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       doSwap(ctx, u, plan.swap.hand, plan.swap.equip);
       actionUsed = !(drawn ? freeDraw(u, drawn) : pilotOf(u).abilities.includes('quick_draw'));
     }
+    // 指揮炮群：無線的佔這回合的行動，線控的不佔
+    let wiredFired = false;
+    let usedBy = '換武器用掉了動作';
+    if (podOrders.length) {
+      if (inGrapple(state, u.id)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '纏鬥中不能指揮炮群' });
+      else {
+        const wireless = (id: string) => !psycommuOf(u.equipment.find((e) => e.id === id) ?? { id: '', defId: '', location: 'stowed' })?.wired;
+        const orders: Record<string, string[]> = {};
+        for (const [id, targets] of podOrders) {
+          if (wireless(id) && actionUsed) ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${usedBy}，不能指揮炮群` });
+          else orders[id] = targets;
+        }
+        const r = commandPods(ctx, turn, u, orders);
+        if (r.fired) revealed.add(u.id);
+        wiredFired = r.wired;
+        if (Object.keys(orders).some(wireless)) {
+          actionUsed = true;
+          usedBy = '指揮感應炮用掉了動作';
+        }
+      }
+    }
     if (plan.action.type === 'none') continue;
     if (inGrapple(state, u.id)) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '纏鬥中不能射擊、鎖定或用道具' });
       continue;
     }
     if (actionUsed) {
-      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '換武器用掉了動作' });
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: usedBy });
       continue;
     }
-    if (doAction(ctx, turn, u, plan)) revealed.add(u.id);
+    if (doAction(ctx, turn, u, plan)) {
+      revealed.add(u.id);
+      // 線控炮群和本體同一回合都開火：分心操作，壓力再 +1
+      if (wiredFired && plan.action.type === 'shoot') addStress(ctx, u, C.PSYCOMMU_DUAL_STRESS, '同時操作有線臂與本體武器');
+    }
   }
 
   // 所有射擊結算完才結算纏鬥（射進纏鬥的人不會因為順序晚而佔便宜）
@@ -252,6 +282,9 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       const next = m > 0 ? Math.max(0, m - decay) : Math.min(0, m + decay);
       u.momentum = min > 0 ? Math.max(min, next) : next;
     }
+
+  // 回合結束：炮群（母機退場就消失；放著炮群壓力 +1）
+  podUpkeep(ctx);
 
   // 回合結束：壓力分級、恢復
   for (const u of state.units) {
@@ -453,6 +486,22 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan): boo
     if (w && w.ammo !== undefined) w.ammo = Math.max(0, w.ammo - 1);
     popDecoy(ctx, action.target, u.id, action.type === 'shoot' ? '被擊中，原來是氣球' : '鎖定後發現是氣球');
     return true;
+  }
+  // 射擊炮群
+  const pod = findPod(ctx.state, action.target);
+  if (pod) {
+    if (action.type === 'lock' || !podSeen(ctx.state, pod.mother, pod.equip, u.owner)) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: action.type === 'lock' ? '炮群不能鎖定' : '看不到炮群' });
+      return false;
+    }
+    const w = readyRanged(u).find((e) => e.id === action.weapon);
+    if (!w || (w.ammo !== undefined && w.ammo <= 0)) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: w ? '彈藥耗盡' : '沒有可用的射擊武器' });
+      return false;
+    }
+    if (shootPod(ctx, turn, u, w, pod.mother, pod.equip)) return true;
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '炮群不在射程內' });
+    return false;
   }
   const target = ctx.state.units.find((x) => x.id === action.target);
   if (!target || target.status !== 'active') {

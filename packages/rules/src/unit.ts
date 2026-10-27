@@ -26,8 +26,11 @@ const onHead = (u: Gear, e: EquipState): boolean => !!e.host && u.parts[e.host]?
 /** 這隻手還在而且能握持（沒有手的機型永遠不行；外裝甲鎖住武器時也不行） */
 export function handUsable(u: Gear, hand: Hand): boolean {
   const p = handPart(u, hand);
-  return !!p && partAlive(u, p) && !handBlocked(u, hand) && !weaponsLocked(u);
+  return !!p && partAlive(u, p) && !handBlocked(u, hand) && !weaponsLocked(u) && !armOut(u, hand);
 }
+
+/** 這隻手（有線臂）放出去了 */
+export const armOut = (u: Gear, hand: Hand): boolean => u.equipment.some((e) => !!e.pod && !!EQUIPMENT[e.defId].psycommu?.wired && !!e.host && handOfPart(u, e.host) === hand);
 
 type Gear = { parts: Record<string, PartState>; equipment: EquipState[] };
 
@@ -68,7 +71,8 @@ export function hasFreeHand(u: UnitState): boolean {
 export function readyRanged(u: Gear): EquipState[] {
   const held = (['right', 'left'] as Hand[]).map((h) => heldItem(u, h)).filter((e): e is EquipState => !!e);
   const fixed = u.equipment.filter((e) => alwaysReady(e) && equipAlive(u, e) && (!weaponsLocked(u) || onHead(u, e)));
-  return [...held, ...fixed].filter((e) => EQUIPMENT[e.defId].kind === 'ranged');
+  // 放出去的炮群只能用指揮的方式開火
+  return [...held, ...fixed].filter((e) => EQUIPMENT[e.defId].kind === 'ranged' && !e.pod);
 }
 
 /** 能用的近戰武器：手上的優先，沒有就用外掛或內建的（薩克的肩部尖刺、古夫的熱能鞭） */
@@ -230,6 +234,11 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
     }
   }
   if (plan.purge && !armorOf(u)) errors.push(`${u.label}：沒有可以拋棄的外裝甲`);
+  for (const id of Object.keys(plan.pods ?? {})) {
+    const e = u.equipment.find((x) => x.id === id);
+    if (!e || !EQUIPMENT[e.defId].psycommu) errors.push(`${u.label}：沒有這個感應武器`);
+    else if (!pilotOf(u).abilities.some((x) => x === 'newtype' || x === 'cyber_newtype')) errors.push(`${u.label}：駕駛不是新人類或強化人，不能用感應武器`);
+  }
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
@@ -240,6 +249,13 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
 export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   const errors: string[] = [];
   const a = plan.action;
+  for (const [id, targets] of Object.entries(plan.pods ?? {})) {
+    const e = u.equipment.find((x) => x.id === id);
+    const ps = e && EQUIPMENT[e.defId].psycommu;
+    if (!ps) errors.push(`${u.label}：沒有這個炮群`);
+    else if (!Array.isArray(targets) || targets.length > 2) errors.push(`${u.label}：炮群最多分給兩個目標`);
+    else if (!ps.wired && targets.length && a.type !== 'none') errors.push(`${u.label}：指揮無線炮群會用掉這回合的動作`);
+  }
   if ((a.type === 'smoke' || a.type === 'decoy') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
   if (plan.swap) {
     const target = plan.swap.equip;

@@ -17,6 +17,7 @@ export * from './match';
 export * from './ai';
 export * from './record';
 export * from './pursuit';
+export * from './psycommu';
 export * from './objectives';
 export * from './scenarios';
 export * from './terrain';
