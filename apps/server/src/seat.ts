@@ -34,6 +34,11 @@ import {
   relativeSpeed,
   useContent,
   worldPose,
+  canSee,
+  coveringShield,
+  relativeAngle,
+  sensorRange,
+  tailing,
   type ContentPack,
   type GameEvent,
   type PlayerView,
@@ -114,9 +119,29 @@ function maneuverTable(u: UnitView): string {
     // 路徑上會不會撞到大隕石（只看自己，不含其他機體）
     const rocks = view!.state.obstacles.filter((o) => o.kind === 'rock');
     const hit = Array.from({ length: 25 }, (_, i) => worldPose(path, i / 24).pos).some((p) => rocks.some((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + radiusOf(u)));
-    rows.push(`${id}(${parseManeuver(id).name}) → ${pt(end.pos)} 朝${deg(end.facing)}° 終速${parseManeuver(id).endMomentum} 推-${c.propellant} 壓+${c.stress}${hit ? ' ⚠撞隕石' : ''}`);
+    rows.push(`${id}→${pt(end.pos)}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠撞隕石' : ''}`);
   }
-  return rows.map((r) => `    ${r}`).join('\n');
+  return `    ${rows.join('；')}`;
+}
+
+/** 射擊的提示：對方的盾擋不擋得到、射擊線、自己是不是正面射界外開火 */
+function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: number | undefined): string {
+  const tags: string[] = [];
+  if (coveringShield({ ...t, facing: t.facing } as unknown as UnitState, from)) tags.push('對方盾弧內（可能被盾擋）');
+  else if (t.equipment.some((e) => EQUIPMENT[e.defId]?.kind === 'shield')) tags.push('盾弧外');
+  if (cover === 'field') tags.push(`穿過隕石群 −${config.FIELD_SHOT_PENALTY}`);
+  if (cover === 'smoke') tags.push(`穿過煙霧 −${config.SMOKE_SHOT_PENALTY}`);
+  if (arc === undefined && relativeAngle({ pos: from, facing: u.facing }, t.pos) > (config.OFF_FRONT_DEG * Math.PI) / 180) tags.push(`我方正面射界外 −${config.OFF_FRONT_PENALTY}`);
+  return tags.length ? `（${tags.join('・')}）` : '';
+}
+
+/** 我方這台現在被哪些敵機看到、在誰的正面射界、被誰咬住背後（追擊） */
+function threatLine(u: UnitView, foes: UnitView[]): string {
+  const live = foes.filter((e) => e.status === 'active' && !e.hidden);
+  const sees = live.filter((e) => canSee(view!.state.obstacles, e.pos, sensorRange(e), u.pos, radiusOf(e) + radiusOf(u))).map((e) => e.id);
+  const front = live.filter((e) => relativeAngle(e, u.pos) <= (config.OFF_FRONT_DEG * Math.PI) / 180).map((e) => e.id);
+  const tail = live.filter((e) => tailing(e, u)).map((e) => e.id);
+  return `  威脅：看得到我 [${sees.join(',') || '無'}]　我在其正面射界 [${front.join(',') || '無'}]　咬住我背後（可追擊）[${tail.join(',') || '無'}]`;
 }
 
 /** 行動步驟：每件能開火的武器對每台看得到的敵機的估計命中率 */
@@ -125,8 +150,9 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
   for (const w of readyRanged(u)) {
     const def = EQUIPMENT[w.defId];
     for (const t of enemies) {
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, t.pos) });
-      rows.push(`${w.id} ${def.name} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%` : '打不到'}`);
+      const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos);
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover });
+      rows.push(`${w.id} ${def.name} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}` : '打不到'}`);
     }
   }
   // 放出去的炮群：從炮群的位置算（炮群本身當作不動）
@@ -135,8 +161,9 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
     const def = EQUIPMENT[e.defId];
     const at = e.pod.pos;
     for (const t of enemies) {
-      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
-      rows.push(`${e.id} 炮群@${pt(at)} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%（每支 ${def.shots ?? 1} 發）` : '打不到'}`);
+      const cover = lineOfFire(view!.state.obstacles, at, t.pos);
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover });
+      rows.push(`${e.id} 炮群@${pt(at)} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%（每支 ${def.shots ?? 1} 發）${shotTags(u, at, t, cover, 0)}` : '打不到'}`);
     }
   }
   return rows.map((r) => `    ${r}`).join('\n');
@@ -163,6 +190,7 @@ function render(v: PlayerView): string {
   for (const u of mine) {
     out.push(unitLine(u));
     if (u.status !== 'active') continue;
+    out.push(threatLine(u, foes));
     const grappled = s.grapples.some((g) => g.a === u.id || g.b === u.id);
     if ((v.phase === 'move' || (v.phase === 'ace' && v.aceUnits?.includes(u.id))) && !grappled) out.push(`  可用機動：\n${maneuverTable(u)}`);
     if (v.phase === 'action') {
@@ -182,8 +210,8 @@ function render(v: PlayerView): string {
   out.push(`\n指令格式（寫到 ${resolve(dir, 'orders.json')}）：`);
   out.push(
     {
-      deploy: `{"t":"deploy","deploy":{"<id>":{"x":..,"y":..,"facing":弧度,"momentum":..}}}`,
-      move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance":"shoot|melee","facingOffset":0,"limiter":false,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}`,
+      deploy: `{"t":"deploy","deploy":{"<id>":{"x":..,"y":..,"facingDeg":角度（45 的倍數，-90 是朝 -y）,"momentum":..}}}`,
+      move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 0/±45/±90/180，正的是右轉）,"limiter"?:false,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
       ace: `{"t":"moves","moves":{"<王牌 id>":{...同上}}}  要下指令的：${(v.aceUnits ?? []).join(', ')}`,
       pursuit: `{"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}`,
       action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":".."}|{"type":"lock","target":".."}|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swap"?:{"hand":"right|left","equip":"..|null"},"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]}}}}`,
@@ -250,6 +278,41 @@ function needsOrders(v: PlayerView): boolean {
   return true;
 }
 
+/** 送出前整理指令：部署朝向可以用角度（facingDeg），弧度對齊到 45° 的倍數；移動指令省略的欄位補預設值 */
+function normalizeOrders(msg: any): any {
+  const snap = (r: number) => Math.round(r / (Math.PI / 4)) * (Math.PI / 4);
+  if (msg?.t === 'deploy')
+    for (const d of Object.values(msg.deploy ?? {}) as any[]) {
+      if (typeof d.facingDeg === 'number') d.facing = (d.facingDeg * Math.PI) / 180;
+      delete d.facingDeg;
+      if (typeof d.facing === 'number') d.facing = snap(d.facing);
+    }
+  if (msg?.t === 'moves')
+    for (const [id, m] of Object.entries(msg.moves ?? {}) as [string, any][]) msg.moves[id] = { stance: 'shoot', facingOffset: 0, limiter: false, ...m };
+  return msg;
+}
+
+/** 開場寫一份目錄：機型、武器、駕駛的數值（選隊和對戰時查） */
+function writeCatalog() {
+  const out: string[] = ['== 機型（id 名稱 費用｜重量級 瞄準 迴避 半徑 環境｜部位 耐久/權重｜機動盤最高速）=='];
+  for (const c of Object.values(CHASSIS)) {
+    const parts = Object.entries(c.parts).map(([id, p]) => `${p.name}${p.durability}/${p.weight}${p.role === 'core' ? '核心' : ''}`).join(' ');
+    const top = Math.max(...c.dial.map((d) => parseManeuver(d).speed));
+    out.push(`${c.id} ${c.name} ${c.cost ?? 0}｜重${c.weightClass} 瞄${c.aim} 迴避${c.evasion} 半徑${c.radius ?? config.BASE_RADIUS} [${(c.envs ?? ['space', 'gravity']).join(',')}]${c.closeCombat === false ? ' 不能近戰' : ''}｜${parts}｜最高速${top}${c.builtIn?.length ? `｜內建 ${c.builtIn.map((b) => EQUIPMENT[b.defId]?.name).join('、')}` : ''}`);
+  }
+  out.push('', '== 裝備（id 名稱 費用｜傷害×發數 模式｜距離修正 R1/R2/R3｜其他）==');
+  for (const e of Object.values(EQUIPMENT)) {
+    const r = e.ranges ? `R1 ${e.ranges[1] ?? '—'} R2 ${e.ranges[2] ?? '—'} R3 ${e.ranges[3] ?? '—'}` : '';
+    const extra = [e.arc !== undefined ? `射界±${e.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : '', e.pointBlank === false ? '不能零距離' : '', e.meleeDice ? `近戰骰+${e.meleeDice}` : '', e.psycommu ? `感應武器 ${JSON.stringify(e.psycommu)}` : '', e.tags?.length ? e.tags.join(',') : ''].filter(Boolean).join(' ');
+    out.push(`${e.id} ${e.name} ${e.cost ?? 0}｜${e.kind}${e.damage ? ` ${e.damage}×${e.shots ?? 1} ${e.mode ?? 'focused'}` : ''}｜${r}｜耐久${e.durability}${extra ? ` ${extra}` : ''}`);
+  }
+  out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
+  for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
+  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −隕石群 ${config.FIELD_SHOT_PENALTY}；超過 100 的部分是爆擊`);
+  writeFileSync(resolve(dir, 'catalog.txt'), out.join('\n'));
+}
+writeCatalog();
+
 let ws: WebSocket;
 function connect() {
   ws = new WebSocket(`ws://localhost:${PORT}/ws?room=${encodeURIComponent(room)}&seat=${seat}`);
@@ -301,7 +364,7 @@ setInterval(() => {
   const file = resolve(dir, 'orders.json');
   if (!existsSync(file) || ws.readyState !== WebSocket.OPEN) return;
   try {
-    const msg = JSON.parse(readFileSync(file, 'utf-8'));
+    const msg = normalizeOrders(JSON.parse(readFileSync(file, 'utf-8')));
     ws.send(JSON.stringify(msg));
     renameSync(file, resolve(dir, `sent-${Date.now()}.json`));
     console.log(`SENT ${msg.t}`);
