@@ -20,19 +20,19 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 8
+        "durability": 10
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 4
+        "durability": 5
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 4
+        "durability": 5
       },
       "pack": {
         "name": "推進背包",
@@ -94,19 +94,19 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 6
+        "durability": 8
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 3
+        "durability": 4
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 3
+        "durability": 4
       },
       "pack": {
         "name": "推進背包",
@@ -158,7 +158,7 @@
       "rbank-L-1",
       "rbank-R-1"
     ],
-    "cost": 8
+    "cost": 9
   },
   "X-02": {
     "id": "X-02",
@@ -175,7 +175,7 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 12
+        "durability": 14
       },
       "rarm": {
         "name": "右臂",
@@ -239,7 +239,7 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 11
+        "durability": 13
       },
       "rarm": {
         "name": "右臂",
@@ -309,7 +309,7 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 9
+        "durability": 11
       },
       "rarm": {
         "name": "右臂",
@@ -475,7 +475,7 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 10
+        "durability": 12
       },
       "rarm": {
         "name": "右臂",

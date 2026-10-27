@@ -15,7 +15,7 @@ export interface ContentPack {
   rosters: [RosterEntry[], RosterEntry[]];
 }
 
-export const BUILTIN_VERSION = 'builtin-3';
+export const BUILTIN_VERSION = 'builtin-4';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;
@@ -29,7 +29,7 @@ export function useContent(pack: ContentPack): void {
   active = pack.version;
 }
 
-const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility'];
+const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility', 'module'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle', 'turret'];
 const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot', 'brawler', 'cyber_newtype', 'ship_killer'];

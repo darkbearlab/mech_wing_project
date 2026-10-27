@@ -6,7 +6,11 @@ import { EQUIPMENT } from '../src/data';
 import { Match } from '../src/match';
 import { resolveActions } from '../src/resolve';
 import { Rng } from '../src/rng';
-import { buildingBlocks, generateCity, inFootprint, lineOfFire, supportAt } from '../src/terrain';
+import { buildingBlocks, generateCity, inFootprint, lineOfFire, supportAt, wallPenetration } from '../src/terrain';
+import { damageUnit, type Ctx } from '../src/damage';
+import { filterEvents } from '../src/visibility';
+import { createGame, pickRosters } from '../src/setup';
+import { DEFAULT_SETTINGS } from '../src/objectives';
 import type { GameEvent, GameState, Obstacle } from '../src/types';
 import { busyHands, validateAction, validateMove } from '../src/unit';
 import { canSee } from '../src/vision';
@@ -86,7 +90,7 @@ describe('高打低', () => {
     expect(at(0, 2).chance).toBe(at(0, 0).chance);
   });
 
-  it('從高處命中：每發傷害 +HIGH_GROUND_DAMAGE', () => {
+  it('高出 HIGH_GROUND_DAMAGE_FROM 層以上命中：每發傷害 +HIGH_GROUND_DAMAGE', () => {
     const run = (z: number) => {
       const st = makeState([
         { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 },
@@ -99,7 +103,8 @@ describe('高打低', () => {
     };
     // 同一個種子：命中與否一樣，高處多出傷害
     const low = run(0);
-    const high = run(1);
+    const high = run(C.HIGH_GROUND_DAMAGE_FROM);
+    expect(run(C.HIGH_GROUND_DAMAGE_FROM - 1)).toBe(low);
     expect(low).toBeGreaterThan(0);
     expect(high).toBe(low + C.HIGH_GROUND_DAMAGE);
   });
@@ -236,5 +241,86 @@ describe('城市地圖', () => {
       }
       expect(supportAt(city, { x: 12, y: 1 })).toBe(0);
     }
+  });
+});
+
+describe('試玩回饋的修正', () => {
+  const at = (x: number, y = 5, z = 0, facingDeg = 0) => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x, y, facingDeg },
+      { entry: rifleX00, owner: 1, x: 20, y: 20, facingDeg: 180 },
+    ]);
+    if (z) st.units[0].z = z;
+    return st;
+  };
+
+  it('撞牆後彈開、機頭轉成沿著牆，下回合不會卡在牆上', () => {
+    const st = withCity(at(2), [bld('b', 6, 5, 1, 2, 3)]);
+    const m = move(st, 'straight-S-3');
+    const u = m.state.units[0];
+    expect(wallPenetration(st.obstacles[0], u.pos, 0.5)).toBeLessThan(-0.2);
+    const next = new Match(8, m.state);
+    next.submitMoves(0, { [u.id]: plan({ maneuver: 'straight-S-2' }) });
+    next.submitMoves(1, { [m.state.units[1].id]: plan({ maneuver: 'hover-S-0' }) });
+    expect(next.eventsFor(0).some((e) => e.type === 'obstacle')).toBe(false);
+  });
+
+  it('攀升是跳躍：從樓頂跳過街道，撞上對面高 2 層以內的樓就爬上去', () => {
+    // 樓頂 2 層 → 隔 1.6 格街道 → 4 層樓
+    const st = withCity(at(4.5, 5, 2), [bld('a', 4, 5, 1, 2, 2), bld('b', 7.6, 5, 1, 2, 4)]);
+    const m = move(st, 'straight-S-3', true);
+    expect(m.state.units[0].z).toBe(4);
+    expect(m.eventsFor(0).some((e) => e.type === 'obstacle')).toBe(false);
+  });
+
+  it('沒攀升走出樓頂一樣當場落下', () => {
+    const st = withCity(at(4.5, 5, 2), [bld('a', 4, 5, 1, 2, 2), bld('b', 7.6, 5, 1, 2, 4)]);
+    const m = move(st, 'straight-S-3');
+    expect(m.state.units[0].z ?? 0).toBe(0);
+    expect(m.eventsFor(0).some((e) => e.type === 'obstacle')).toBe(true);
+  });
+
+  it('武器被打穿：多出來的傷害打進拿著它的手臂', () => {
+    const st = at(5);
+    const u = st.units[0];
+    const rifle = u.equipment.find((e) => e.defId === 'beam_rifle')!;
+    const ctx: Ctx = { state: st, rng: new Rng(1), events: [] };
+    damageUnit(ctx, u, EQUIPMENT.beam_rifle.durability + 2, 'focused', rifle.id);
+    expect(u.parts[rifle.id].destroyed).toBe(true);
+    expect(u.parts.rarm.damage).toBe(2);
+  });
+
+  it('城市地圖：戰機在 FLIGHT_LEVEL 層飛，不會落下', () => {
+    const roster = [{ chassis: 'CF-01', pilot: 'veteran', equipment: [] }, ...pickRosters(1)[0].slice(1)] as RosterEntry[];
+    const st = createGame(5, [roster, pickRosters(1)[1]], { ...DEFAULT_SETTINGS, terrain: 'city', environment: 'gravity' });
+    const jet = st.units.find((u) => u.chassisId === 'CF-01')!;
+    expect(jet.z).toBe(C.FLIGHT_LEVEL);
+  });
+
+  it('戰爭迷霧：看不到的敵機爬樓、落下的事件不送給對手', () => {
+    const st = at(5);
+    st.visible = [[], []];
+    const ev = filterEvents([{ type: 'elevate', t: 0.5, unit: st.units[1].id, z: 2, how: 'climb' }], st, 0);
+    expect(ev).toEqual([]);
+  });
+
+  it('纏鬥中的機體沒給移動指令也可以', () => {
+    const st = at(5);
+    st.units[1].pos = { x: 6, y: 5 };
+    st.grapples.push({ a: st.units[0].id, b: st.units[1].id, advantage: null });
+    const m = new Match(9, st);
+    expect(m.submitMoves(0, {})).toEqual([]);
+  });
+
+  it('錨鉤：攀升多爬 1 層、速度上限 +2', () => {
+    const hooked: RosterEntry = { chassis: 'X-00', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['grapnel', 'mount', 'legs']] };
+    const st = makeState([
+      { entry: hooked, owner: 0, x: 2, y: 5, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 20, y: 20, facingDeg: 180 },
+    ]);
+    st.obstacles = [bld('b', 6, 5, 1, 2, C.CLIMB_LEVELS + 1)];
+    expect(validateMove(st.units[0], plan({ maneuver: `straight-S-${C.CLIMB_MAX_SPEED + 1}`, climb: true }), false)).toEqual([]);
+    const m = move(st, 'straight-S-3', true);
+    expect(m.state.units[0].z).toBe(C.CLIMB_LEVELS + 1);
   });
 });

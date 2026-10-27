@@ -5,10 +5,11 @@ import * as C from './config';
 import { meleeClash } from './melee';
 import { addStress, damageUnit, dealtBy, spendPropellant, type Ctx } from './damage';
 import { pushOutOfWall, wallPenetration } from './terrain';
+import { CHASSIS } from './data';
 import { DEG, add, angleDiff, angleOf, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
 import type { ContactResult, GameState, MovePlan, Obstacle, Stance, UnitState, Vec } from './types';
-import { chassisOf, moveSpeed, pilotOf, readyMelee } from './unit';
+import { chassisOf, climbLimits, moveSpeed, pilotOf, readyMelee } from './unit';
 
 interface Mover {
   unit: UnitState;
@@ -31,6 +32,9 @@ export interface MoveResult {
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
+/** 不能停的機體（戰機）在有建築的地圖上一直在飛，不會落下 */
+const flying = (u: { chassisId: string }) => (CHASSIS[u.chassisId]?.minSpeed ?? 0) > 0;
+
 /** 兩台機體在不同高度（一台在樓頂、一台在街上）就不會接觸 */
 const sameLevel = (a: UnitState, b: UnitState) => Math.abs((a.z ?? 0) - (b.z ?? 0)) < 1;
 
@@ -44,7 +48,12 @@ function footing(obstacles: Obstacle[], p: Vec, r: number, z: number): number {
 /** 落到腳下的高度：離開樓頂邊緣（底板完全離開）就掉到下面的樓頂或地面 */
 export function settleHeights(state: GameState, events?: Ctx['events'], t = 1): void {
   for (const u of state.units) {
-    if (!u.z) continue;
+    if (u.status !== 'active' && u.status !== 'unconscious') continue;
+    // 被擊退、摔進比自己站的地方高的建築：推到牆外
+    for (const o of state.obstacles)
+      if (o.kind === 'building' && o.levels! > (u.z ?? 0) && wallPenetration(o, u.pos, radiusOf(u)) > 1e-6) u.pos = pushOutOfWall(o, u.pos, radiusOf(u));
+    // 飛行中的戰機不會落下
+    if (!u.z || flying(u)) continue;
     const z = footing(state.obstacles, u.pos, radiusOf(u), u.z);
     if (z >= u.z) continue;
     u.z = z || undefined;
@@ -144,7 +153,7 @@ export function simulateMovement(
         const pen = wallPenetration(o, u.pos, r);
         if (pen <= 0 || pen <= wallPenetration(o, before, r) + 1e-6) continue;
         const z = u.z ?? 0;
-        if (m.plan?.climb && o.levels! - z <= C.CLIMB_LEVELS && u.propellant >= C.CLIMB_PROPELLANT) {
+        if (m.plan?.climb && o.levels! - z <= climbLimits(u).levels && u.propellant >= C.CLIMB_PROPELLANT) {
           u.z = o.levels;
           spendPropellant(ctx, u, C.CLIMB_PROPELLANT);
           ctx.events.push({ type: 'elevate', t, unit: u.id, z: o.levels!, how: 'climb' });
@@ -155,13 +164,23 @@ export function simulateMovement(
         bumped.add(u.id);
         const damage = Math.max(0, Math.round(m.path.length) - C.ROCK_SAFE_SPEED);
         ctx.events.push({ type: 'obstacle', t, unit: u.id, obstacle: o.id, damage });
+        // 彈開一點，機頭轉成沿著牆面（比較接近原本朝向的那一邊），下回合才走得開，不會一直貼著牆卡住
+        const out = pushOutOfWall(o, u.pos, r + C.ROCK_BOUNCE_GAP);
+        const cx = Math.max(o.x - o.hx!, Math.min(o.x + o.hx!, out.x));
+        const cy = Math.max(o.y - o.hy!, Math.min(o.y + o.hy!, out.y));
+        const normal = angleOf({ x: out.x - cx, y: out.y - cy });
+        const tangents = [normal + Math.PI / 2, normal - Math.PI / 2];
+        u.facing = Math.abs(angleDiff(tangents[0], u.facing)) <= Math.abs(angleDiff(tangents[1], u.facing)) ? tangents[0] : tangents[1];
+        u.pos = out;
+        ctx.events.push({ type: 'reposition', unit: u.id, to: { ...u.pos } });
         if (damage) {
           damageUnit(ctx, u, damage, 'scattered');
           addStress(ctx, u, damage, '撞上建築');
         }
         break;
       }
-      if (u.z) {
+      // 攀升（跳躍）中的機體在空中，移動結束才落下；這樣才跳得過街道到對面的樓頂
+      if (u.z && !m.plan?.climb && !flying(u)) {
         const z = footing(ctx.state.obstacles, u.pos, r, u.z);
         if (z < u.z) {
           u.z = z || undefined;

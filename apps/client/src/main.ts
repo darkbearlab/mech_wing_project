@@ -31,6 +31,7 @@ import {
   relativeAngle,
   lineOfFire,
   climbBlocked,
+  climbLimits,
   wallPenetration,
   supportAt,
   sensorRange,
@@ -2470,7 +2471,7 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   const climbBtn = view!.state.obstacles.some((o) => o.kind === 'building')
     ? tip(
         `<button class="${plan.climb ? 'on' : ''}" data-climb="1" ${climbWhy && !plan.climb ? 'data-off="1"' : ''}>攀升</button>`,
-        `攀升（跳躍、蹬牆）：這回合撞到 ${config.CLIMB_LEVELS} 層以內的牆就爬上樓頂，每爬一次推進劑 −${config.CLIMB_PROPELLANT}。速度 ${config.CLIMB_MAX_SPEED} 以下才能用（太快蹬不了牆）。走出樓頂邊緣會自己掉下去，不用攀升。${climbWhy ? `
+        `攀升（跳躍、蹬牆）：這回合撞到 ${climbLimits(u as unknown as UnitState).levels} 層以內的牆就爬上樓頂（在空中跳得過街道，移動結束才落下），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。速度 ${climbLimits(u as unknown as UnitState).speed} 以下才能用（太快蹬不了牆）。走出樓頂邊緣會自己掉下去，不用攀升。${climbWhy ? `
 現在不能用：${climbWhy}` : ''}`,
       )
     : '';

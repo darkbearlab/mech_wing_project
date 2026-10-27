@@ -52,7 +52,9 @@ export interface EquipDef {
   cost?: number;
   id: string;
   name: string;
-  kind: 'ranged' | 'melee' | 'shield' | 'tank' | 'armor' | 'utility';
+  kind: 'ranged' | 'melee' | 'shield' | 'tank' | 'armor' | 'utility' | 'module';
+  /** 輔助模組（kind module）：錨鉤這類被動裝備，攀升能多爬幾層、速度上限多多少 */
+  climbBoost?: { levels: number; speed: number };
   /** 外裝甲（kind armor）：穿著時迴避減少、最大加減速減少；lockWeapons 為 true 時只有頭部武器能用 */
   evasionPenalty?: number;
   accelPenalty?: number;

@@ -124,6 +124,7 @@ function equipBrief(id: string): string {
   else if (d.kind === 'tank') parts.push(`推進劑 +${d.fuel ?? 0}`);
   else if (d.kind === 'armor') parts.push('外裝甲');
   else if (d.kind === 'utility') parts.push(d.utility === 'smoke' ? '煙霧彈' : '欺敵氣球');
+  else if (d.climbBoost) parts.push(`攀升 +${d.climbBoost.levels} 層・速度上限 +${d.climbBoost.speed}`);
   if (d.tags?.includes('quickDraw')) parts.push('快拔');
   if (d.tags?.includes('volatile')) parts.push('會引爆');
   parts.push(`費用 ${d.cost ?? 0}`);
@@ -133,7 +134,7 @@ function equipBrief(id: string): string {
 const KIND_TEXT: Record<GearSlot['kind'], string> = {
   hand: '手持武器、盾牌',
   rack: '收著的手持武器（盾牌不能收）',
-  mount: '外掛武器、燃料槽',
+  mount: '外掛武器、燃料槽、輔助模組',
   builtin: '手臂內建武器',
   housed: '藏在手臂裡的武器',
 };

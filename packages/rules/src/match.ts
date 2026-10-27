@@ -67,7 +67,10 @@ export class Match {
     if (this.phase === 'ace') return this.submitAce(player, moves);
     if (this.phase !== 'move') return ['現在不是移動階段'];
     const errors: string[] = [];
+    moves = { ...moves };
     for (const u of this.ownActive(player)) {
+      // 纏鬥中的機體本來就不移動：沒給指令就補一個懸停
+      if (!moves[u.id] && inGrapple(this.state, u.id)) moves[u.id] = { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false };
       const plan = moves[u.id];
       if (!plan) errors.push(`${u.label}：缺少移動指令`);
       else errors.push(...validateMove(u, plan, inGrapple(this.state, u.id)));

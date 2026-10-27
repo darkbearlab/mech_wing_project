@@ -341,7 +341,7 @@ describe('部位破壞', () => {
     const st = makeState([{ entry: saberX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
     const u = st.units[0];
     const ctx = ctxFor(st);
-    damageUnit(ctx, u, 4, 'focused', 'rarm');
+    damageUnit(ctx, u, 5, 'focused', 'rarm');
     expect(heldItem(u, 'right')).toBeNull();
     damageUnit(ctx, u, 1, 'focused', 'rarm');
     expect(u.parts.torso.damage).toBe(1);
@@ -350,7 +350,7 @@ describe('部位破壞', () => {
 
   it('軀幹破壞 → 失去戰鬥能力', () => {
     const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
-    damageUnit(ctxFor(st), st.units[0], 8, 'focused', 'torso');
+    damageUnit(ctxFor(st), st.units[0], 10, 'focused', 'torso');
     expect(st.units[0].status).toBe('destroyed');
   });
 });
@@ -754,7 +754,7 @@ describe('不需要準備的武器', () => {
     // 拿在手上的內藏武器沒有自己的部位：手臂被打爆時跟著失效，不會出錯
     const ctx: Ctx = { state: m.state, rng: new Rng(2), events: [] };
     const after = m.state.units[0];
-    damageUnit(ctx, after, 3, 'focused', 'larm');
+    damageUnit(ctx, after, 4, 'focused', 'larm');
     expect(equipAlive(after, byDef(after, 'arm_saber'))).toBe(false);
   });
 });
@@ -904,10 +904,10 @@ describe('溢出傷害標籤', () => {
     const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
     const u = st.units[0];
     const ctx: Ctx = { state: st, rng: new Rng(3), events: [] };
-    damageUnit(ctx, u, 7, 'focused', 'larm', true); // 左臂耐久 4，溢出 3
+    damageUnit(ctx, u, 7, 'focused', 'larm', true); // 左臂耐久 5，溢出 2
     const dmg = ctx.events.filter((e) => e.type === 'damage') as Extract<GameEvent, { type: 'damage' }>[];
     expect(dmg[0]).toMatchObject({ part: 'larm', amount: 7, destroyed: true });
-    expect(dmg.slice(1).map((e) => e.amount)).toEqual([1, 1, 1]);
+    expect(dmg.slice(1).map((e) => e.amount)).toEqual([1, 1]);
 
     const st2 = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
     const ctx2: Ctx = { state: st2, rng: new Rng(3), events: [] };

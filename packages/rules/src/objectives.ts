@@ -56,9 +56,9 @@ export const rosterCost = (r: RosterEntry[]): number => r.reduce((n, e) => n + e
 
 /** 隊伍規模：預算與機體數上限 */
 export const SCALES = {
-  small: { name: '小規模', budget: 50, maxUnits: 4, killScore: 30 },
-  standard: { name: '標準', budget: 85, maxUnits: 6, killScore: 50 },
-  large: { name: '大規模', budget: 130, maxUnits: 8, killScore: 80 },
+  small: { name: '小規模', budget: 50, maxUnits: 4, killScore: 20 },
+  standard: { name: '標準', budget: 85, maxUnits: 6, killScore: 35 },
+  large: { name: '大規模', budget: 130, maxUnits: 8, killScore: 55 },
 } as const;
 export type Scale = keyof typeof SCALES;
 
