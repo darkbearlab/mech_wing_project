@@ -133,6 +133,10 @@ export interface CameraInput {
   onClick(sx: number, sy: number): void;
   onHover(sx: number, sy: number): void;
   onLeave(): void;
+  /** 左鍵按下時：回傳 true 表示這次拖曳交給遊戲（例如部署時拖機體），鏡頭不平移 */
+  grab?(sx: number, sy: number): boolean;
+  dragTo?(sx: number, sy: number): void;
+  drop?(): void;
 }
 
 /**
@@ -140,7 +144,7 @@ export interface CameraInput {
  * 鍵盤：Q／E 旋轉、R 重置、T 切換俯視。
  */
 export function attachCameraControls(canvas: HTMLCanvasElement, cam: Camera, input: CameraInput) {
-  let drag: { button: number; rotate: boolean; x: number; y: number; moved: boolean } | null = null;
+  let drag: { button: number; rotate: boolean; x: number; y: number; moved: boolean; grab?: boolean } | null = null;
   const pos = (e: MouseEvent) => {
     const r = canvas.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -148,7 +152,8 @@ export function attachCameraControls(canvas: HTMLCanvasElement, cam: Camera, inp
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('mousedown', (e) => {
     const p = pos(e);
-    drag = { button: e.button, rotate: e.button === 2 || (e.button === 0 && e.shiftKey), x: p.x, y: p.y, moved: false };
+    const grab = e.button === 0 && !e.shiftKey && !!input.grab?.(p.x, p.y);
+    drag = { button: e.button, rotate: e.button === 2 || (e.button === 0 && e.shiftKey), x: p.x, y: p.y, moved: false, grab };
   });
   window.addEventListener('mousemove', (e) => {
     const p = pos(e);
@@ -160,7 +165,9 @@ export function attachCameraControls(canvas: HTMLCanvasElement, cam: Camera, inp
     const dy = p.y - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
     drag.moved = true;
-    if (drag.rotate) {
+    if (drag.grab) {
+      input.dragTo?.(p.x, p.y);
+    } else if (drag.rotate) {
       cam.rotate(dx * 0.008, -dy * 0.006);
     } else {
       const a = cam.unproject(drag.x, drag.y);
@@ -171,6 +178,7 @@ export function attachCameraControls(canvas: HTMLCanvasElement, cam: Camera, inp
     drag.y = p.y;
   });
   window.addEventListener('mouseup', (e) => {
+    if (drag?.grab) input.drop?.();
     if (drag && !drag.moved && drag.button === 0 && e.target === canvas) {
       const p = pos(e);
       input.onClick(p.x, p.y);

@@ -41,6 +41,11 @@ import {
   type ManeuverSpec,
   type MovePlan,
   type PursuitPlan,
+  type DeployPlan,
+  aiDeploy,
+  deployZone,
+  minSpeedOf,
+  Rng,
   type TurnPhase,
   type WinReason,
   CONTROL_RADIUS,
@@ -136,6 +141,32 @@ let moveDrafts: Record<string, MovePlan> = {};
 let actionDrafts: Record<string, ActionPlan> = {};
 /** 追擊步驟：各機體選的追擊（null 表示放棄） */
 let pursuitDrafts: Record<string, PursuitPlan | null> = {};
+/** 部署：各機體擺的位置、朝向與起始動能 */
+let deployDrafts: Record<string, DeployPlan> = {};
+/** 部署時正在拖的機體 */
+let dragging: string | null = null;
+
+const QUARTER = Math.PI / 4;
+const snapFacing = (f: number) => Math.round(f / QUARTER) * QUARTER;
+/** 起始動能的範圍：0–2，戰機至少最低速度 */
+const momentumRange = (u: UnitView): [number, number] => [Math.min(minSpeedOf(u), 2), Math.max(2, minSpeedOf(u))];
+/** 部署時機體顯示在擬定的位置 */
+function shownPose(u: UnitView): { pos: Vec; f: number } {
+  const d = view?.phase === 'deploy' ? deployDrafts[u.id] : undefined;
+  return d ? { pos: { x: d.x, y: d.y }, f: d.facing } : { pos: u.pos, f: u.facing };
+}
+/** 部署擺法的問題：和隊友重疊、壓到大隕石 */
+function deployProblem(u: UnitView): string | null {
+  const d = deployDrafts[u.id];
+  if (!d) return null;
+  const r = radiusOf(u);
+  if (view!.state.obstacles.some((o) => o.kind === 'rock' && Math.hypot(d.x - o.x, d.y - o.y) < o.r + r)) return '壓到大隕石';
+  for (const [id, q] of Object.entries(deployDrafts)) {
+    const o = id !== u.id ? unitView(id) : undefined;
+    if (o && Math.hypot(q.x - d.x, q.y - d.y) < radiusOf(o) + r + 0.1) return '和隊友重疊';
+  }
+  return null;
+}
 let draftKey = '';
 let selected: string | null = null;
 let pendingView: PlayerView | null = null;
@@ -309,8 +340,13 @@ function applyView(v: PlayerView) {
     moveDrafts = {};
     actionDrafts = {};
     pursuitDrafts = {};
+    deployDrafts = {};
     for (const u of ownUnits()) {
       if (u.status !== 'active') continue;
+      if (v.phase === 'deploy') {
+        const [lo, hi] = momentumRange(u);
+        deployDrafts[u.id] = { x: u.pos.x, y: u.pos.y, facing: snapFacing(u.facing), momentum: Math.max(lo, Math.min(hi, u.momentum)) };
+      }
       if (v.phase === 'move' || (v.phase === 'ace' && v.aceUnits?.includes(u.id))) moveDrafts[u.id] = initialMove(u);
       if (v.phase === 'action') actionDrafts[u.id] = { action: { type: 'none' } };
       // 追擊：先幫忙選好估計傷害最高的一槍，玩家可以改或放棄
@@ -457,8 +493,9 @@ function unitAt(sx: number, sy: number): UnitView | undefined {
   let best: UnitView | undefined;
   let bestD = Infinity;
   for (const u of view?.state.units ?? []) {
-    const top = pr(u.pos.x, u.pos.y, UNIT_Z);
-    const base = pr(u.pos.x, u.pos.y, 0);
+    const at = shownPose(u).pos;
+    const top = pr(at.x, at.y, UNIT_Z);
+    const base = pr(at.x, at.y, 0);
     if (!top.visible) continue;
     const d = Math.min(Math.hypot(top.x - sx, top.y - sy), Math.hypot(base.x - sx, base.y - sy));
     if (d < Math.max(12, top.k * 0.55) && d < bestD) {
@@ -471,6 +508,28 @@ function unitAt(sx: number, sy: number): UnitView | undefined {
 
 /** 行動步驟：已選裝備的本方機體點敵機＝設定目標；其他情況點機體＝選取查看 */
 attachCameraControls(canvas, cam, {
+  grab(sx, sy) {
+    if (!view || show || view.phase !== 'deploy' || view.submitted[view.you]) return false;
+    const hit = unitAt(sx, sy);
+    if (!hit || hit.owner !== view.you || !deployDrafts[hit.id]) return false;
+    dragging = hit.id;
+    selected = hit.id;
+    renderAll();
+    return true;
+  },
+  dragTo(sx, sy) {
+    const d = dragging ? deployDrafts[dragging] : undefined;
+    const w = cam.unproject(sx, sy);
+    if (!d || !w) return;
+    const z = deployZone(view!.you);
+    d.x = Math.round(Math.max(z.x0, Math.min(z.x1, w.x)) * 10) / 10;
+    d.y = Math.round(Math.max(z.y0, Math.min(z.y1, w.y)) * 10) / 10;
+  },
+  drop() {
+    if (dragging) touched.add(dragging);
+    dragging = null;
+    renderAll();
+  },
   onClick(sx, sy) {
     const hit = unitAt(sx, sy);
     if (!view || !hit || show) return;
@@ -501,9 +560,12 @@ function drawFrame(now: number) {
   if (!view) return;
   drawObjectives();
   if (!show) {
-    drawRanges();
-    drawPreviews();
-    drawUnits(view.state.units.map((u) => ({ u, pos: u.pos, f: u.facing })));
+    if (view.phase === 'deploy') drawDeployZones();
+    else {
+      drawRanges();
+      drawPreviews();
+    }
+    drawUnits(view.state.units.map((u) => ({ u, ...shownPose(u) })));
     drawHoverHint();
     placeCard();
     drawCardLink();
@@ -1084,6 +1146,34 @@ function drawPreviews() {
   }
 }
 
+/** 部署：自己的部署區反白，對方的部署區標示看不到 */
+function drawDeployZones() {
+  for (const p of [0, 1] as PlayerId[]) {
+    const z = deployZone(p);
+    const mine = p === view!.you;
+    polyWorld([
+      [z.x0, z.y0, 0],
+      [z.x1, z.y0, 0],
+      [z.x1, z.y1, 0],
+      [z.x0, z.y1, 0],
+      [z.x0, z.y0, 0],
+    ]);
+    g.fillStyle = color(p, mine ? 0.12 : 0.05);
+    g.fill();
+    g.strokeStyle = color(p, mine ? 0.7 : 0.25);
+    g.setLineDash([6, 4]);
+    g.stroke();
+    g.setLineDash([]);
+    // 標在左側，避開中央的達陣圈
+    const c = pr(z.x0 + 4, (z.y0 + z.y1) / 2, 0);
+    if (!c.visible) continue;
+    g.fillStyle = color(p, 0.9);
+    g.font = '12px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(mine ? '你的部署區' : '對方部署區（看不到）', c.x, c.y);
+  }
+}
+
 /** 擱置移動的機體：虛線圈（自己這一步選了擱置的、王牌移動步驟裡還在等的） */
 function drawDeferRings() {
   if (!view || show || replayNow) return;
@@ -1226,6 +1316,7 @@ const needsOrder = (u: UnitView) => {
   if (ph === 'action') return !view!.state.bumped.includes(u.id);
   if (ph === 'ace') return !!view!.aceUnits?.includes(u.id);
   if (ph === 'pursuit') return !!view!.pursuit?.[u.id]?.length;
+  if (ph === 'deploy') return !!deployDrafts[u.id];
   return true;
 }
 
@@ -1244,6 +1335,11 @@ function unitStatusText(u: UnitView): [string, boolean] {
   if (!needsOrder(u)) return [view.phase === 'ace' ? '已移動' : view.phase === 'pursuit' ? '不能追擊' : '擦撞，本回合不能行動', false];
   if (view.phase === 'move' && moveDrafts[u.id]?.defer && touched.has(u.id)) return ['擱置', true];
   if (view.phase === 'pursuit') return pursuitDrafts[u.id] ? ['可追擊', true] : ['放棄追擊', true];
+  if (view.phase === 'deploy') {
+    const bad = deployProblem(u);
+    if (bad) return [bad, false];
+    return touched.has(u.id) ? ['✓ 已部署', true] : ['預設位置', false];
+  }
   return orderDone(u) ? ['✓ 已下指令', true] : ['未下指令', false];
 }
 
@@ -1316,6 +1412,7 @@ let cardSide = -1;
 let cardRect: { x: number; y: number; w: number; h: number } | null = null;
 
 function defaultTipFor(u: UnitView): string {
+  if (view!.phase === 'deploy') return '在地圖上拖曳機體擺位置：只能放在自己的部署區，不能和隊友重疊或壓到大隕石。再選機頭朝向與起始動能。';
   if (view!.phase === 'pursuit') return '選一個追擊目標與武器，或放棄。追擊是額外的一槍，不佔行動步驟的動作。';
   if (view!.phase === 'move' || view!.phase === 'ace') {
     if (inGrapple(u.id)) return '纏鬥中：本回合不移動。滑鼠停在選項上看說明。';
@@ -1614,6 +1711,7 @@ function controlsHtml(u: UnitView | undefined): string {
   if (replayNow || show || !u || view!.phase === 'over' || local?.opponent === 'aivai') return '';
   if (u.owner !== view!.you || u.status !== 'active' || view!.submitted[view!.you] || !needsOrder(u)) return '';
   if (view!.phase === 'pursuit') return pursuitControls(u);
+  if (view!.phase === 'deploy') return deployControls(u);
   return view!.phase === 'move' || view!.phase === 'ace' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]);
 }
 
@@ -1716,6 +1814,26 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   const limiterTip = `限制器解除：這回合最大加減速 +1，壓力 +${config.LIMITER_STRESS}。${m.kind === 'hover' ? '懸停時不能用。' : ''}`;
   html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${deferBtn}</div>`;
   return html + '</div></div>';
+}
+
+/** 部署：朝向（以你面對敵方的方向為上）與起始動能 */
+function deployControls(u: UnitView): string {
+  const d = deployDrafts[u.id];
+  const s = view!.you === 0 ? 1 : -1;
+  const dirs: [string, number, number][] = [['↖', -1, 1], ['↑', 0, 1], ['↗', 1, 1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, -1], ['↓', 0, -1], ['↘', 1, -1]];
+  const grid = dirs
+    .map(([g, dx, dy]) => {
+      if (!g) return '<span></span>';
+      const f = snapFacing(Math.atan2(dy * s, dx * s));
+      const on = Math.abs(Math.atan2(Math.sin(f - d.facing), Math.cos(f - d.facing))) < 0.01;
+      return tip(`<button class="${on ? 'on' : ''}" data-face="${f}">${g}</button>`, '機頭朝向（以你面對敵方的方向為上）');
+    })
+    .join('');
+  const [lo, hi] = momentumRange(u);
+  const moms = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+    .map((m) => tip(`<button class="${d.momentum === m ? 'on' : ''}" data-mom="${m}">${m}</button>`, `起始動能 ${m}：開戰第一回合的速度。快一點衝得快，但要停下來比較費推進劑。${lo > 0 ? '戰機不能低於最低速度。' : ''}`))
+    .join('');
+  return `<div class="sec">朝向</div><div class="faceGrid">${grid}</div><div class="sec">起始動能</div><div class="row">${moms}</div>`;
 }
 
 /** 追擊步驟：列出能追擊的目標 × 武器，或放棄 */
@@ -1879,6 +1997,8 @@ function bindControls(u: UnitView | undefined) {
         changed();
       }),
   );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-face]').forEach((b) => (b.onclick = () => ((deployDrafts[u.id].facing = Number(b.dataset.face)), changed())));
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-mom]').forEach((b) => (b.onclick = () => ((deployDrafts[u.id].momentum = Number(b.dataset.mom)), changed())));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-limiter]').forEach((b) => {
     b.onclick = () => {
       if (b.dataset.off) return;
@@ -1972,14 +2092,21 @@ function renderSubmit() {
     return;
   }
   const done = view.submitted[view.you];
-  col.innerHTML = `${errors.length ? `<div class="err small">${errors.map(esc).join('<br>')}</div>` : ''}<button class="primary big" id="submitBtn" ${done ? 'disabled' : ''}>${done ? '等待對手…' : '送出指令'}</button>`;
+  const auto = view.phase === 'deploy' && !done ? '<button class="big" id="autoDeployBtn">自動部署</button>' : '';
+  col.innerHTML = `${auto}${errors.length ? `<div class="err small">${errors.map(esc).join('<br>')}</div>` : ''}<button class="primary big" id="submitBtn" ${done ? 'disabled' : ''}>${done ? '等待對手…' : '送出指令'}</button>`;
   $('submitBtn').onclick = trySubmit;
+  if (auto)
+    $('autoDeployBtn').onclick = () => {
+      deployDrafts = aiDeploy(view!, new Rng((Math.random() * 2 ** 32) >>> 0));
+      for (const id of Object.keys(deployDrafts)) touched.add(id);
+      renderAll();
+    };
 }
 
 function trySubmit() {
   const missing = ownUnits().filter((u) => needsOrder(u) && !orderDone(u));
   if (!missing.length) return submitOrders();
-  const fallback = view!.phase === 'move' || view!.phase === 'ace' ? '會用預設機動（直線 2）' : '行動步驟則是不行動（選了裝備但沒選目標的也一樣）';
+  const fallback = view!.phase === 'deploy' ? '會留在預設位置' : view!.phase === 'move' || view!.phase === 'ace' ? '會用預設機動（直線 2）' : '行動步驟則是不行動（選了裝備但沒選目標的也一樣）';
   const dlg = $('confirm');
   dlg.innerHTML = `<div class="dlg"><h3>還有機體沒下指令</h3><p class="muted">${missing.map((u) => esc(u.label.split(' ')[0])).join('、')} 還沒下指令。照預設送出的話，${fallback}。</p><div class="row" style="justify-content:flex-end"><button id="dlgBack">回去下指令</button><button class="primary" id="dlgGo">照預設送出</button></div></div>`;
   dlg.hidden = false;
@@ -1997,6 +2124,7 @@ function trySubmit() {
 function submitOrders() {
   if (view!.phase === 'move' || view!.phase === 'ace') return sendMsg({ t: 'moves', moves: moveDrafts });
   if (view!.phase === 'pursuit') return sendMsg({ t: 'pursuits', pursuits: pursuitDrafts });
+  if (view!.phase === 'deploy') return sendMsg({ t: 'deploy', deploy: deployDrafts });
   // 沒選目標的射擊／鎖定視為不行動
   const actions: Record<string, ActionPlan> = {};
   for (const [id, p] of Object.entries(actionDrafts)) actions[id] = p.action.type !== 'none' && !p.action.target ? { ...p, action: { type: 'none' } } : p;

@@ -35,8 +35,9 @@ interface LineupSettings {
   goal: boolean;
   control: boolean;
   turnLimit: number;
+  deploy: 'fixed' | 'free';
 }
-const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12 };
+const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed' };
 
 const VICTORY_TIPS: Record<'killScore' | 'decapitation' | 'goal' | 'control', string> = {
   killScore: '擊墜敵機的費用加總到門檻就獲勝（飛出地圖也算）',
@@ -102,7 +103,7 @@ export function toBattleSettings(s: LineupSettings): BattleSettings {
     goal: s.goal,
     control: s.control ? CONTROL_TARGET : undefined,
     turnLimit: s.turnLimit,
-    deploy: 'fixed',
+    deploy: s.deploy,
   };
 }
 
@@ -164,7 +165,10 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       <div class="luFoot luWrap"><span class="muted">勝利條件</span>
         ${chip('killScore', `擊墜分 ${SCALES[set.scale].killScore}`)}${chip('decapitation', '斬首')}${chip('goal', '達陣')}${chip('control', `據點 ${CONTROL_TARGET}`)}
         <span class="muted small" title="一方全滅一定算輸；回合上限到了比分數">可複選，先達成者勝</span>
-        <span class="spacer"></span><span class="muted">回合上限</span><select data-f="turnLimit">${TURN_LIMITS.map((t) => `<option value="${t}" ${t === set.turnLimit ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <span class="spacer"></span><span class="muted">部署</span>
+        <button class="chip ${set.deploy === 'fixed' ? 'on' : ''}" data-deploy="fixed" title="照順序在自己那一側排一列">固定排開</button>
+        <button class="chip ${set.deploy === 'free' ? 'on' : ''}" data-deploy="free" title="開戰前雙方暗中在自己的部署區擺好位置、朝向與起始動能，一起公布">自由部署</button>
+        <span class="muted">回合上限</span><select data-f="turnLimit">${TURN_LIMITS.map((t) => `<option value="${t}" ${t === set.turnLimit ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="luFoot"><span class="muted">對手</span><select data-f="opponent">${OPPONENTS.map(([v, t]) => `<option value="${v}" ${v === opp ? 'selected' : ''}>${t}</option>`).join('')}</select>
         <span class="spacer"></span>
         <label class="muted" title="只有種子、陣容和雙方指令，用來檢討 AI 與平衡"><input type="checkbox" data-f="upload" ${uploadEnabled() ? 'checked' : ''}> 上傳對戰紀錄</label>
@@ -202,6 +206,11 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
   box.onclick = (ev) => {
     const el = (ev.target as HTMLElement).closest('button');
     if (!el || el.disabled) return;
+    if (el.dataset.deploy) {
+      set.deploy = el.dataset.deploy as LineupSettings['deploy'];
+      saveSettings();
+      return render();
+    }
     const v = el.dataset.v as keyof typeof VICTORY_TIPS | undefined;
     if (v) {
       set[v] = !set[v];
