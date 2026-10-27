@@ -1,6 +1,6 @@
 import { closeCombatOf, radiusOf } from './body';
 import * as C from './config';
-import { addStress, damageUnit, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
 import type { GrappleChoice, GrappleState, UnitState } from './types';
@@ -52,12 +52,12 @@ export function resolveGrapple(ctx: Ctx, g: GrappleState, a: UnitState, b: UnitS
   const slash = (from: UnitState, to: UnitState, half = false) => {
     const dmg = half ? Math.ceil(slashDamage(from) / 2) : slashDamage(from);
     notes.push(`${from.label} 斬中 ${to.label}${half ? '（追擊）' : ''}`);
-    damageUnit(ctx, to, dmg, 'focused');
+    dealtBy(ctx, from, () => damageUnit(ctx, to, dmg, 'focused'));
   };
   const throwUnit = (thrower: UnitState, victim: UnitState) => {
     notes.push(`${thrower.label} 把 ${victim.label} 甩了出去`);
     pushApart(ctx, thrower, victim, C.THROW_DISTANCE);
-    damageUnit(ctx, victim, C.THROW_DAMAGE, 'focused');
+    dealtBy(ctx, thrower, () => damageUnit(ctx, victim, C.THROW_DAMAGE, 'focused'));
     addStress(ctx, victim, C.THROW_STRESS, '被投擲');
     ended = true;
   };

@@ -40,6 +40,7 @@ npm run dev
 
 `apps/api` 是部署在 https://mech-wing-api.darkbearlab.workers.dev 的 Worker：D1 存編輯中的草稿，發佈時用規則引擎檢查、打包成不會再變的版本存進 KV。版本號是「大.小.修」（例如 `0.1.4`），平常發佈只加修訂號，機庫發佈時可以選小改版或大改版；最早的 `v1`…`v5` 已改名為 `0.1.0`…`0.1.4`（舊網址還能用）。GitHub Pages 版開場時抓最新版，抓不到就用內建資料；網址加 `?content=builtin` 強制用內建資料，`?content=0.1.4` 指定版本。畫面右上角會顯示目前用的資料版本。
 
+- 用瀏覽器開啟 API 根網址會看到入口頁（連到遊戲與機庫編輯器），程式讀取時照舊回 JSON
 - 讀取：`GET /packs/latest`、`GET /packs/v1`、`GET /packs`（發佈紀錄）、`GET /draft`（草稿與檢查結果）、`GET /auth`（確認金鑰）
 - 寫入（要管理金鑰）：`PUT|DELETE /draft/:kind/:id`、`POST /draft/import`、`POST /publish`
 - 管理金鑰存在 `apps/api/.admin-token`（不進 git），設定檔裡只有它的 SHA-256。換金鑰：產生新金鑰寫進該檔，把雜湊更新到 `wrangler.jsonc`

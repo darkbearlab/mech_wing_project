@@ -17,6 +17,7 @@ import {
   Rng,
   aiActions,
   aiMoves,
+  aiOrders,
   createGame,
   hitChance,
   lineOfFire,
@@ -25,6 +26,7 @@ import {
   randomRoster,
   readyRanged,
   replayRecord,
+  submitStep,
   useContent,
   type BattleRecord,
   type ContentPack,
@@ -32,6 +34,8 @@ import {
   type PlayerActions,
   type PlayerId,
   type PlayerMoves,
+  type PlayerPursuits,
+  type TurnPhase,
   type PlayerView,
   type RosterEntry,
   type UnitState,
@@ -61,9 +65,13 @@ const from = process.env.FROM ? (JSON.parse(readFileSync(process.env.FROM, 'utf-
 interface Ai {
   aiMoves: (v: PlayerView, rng: Rng) => PlayerMoves;
   aiActions: (v: PlayerView, rng: Rng) => PlayerActions;
+  aiOrders?: (v: PlayerView, rng: Rng) => PlayerMoves | PlayerActions | PlayerPursuits;
 }
-const newAi: Ai = { aiMoves, aiActions };
+const newAi: Ai = { aiMoves, aiActions, aiOrders };
 const oldAi: Ai | null = process.env.AI_OLD ? await import(pathToFileURL(resolve(process.env.AI_OLD)).href) : null;
+/** 舊版 AI 沒有 aiOrders 時：王牌移動照移動出、追擊放棄 */
+const ordersOf = (ai: Ai, v: PlayerView, rng: Rng) =>
+  ai.aiOrders ? ai.aiOrders(v, rng) : v.phase === 'pursuit' ? {} : v.phase === 'action' ? ai.aiActions(v, rng) : ai.aiMoves(v, rng);
 
 function rosters(seed: number): [RosterEntry[], RosterEntry[]] {
   if (from) return structuredClone(from.rosters ?? pickRosters(from.seed));
@@ -93,6 +101,9 @@ interface Side {
   lowShots: number;
   locks: number;
   volleys: number;
+  pursuitVolleys: number;
+  defers: number;
+  ntKillStress: number;
   outnumbered: number;
   unitTurns: number;
   noActionTurns: number;
@@ -100,7 +111,7 @@ interface Side {
   actionTurnsWithShots: number;
   lost: number;
 }
-const newSide = (): Side => ({ wins: 0, rockHits: 0, rockRepeat: 0, friendlyBumps: 0, shots: 0, hits: 0, lowShots: 0, locks: 0, volleys: 0, outnumbered: 0, unitTurns: 0, noActionTurns: 0, focusShots: 0, actionTurnsWithShots: 0, lost: 0 });
+const newSide = (): Side => ({ wins: 0, rockHits: 0, rockRepeat: 0, friendlyBumps: 0, shots: 0, hits: 0, lowShots: 0, locks: 0, volleys: 0, pursuitVolleys: 0, defers: 0, ntKillStress: 0, outnumbered: 0, unitTurns: 0, noActionTurns: 0, focusShots: 0, actionTurnsWithShots: 0, lost: 0 });
 const S = { games: 0, turns: 0, draws: 0, ends: {} as Record<string, number>, side: {} as Record<string, Side> };
 const sideOf = (name: string) => (S.side[name] ??= newSide());
 
@@ -114,7 +125,7 @@ function bestChance(a: UnitState, t: UnitState, m: Match): number {
   return best;
 }
 
-type Orders = PlayerMoves | PlayerActions | null;
+type Orders = PlayerMoves | PlayerActions | PlayerPursuits | null;
 
 /** 整理一場對戰的經過；verbose 時印出逐回合紀錄，同時累計統計。names 是兩方在統計裡的名字 */
 function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A', 'B']) {
@@ -132,14 +143,20 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
 
   let turn = m.state.turn;
   // 每次結算後呼叫：phase 是剛結算的階段，plans 是雙方這次送出的指令
-  const resolved = (phase: 'move' | 'action', plans: [Orders, Orders]) => {
+  const resolved = (phase: TurnPhase, plans: [Orders, Orders]) => {
     const events: GameEvent[] = m.turnResolvedEvents;
-    if (phase === 'move') {
-      say(`\n── 第 ${turn} 回合 移動 ──`);
+    if (phase === 'pursuit') say(`── 第 ${turn} 回合 追擊 ──`);
+    if (phase === 'move' || phase === 'ace') {
+      say(phase === 'move' ? `\n── 第 ${turn} 回合 移動 ──` : `── 第 ${turn} 回合 王牌移動 ──`);
       for (const p of [0, 1] as const) {
         for (const [id, plan] of Object.entries((plans[p] ?? {}) as PlayerMoves)) {
           const u = unit(id)!;
-          side(p).unitTurns++;
+          if (phase === 'move') side(p).unitTurns++;
+          if (plan.defer) {
+            side(p).defers++;
+            say(`  ${label(id)} 擱置移動（王牌移動）`);
+            continue;
+          }
           // 落單：打得到我的敵機，比「能還擊其中任一台的隊友＋我」還多
           const foes = m.state.units.filter((e) => e.owner !== p && e.status === 'active' && bestChance(e, u, m) > 0);
           const mates = m.state.units.filter((a) => a.owner === p && a.id !== id && a.status === 'active' && foes.some((e) => bestChance(a, e, m) > 0));
@@ -177,9 +194,10 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
           s.shots += e.shots;
           s.hits += e.hits;
           s.volleys++;
+          if (e.pursuit) s.pursuitVolleys++;
           if ((e.chance ?? 100) < 20) s.lowShots++;
           shotTargets[String(owner(e.attacker))].push(e.target);
-          say(`  ${label(e.attacker)} ${EQUIPMENT[e.weapon].name} → ${label(e.target)}（距離帶 ${e.band}，命中率 ${e.chance}%）${e.hits}/${e.shots} 中${e.blocked ? `，盾擋 ${e.blocked}` : ''}`);
+          say(`  ${e.pursuit ? '追擊！' : ''}${label(e.attacker)} ${EQUIPMENT[e.weapon].name} → ${label(e.target)}（距離帶 ${e.band}，命中率 ${e.chance}%）${e.hits}/${e.shots} 中${e.blocked ? `，盾擋 ${e.blocked}` : ''}`);
           break;
         }
         case 'damage':
@@ -188,7 +206,7 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
         case 'status':
           S.ends[e.status] = (S.ends[e.status] ?? 0) + 1;
           side(owner(e.unit)).lost++;
-          say(`  ★ ${label(e.unit)} ${{ destroyed: '被擊毀', withdrawn: '飛出地圖', disabled: '停止動作' }[e.status]}`);
+          say(`  ★ ${label(e.unit)} ${{ destroyed: '被擊毀', withdrawn: '飛出地圖', disabled: '停止動作' }[e.status]}${e.by ? `（${label(e.by)} 擊墜）` : ''}`);
           break;
         case 'actionFail':
           say(`  ${label(e.unit)} 動作落空：${e.reason}`);
@@ -199,6 +217,12 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
         case 'lock':
           side(owner(e.unit)).locks++;
           say(`  ${label(e.unit)} 鎖定 ${label(e.target)}`);
+          break;
+        case 'stress':
+          if (e.reason.includes('新人類')) {
+            if (e.reason.startsWith('擊墜')) side(owner(e.unit)).ntKillStress += e.amount;
+            say(`  ${label(e.unit)} 壓力 ${e.amount > 0 ? '+' : ''}${e.amount}（${e.reason}）→ ${e.total}`);
+          }
           break;
         case 'pilot':
           say(`  ${label(e.unit)} 駕駛 ${e.state}`);
@@ -240,12 +264,15 @@ function play(g: number, verbose: boolean) {
   const r = reporter(m, verbose, ['', ''], names);
   let guard = 0;
   while (m.phase !== 'over' && guard++ < 100) {
-    const phase = m.phase;
+    const phase = m.phase as TurnPhase;
     const plans: [Orders, Orders] = [null, null];
+    const before = m.resolvedCount;
     for (const p of [0, 1] as PlayerId[]) {
       const v = m.viewFor(p);
-      if (phase === 'move') m.submitMoves(p, (plans[p] = ais[p].aiMoves(v, rng)));
-      else m.submitActions(p, (plans[p] = ais[p].aiActions(v, rng)));
+      if (v.submitted[p]) continue;
+      const errs = submitStep(m, { seat: p, phase, orders: (plans[p] = ordersOf(ais[p], v, rng)) });
+      if (errs.length) throw new Error(`${'AB'[p]} 方 AI 的 ${phase} 指令不合法：${errs.join('；')}`);
+      if (m.resolvedCount !== before) break;
     }
     r.resolved(phase, plans);
   }
@@ -281,6 +308,6 @@ if (statsMode && !replayMode) {
     console.log(
       `${name}：勝 ${s.wins}　損失 每場 ${per(s.lost)} 台　落單 ${pct(s.outnumbered, s.unitTurns)} 的機體回合　撞隕石 每場 ${per(s.rockHits)}（連撞 ${per(s.rockRepeat)}）　友軍互撞 每場 ${per(s.friendlyBumps)}`,
     );
-    console.log(`　　射擊 每場 ${per(s.shots)} 發、命中率 ${pct(s.hits, s.shots)}、低命中（<20%）開火 ${pct(s.lowShots, s.volleys)}　鎖定 每場 ${per(s.locks)} 次　集火 ${pct(s.focusShots, s.actionTurnsWithShots)}　沒行動 ${pct(s.noActionTurns, s.unitTurns)}`);
+    console.log(`　　射擊 每場 ${per(s.shots)} 發、命中率 ${pct(s.hits, s.shots)}、低命中（<20%）開火 ${pct(s.lowShots, s.volleys)}　鎖定 每場 ${per(s.locks)} 次　追擊開火 每場 ${per(s.pursuitVolleys)} 次　王牌擱置 每場 ${per(s.defers)} 次　新人類擊墜壓力 每場 ${per(s.ntKillStress)}　集火 ${pct(s.focusShots, s.actionTurnsWithShots)}　沒行動 ${pct(s.noActionTurns, s.unitTurns)}`);
   }
 }

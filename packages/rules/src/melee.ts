@@ -2,7 +2,7 @@
 // 擲了幾顆骰會公開，對手可以從骰數推測駕駛等級（「交鋒後才看得出來」）。
 import * as C from './config';
 import { contactAngle, inShieldArc } from './combat';
-import { addStress, damageUnit, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import type { UnitState } from './types';
 import { chassisOf, pilotOf, readyMelee } from './unit';
@@ -68,6 +68,6 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
     addStress(ctx, att, C.MELEE_TIE_STRESS, '刀刃相抵');
     addStress(ctx, def, C.MELEE_TIE_STRESS, '刀刃相抵');
   }
-  if (victim && damage > 0) damageUnit(ctx, victim, damage, 'focused');
+  if (victim && damage > 0) dealtBy(ctx, victim === def ? att : def, () => damageUnit(ctx, victim!, damage, 'focused'));
   return caught;
 }

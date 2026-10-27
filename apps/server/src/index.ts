@@ -77,6 +77,7 @@ wss.on('connection', (ws, req) => {
     const phase = r.match.phase;
     let errors: string[] = [];
     if (msg.t === 'moves') errors = r.match.submitMoves(seat, msg.moves);
+    else if (msg.t === 'pursuits') errors = r.match.submitPursuits(seat, msg.pursuits);
     else if (msg.t === 'actions') errors = r.match.submitActions(seat, msg.actions);
     else if (msg.t === 'reset') {
       const fresh = newRoom();

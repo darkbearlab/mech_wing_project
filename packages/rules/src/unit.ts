@@ -181,6 +181,11 @@ export function cruiseManeuver(u: ManeuverLimits): string {
 
 export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): string[] {
   const errors: string[] = [];
+  if (plan.defer) {
+    if (!pilotOf(u).abilities.includes('ace_move')) errors.push(`${u.label}：駕駛沒有王牌移動能力，不能擱置`);
+    else if (grappled) errors.push(`${u.label}：纏鬥中不能擱置移動`);
+    return errors;
+  }
   if (!grappled) {
     if (!CHASSIS[u.chassisId].dial.includes(plan.maneuver)) errors.push(`${u.label}：沒有機動 ${plan.maneuver}`);
     else {

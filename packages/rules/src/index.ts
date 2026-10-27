@@ -16,6 +16,7 @@ export * from './visibility';
 export * from './match';
 export * from './ai';
 export * from './record';
+export * from './pursuit';
 export * from './terrain';
 export * from './vision';
 export { Rng } from './rng';

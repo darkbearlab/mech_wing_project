@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Match, Rng, aiActions, aiMoves, checkRecord, contentVersion, createGame, randomRoster, replayRecord, type BattleRecord, type PlayerActions, type PlayerId, type PlayerMoves } from '../src/index';
+import { Match, Rng, aiOrders, checkRecord, contentVersion, createGame, randomRoster, replayRecord, submitStep, type BattleRecord, type PlayerId, type TurnPhase } from '../src/index';
 
 /** 用 AI 打 maxSteps 次結算，照客戶端的格式記下來 */
 function recordGame(seed: number, maxResolves = 999): { rec: BattleRecord; match: Match } {
@@ -9,13 +9,15 @@ function recordGame(seed: number, maxResolves = 999): { rec: BattleRecord; match
   const match = new Match(seed, createGame(seed, rosters));
   const rec: BattleRecord = { format: 1, seed, contentVersion: contentVersion(), rosters: structuredClone(rosters), seats: ['human', 'ai'], startedAt: '', steps: [], winner: null, turns: 0 };
   while (match.phase !== 'over' && maxResolves-- > 0) {
+    const before = match.resolvedCount;
     for (const p of [0, 1] as PlayerId[]) {
-      const phase = match.phase as 'move' | 'action';
+      const phase = match.phase as TurnPhase;
       const v = match.viewFor(p);
-      const orders = phase === 'move' ? aiMoves(v, rng) : aiActions(v, rng);
-      if (phase === 'move') match.submitMoves(p, orders as PlayerMoves);
-      else match.submitActions(p, orders as PlayerActions);
+      if (v.submitted[p]) continue;
+      const orders = aiOrders(v, rng);
+      expect(submitStep(match, { seat: p, phase, orders })).toEqual([]);
       rec.steps.push({ seat: p, phase, orders: JSON.parse(JSON.stringify(orders)) });
+      if (match.resolvedCount !== before) break;
     }
   }
   rec.winner = match.state.winner;
@@ -31,7 +33,7 @@ describe('對戰紀錄', () => {
       let resolves = 0;
       const out = replayRecord(rec, () => resolves++);
       expect(out.errors).toEqual([]);
-      expect(resolves).toBe(rec.steps.length / 2);
+      expect(resolves).toBe(match.resolvedCount);
       expect(JSON.stringify(out.match.state)).toBe(JSON.stringify(match.state));
     }
   });

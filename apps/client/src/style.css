@@ -71,7 +71,10 @@ canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 #cmdHead { display: flex; align-items: center; gap: 6px; margin: -2px 0 6px; cursor: grab; user-select: none; }
 #cmdHead .grip { color: var(--muted); }
 #cmdHead .pin { margin-left: auto; font-size: 11px; color: var(--muted); }
-#tipBox { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; font-size: 12px; line-height: 1.5; color: #b9c4d0; min-height: 54px; }
+/* 說明區固定 4 行高：不撐開卡片，放不下就自動上下捲動 */
+#tipBox { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; font-size: 12px; line-height: 1.5; color: #b9c4d0; height: 78px; overflow: hidden; }
+#tipBox .tipInner.scroll { animation: tipScroll var(--tip-dur, 4s) linear infinite alternate; }
+@keyframes tipScroll { 0%, 18% { transform: translateY(0); } 82%, 100% { transform: translateY(var(--tip-shift, 0)); } }
 .uname { font-size: 15px; font-weight: bold; }
 .body { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 1px 8px; margin: 6px 0 4px; font-size: 12.5px; text-align: center; }
 .equip { font-size: 12.5px; line-height: 1.5; }
@@ -134,3 +137,8 @@ select, input { background: #0f1419; color: var(--text); border: 1px solid var(-
 .luAdd { padding-top: 6px; }
 button.big { font-size: 15px; padding: 6px 16px; }
 @media (max-width: 720px) { .luCols { grid-template-columns: 1fr; } }
+
+/* 擱置移動：機動盤與姿態淡掉、不能點 */
+.ctrlRow.deferred button:not([data-defer]), .ctrlRow.deferred input, .ctrlRow.deferred select, .ctrlRow.deferred .sec { opacity: 0.3; pointer-events: none; }
+/* 懸停時不能解除限制器 */
+button[data-limiter][data-off] { opacity: 0.35; cursor: not-allowed; }
