@@ -173,7 +173,7 @@ export const SHIP_CLOSE_BRIDGE_MULT = 4;
 /** 戰艦：射擊方有對艦特效或瞄準要害，艦橋與引擎權重再 ×SHIP_WEAK_AIM_MULT */
 export const SHIP_WEAK_AIM_MULT = 3;
 /** 戰艦打戰艦：艦砲對轟大多打在艦體上，艦橋與引擎權重 ×這個（弱點要靠 MS 貼近） */
-export const SHIP_VS_SHIP_WEAK_MULT = 0.25;
+export const SHIP_VS_SHIP_WEAK_MULT = 0.1;
 /** 防禦彈幕：艦尾 ±這個角度沒有彈幕；彈幕裡的非戰艦單位每回合被打傷 1 點的機率 */
 export const BARRAGE_REAR_DEG = 45;
 export const BARRAGE_HIT_CHANCE = 25;
