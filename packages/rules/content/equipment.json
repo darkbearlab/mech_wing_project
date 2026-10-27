@@ -12,7 +12,8 @@
       "1": -5,
       "2": 10,
       "3": -15
-    }
+    },
+    "cost": 3
   },
   "machine_gun": {
     "id": "machine_gun",
@@ -26,7 +27,8 @@
     "ranges": {
       "1": 10,
       "2": 0
-    }
+    },
+    "cost": 1
   },
   "sniper": {
     "id": "sniper",
@@ -40,7 +42,8 @@
     "ranges": {
       "2": -10,
       "3": 10
-    }
+    },
+    "cost": 3
   },
   "bazooka": {
     "id": "bazooka",
@@ -54,7 +57,8 @@
     "ranges": {
       "1": 0,
       "2": -5
-    }
+    },
+    "cost": 3
   },
   "beam_saber": {
     "id": "beam_saber",
@@ -63,7 +67,8 @@
     "weight": 1,
     "durability": 1,
     "damage": 3,
-    "mode": "focused"
+    "mode": "focused",
+    "cost": 1
   },
   "heat_axe": {
     "id": "heat_axe",
@@ -73,14 +78,16 @@
     "durability": 2,
     "damage": 4,
     "mode": "focused",
-    "meleeDice": 1
+    "meleeDice": 1,
+    "cost": 1
   },
   "shield": {
     "id": "shield",
     "name": "盾牌",
     "kind": "shield",
     "weight": 4,
-    "durability": 6
+    "durability": 6,
+    "cost": 1
   },
   "fuel_tank": {
     "id": "fuel_tank",
@@ -89,7 +96,8 @@
     "mount": "mounted",
     "weight": 2,
     "durability": 1,
-    "fuel": 6
+    "fuel": 6,
+    "cost": 0
   },
   "head_vulcan": {
     "id": "head_vulcan",
@@ -124,7 +132,8 @@
       "3": 0
     },
     "arc": 30,
-    "pointBlank": false
+    "pointBlank": false,
+    "cost": 2
   },
   "back_beam": {
     "id": "back_beam",
@@ -140,7 +149,8 @@
       "3": 10
     },
     "arc": 20,
-    "pointBlank": false
+    "pointBlank": false,
+    "cost": 3
   },
   "missile_pod": {
     "id": "missile_pod",
@@ -160,7 +170,8 @@
     "ammo": 2,
     "tags": [
       "volatile"
-    ]
+    ],
+    "cost": 2
   },
   "finger_beam": {
     "id": "finger_beam",
@@ -207,7 +218,8 @@
     "ranges": {
       "1": 5,
       "2": -5
-    }
+    },
+    "cost": 1
   },
   "arm_saber": {
     "id": "arm_saber",
@@ -220,7 +232,8 @@
     "mode": "focused",
     "tags": [
       "quickDraw"
-    ]
+    ],
+    "cost": 1
   },
   "nose_vulcan": {
     "id": "nose_vulcan",

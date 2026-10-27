@@ -76,7 +76,8 @@
       "reverse-S-2",
       "rbank-L-1",
       "rbank-R-1"
-    ]
+    ],
+    "cost": 6
   },
   "X-01": {
     "id": "X-01",
@@ -156,7 +157,8 @@
       "reverse-S-2",
       "rbank-L-1",
       "rbank-R-1"
-    ]
+    ],
+    "cost": 8
   },
   "X-02": {
     "id": "X-02",
@@ -219,7 +221,8 @@
       "turn-R-1",
       "kturn-S-2",
       "reverse-S-1"
-    ]
+    ],
+    "cost": 9
   },
   "X-04": {
     "id": "X-04",
@@ -288,7 +291,8 @@
         "defId": "head_vulcan",
         "host": "head"
       }
-    ]
+    ],
+    "cost": 8
   },
   "X-05": {
     "id": "X-05",
@@ -377,7 +381,8 @@
         "defId": "head_vulcan",
         "host": "head"
       }
-    ]
+    ],
+    "cost": 12
   },
   "CF-01": {
     "id": "CF-01",
@@ -442,6 +447,7 @@
       "turn-R-3",
       "arc-L-5",
       "arc-R-5"
-    ]
+    ],
+    "cost": 4
   }
 }

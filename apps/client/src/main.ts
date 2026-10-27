@@ -42,6 +42,11 @@ import {
   type MovePlan,
   type PursuitPlan,
   type TurnPhase,
+  type WinReason,
+  CONTROL_RADIUS,
+  GOAL_RADIUS,
+  controlPoints,
+  goalZone,
   type Obstacle,
   type PlayerId,
   type PlayerView,
@@ -494,6 +499,7 @@ function drawFrame(now: number) {
   drawGround();
   updateHoverCard();
   if (!view) return;
+  drawObjectives();
   if (!show) {
     drawRanges();
     drawPreviews();
@@ -938,9 +944,51 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   g.fillStyle = out ? '#777' : '#fff';
   g.font = '11px sans-serif';
   g.textAlign = 'center';
-  const tag = u.label.split(' ')[0] + (u.hidden ? `? T${u.seenTurn}` : u.vague === 'sluggish' ? ' ⚠' : '');
+  const flag = view?.state.settings.decapitation && view.state.flagship.includes(u.id) ? '♛' : '';
+  const tag = flag + u.label.split(' ')[0] + (u.hidden ? `? T${u.seenTurn}` : u.vague === 'sluggish' ? ' ⚠' : '');
   g.fillText(tag, top.x, top.y - r - 5);
   g.globalAlpha = 1;
+}
+
+/** 地圖目標：達陣圈（畫在要攻佔它的一方的顏色）與據點（目前誰在裡面） */
+function drawObjectives() {
+  const set = view!.state.settings;
+  g.font = '11px sans-serif';
+  g.textAlign = 'center';
+  const label = (x: number, y: number, text: string, colour: string) => {
+    const p = pr(x, y, 0);
+    if (!p.visible) return;
+    g.fillStyle = colour;
+    g.fillText(text, p.x, p.y + 4);
+  };
+  if (set.goal) {
+    for (const p of [0, 1] as PlayerId[]) {
+      const z = goalZone(p);
+      const attacker = (1 - p) as PlayerId;
+      g.strokeStyle = color(attacker, 0.85);
+      g.fillStyle = color(attacker, 0.1);
+      g.lineWidth = 2;
+      g.setLineDash([6, 4]);
+      ringWorld(z.x, z.y, GOAL_RADIUS, 0, 0, Math.PI * 2, 40);
+      g.fill();
+      g.stroke();
+      g.setLineDash([]);
+      g.lineWidth = 1;
+      label(z.x, z.y, `${SIDE(attacker)} 方達陣點`, color(attacker, 0.9));
+    }
+  }
+  if (set.control) {
+    for (const c of controlPoints()) {
+      const sides = new Set(view!.state.units.filter((u) => u.status === 'active' && !u.hidden && Math.hypot(u.pos.x - c.x, u.pos.y - c.y) <= CONTROL_RADIUS).map((u) => u.owner));
+      const colour = sides.size === 1 ? color([...sides][0] as PlayerId, 0.85) : sides.size === 2 ? 'rgba(255,207,74,0.85)' : 'rgba(200,210,220,0.6)';
+      g.strokeStyle = colour;
+      g.lineWidth = 2;
+      ringWorld(c.x, c.y, CONTROL_RADIUS, 0, 0, Math.PI * 2, 40);
+      g.stroke();
+      g.lineWidth = 1;
+      label(c.x, c.y, '據點', colour);
+    }
+  }
 }
 
 function drawRanges() {
@@ -1134,21 +1182,41 @@ function renderStatus() {
     $('status').textContent = '連線中…';
     return;
   }
-  const phase = { move: '步驟 1：移動', ace: '步驟 1b：王牌移動', pursuit: '追擊', action: '步驟 2：行動', over: '對戰結束' }[view.phase];
+  const phase = { deploy: '部署', move: '步驟 1：移動', ace: '步驟 1b：王牌移動', pursuit: '追擊', action: '步驟 2：行動', over: '對戰結束' }[view.phase];
   const opp = connected[seat === 0 ? 1 : 0] ? '' : '（對手未連線）';
   const timer = deadline ? `　剩 ${Math.max(0, Math.round((deadline - Date.now()) / 1000))} 秒` : '';
-  $('status').textContent = `第 ${view.state.turn} 回合 · ${phase}${opp}${timer}`;
+  const goals = objectiveStatus();
+  $('status').textContent = `第 ${view.state.turn} 回合 · ${phase}${opp}${timer}${goals ? ` · ${goals}` : ''}`;
 }
 setInterval(() => deadline && renderStatus(), 1000);
 
+/** 狀態列：擊墜分、據點分、達陣進度 */
+function objectiveStatus(): string {
+  const st = view!.state;
+  const set = st.settings;
+  const me = view!.you;
+  const pair = (x: [number, number]) => (local?.opponent === 'aivai' ? `A ${x[0]} : ${x[1]} B` : `我 ${x[me]} : ${x[1 - me]} 敵`);
+  const parts: string[] = [`擊墜分 ${pair(st.score)}${set.killScore ? `（${set.killScore} 勝）` : ''}`];
+  if (set.control) parts.push(`據點 ${pair(st.objectives.control)}（${set.control} 勝）`);
+  if (set.goal)
+    for (const p of [0, 1] as PlayerId[]) {
+      const h = st.objectives.goalHold[p];
+      if (h) parts.push(`${labelOf(h.unit).split(' ')[0]} 達陣中`);
+    }
+  return parts.join('　');
+}
+
+const REASON_TEXT: Record<WinReason, string> = { annihilation: '全滅', decapitation: '斬首', killScore: '擊墜分', goal: '達陣', control: '據點', turnLimit: '回合上限' };
+
 const PHASE_HINT = {
+  deploy: '把機體擺在自己的部署區',
   move: '替每台機體選機動和姿態，全部選好後按「送出指令」',
   ace: '其他機體已經動完：替擱置的機體選機動',
   pursuit: '有機體咬住敵機背後：選追擊的目標與武器，或放棄',
   action: '移動已結算：選一件裝備，再點地圖上的敵機當目標',
   over: '',
 };
-const PHASE_NAME: Record<TurnPhase, string> = { move: '移動', ace: '王牌移動', pursuit: '追擊', action: '行動' };
+const PHASE_NAME: Record<TurnPhase, string> = { deploy: '部署', move: '移動', ace: '王牌移動', pursuit: '追擊', action: '行動' };
 const NT_SENSE_NAME = { numb: '麻木', strong: '堅強', sensitive: '敏感', fragile: '纖細' };
 
 /** 這一步需要下指令的機體：擦撞的機體行動步驟不用；王牌移動只有擱置的；追擊只有咬住敵機背後的 */
@@ -1536,9 +1604,10 @@ function infoHtml(u: UnitView): string {
 
 function resultText(): string {
   const w = view!.state.winner;
-  if (w === 'draw') return '平手';
-  if (local?.opponent === 'aivai') return `${SIDE(w as PlayerId)} 方勝利`;
-  return w === view!.you ? '勝利' : '敗北';
+  const why = view!.state.winReason ? `（${REASON_TEXT[view!.state.winReason]}）` : '';
+  if (w === 'draw') return `平手${why}`;
+  if (local?.opponent === 'aivai') return `${SIDE(w as PlayerId)} 方勝利${why}`;
+  return `${w === view!.you ? '勝利' : '敗北'}${why}`;
 }
 
 function controlsHtml(u: UnitView | undefined): string {
@@ -2003,7 +2072,9 @@ function describe(e: GameEvent): string | null {
     case 'debris':
       return `${L(e.unit)} 高速穿越隕石群，被碎石擊中`;
     case 'gameOver':
-      return e.winner === 'draw' ? '對戰結束：平手' : `對戰結束：${e.winner === 0 ? 'A' : 'B'} 方勝利`;
+      return `${e.winner === 'draw' ? '對戰結束：平手' : `對戰結束：${e.winner === 0 ? 'A' : 'B'} 方勝利`}${e.reason ? `（${REASON_TEXT[e.reason]}）` : ''}`;
+    case 'objective':
+      return `◎ ${e.text}`;
     default:
       return null;
   }
@@ -2059,9 +2130,10 @@ function restart() {
   // 本機模式：回到出擊準備，選好陣容再開打
   if (local) {
     const game = local;
-    openLineup(game.opponent, (rosters, opponent) => {
+    openLineup(game.opponent, (rosters, opponent, settings) => {
       game.rosters = rosters;
       game.opponent = opponent;
+      game.settings = settings;
       saveOpponent(opponent);
       clearAndReset();
       switchSeat(0);
@@ -2139,9 +2211,9 @@ if (mode === 'local') {
     const tag = $('contentTag');
     tag.textContent = `資料 ${version}`;
     tag.title = note;
-    openLineup(initialOpponent(), (rosters, opponent) => {
+    openLineup(initialOpponent(), (rosters, opponent, settings) => {
       saveOpponent(opponent);
-      local = new LocalGame(onMessage, opponent, rosters);
+      local = new LocalGame(onMessage, opponent, rosters, settings);
       switchSeat(0);
     });
   });

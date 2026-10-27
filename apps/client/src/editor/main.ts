@@ -528,6 +528,7 @@ function equipmentForm(e: EquipDef & Obj) {
       selField(e, 'mount', '安裝方式', MOUNT_OPTS, { absent: 'hand', rerender: true }),
       numField(e, 'weight', '受擊權重', { hint: '被打中時分到這件的機率權重；內建與內藏武器沒有自己的部位，填 0' }),
       numField(e, 'durability', '耐久', { hint: '手持與外掛裝備至少 1' }),
+      numField(e, 'cost', '費用', { optional: true, hint: '出擊時帶上就加（機型的標準裝備不算）；空白＝0' }),
     )),
   ];
   if (e.kind === 'ranged') {
@@ -600,6 +601,7 @@ function chassisForm(c: ChassisDef & Obj) {
   return [
     sec('基本', grid(
       textField(c, 'name', '名稱'),
+      numField(c, 'cost', '費用', { optional: true, hint: '不含駕駛與另外帶的裝備；標準裝備已含在內。空白＝0' }),
       numField(c, 'weightClass', '重量級'),
       numField(c, 'propellant', '推進劑'),
       numField(c, 'baseThrust', '免費加速', { hint: '每回合不耗推進劑的速度變化量' }),
@@ -689,7 +691,7 @@ function partOptions(chassisId: string | undefined, cur: string | undefined): HT
 
 function pilotForm(p: PilotDef & Obj) {
   return [
-    sec('基本', grid(textField(p, 'name', '名稱'), numField(p, 'skill', '技術', { hint: `每點命中 +${C.HIT_PER_SKILL}、迴避 +${C.EVADE_PER_SKILL}` }), numField(p, 'maxStress', '壓力上限'), numField(p, 'recovery', '每回合壓力恢復'))),
+    sec('基本', grid(textField(p, 'name', '名稱'), numField(p, 'skill', '技術', { hint: `每點命中 +${C.HIT_PER_SKILL}、迴避 +${C.EVADE_PER_SKILL}` }), numField(p, 'maxStress', '壓力上限'), numField(p, 'recovery', '每回合壓力恢復'), numField(p, 'cost', '費用', { optional: true, hint: '組隊預算與擊墜分；空白＝0' }), selField(p, 'unique', '出擊限制', [['false', '可以重複'], ['true', '具名：一隊只能一位']], { absent: 'false' }))),
     sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類']], (v) => {
       p.abilities = (v ?? []) as PilotDef['abilities'];
       // 新人類一定要有擊墜感受；取消新人類就拿掉
@@ -833,7 +835,7 @@ const FIELD_NAMES: Record<string, string> = {
   name: '名稱', kind: '種類', mount: '安裝方式', weight: '受擊權重', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
   pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
   baseThrust: '免費加速', maxAccel: '最大加速', power: '出力', aim: '瞄準', evasion: '迴避', parts: '部位', dial: '機動盤', builtIn: '內建武裝', skill: '技術',
-  maxStress: '壓力上限', recovery: '壓力恢復', abilities: '能力', ntSense: '擊墜感受', crew: '機上人員',
+  maxStress: '壓力上限', recovery: '壓力恢復', abilities: '能力', ntSense: '擊墜感受', crew: '機上人員', cost: '費用', unique: '具名',
 };
 const short = (v: unknown) => {
   if (v === undefined) return '（無）';

@@ -31,8 +31,6 @@ export const FIELD_SPOT_RANGE = 4;
 
 /** 陣容：default 固定、random 雙方各自隨機、mirror 雙方同一套隨機陣容 */
 export const ROSTER_MODE: 'default' | 'random' | 'mirror' = 'random';
-/** 測試用的快速勝負：先失去一台機體（擊毀、昏迷或飛出地圖）的一方輸 */
-export const WIN_ON_FIRST_LOSS = true;
 
 // 距離帶（底板邊緣距離的上限）
 export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;

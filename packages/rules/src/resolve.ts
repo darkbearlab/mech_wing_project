@@ -11,6 +11,10 @@ import { updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
+import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, type WinReason } from './objectives';
+import { radiusOf } from './body';
+import { DEG } from './geometry';
+import type { DeployPlan, PlayerDeploy } from './types';
 import { alwaysReady, defaultAction, defaultMove, equipAlive, freeDraw, handUsable, heldItem, pilotOf, planCost, readyRanged } from './unit';
 
 export interface TurnResult {
@@ -229,22 +233,96 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   state.phase = 'move';
   state.turnInfo = null;
   updateSight(state, revealed);
+  // 回合結束：達陣與據點
+  const settings = state.settings ?? DEFAULT_SETTINGS;
+  const done = scoreObjectives(state, settings, (text, side) => ctx.events.push({ type: 'objective', side, text }));
+  if (state.winner === null && done.goal.length) finish(ctx, settleBoth(state, done.goal), 'goal');
+  if (state.winner === null && done.control.length) finish(ctx, settleBoth(state, done.control, state.objectives!.control), 'control');
   if (!checkWinner(ctx, true)) state.turn++;
   state.rngState = rng.state;
   return { state, events: ctx.events };
 }
 
-/** 一方全滅（或快速勝負時先少一台）就結束；回合結束時另外檢查回合上限 */
+function finish(ctx: Ctx, winner: PlayerId | 'draw', reason: WinReason): void {
+  ctx.state.winner = winner;
+  ctx.state.winReason = reason;
+  ctx.events.push({ type: 'gameOver', winner, reason });
+}
+
+/**
+ * 勝負：一方全滅；斬首（旗艦退場）；擊墜分到門檻（同時到就比分數）；
+ * 回合結束時另外檢查回合上限（比據點分再比擊墜分）。達陣與據點在回合結束時另外結算。
+ */
 function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
   const { state } = ctx;
+  if (state.winner !== null) return true;
+  const s = state.settings ?? DEFAULT_SETTINGS;
   const alive = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status === 'active').length);
-  const lost = [0, 1].map((p) => state.units.filter((u) => u.owner === p && u.status !== 'active').length);
-  const firstLoss = C.WIN_ON_FIRST_LOSS && (lost[0] > 0 || lost[1] > 0);
-  if (!firstLoss && alive[0] > 0 && alive[1] > 0 && !(endOfTurn && state.turn >= C.TURN_LIMIT)) return false;
-  if (firstLoss) state.winner = lost[0] === lost[1] ? 'draw' : ((lost[0] < lost[1] ? 0 : 1) as PlayerId);
-  else state.winner = alive[0] === alive[1] ? 'draw' : ((alive[0] > alive[1] ? 0 : 1) as PlayerId);
-  ctx.events.push({ type: 'gameOver', winner: state.winner });
-  return true;
+  if (!alive[0] || !alive[1]) {
+    finish(ctx, alive[0] === alive[1] ? 'draw' : alive[0] ? 0 : 1, 'annihilation');
+    return true;
+  }
+  if (s.decapitation) {
+    const lost = ([0, 1] as PlayerId[]).filter((p) => flagshipOf(state, p)?.status !== 'active');
+    if (lost.length) {
+      finish(ctx, lost.length === 2 ? byScore(state) : ((1 - lost[0]) as PlayerId), 'decapitation');
+      return true;
+    }
+  }
+  if (s.killScore) {
+    const hit = ([0, 1] as PlayerId[]).filter((p) => killScoreOf(state, p) >= s.killScore!);
+    if (hit.length) {
+      finish(ctx, settleBoth(state, hit), 'killScore');
+      return true;
+    }
+  }
+  if (endOfTurn && state.turn >= s.turnLimit) {
+    finish(ctx, byScore(state, s.control ? state.objectives?.control : undefined), 'turnLimit');
+    return true;
+  }
+  return false;
+}
+
+/** 開戰前的部署：雙方暗中擺好，一起公布；沒給的機體留在原本排開的位置 */
+export function resolveDeploy(input: GameState, byPlayer: [PlayerDeploy, PlayerDeploy]): TurnResult {
+  const state: GameState = structuredClone(input);
+  const rng = new Rng(state.rngState);
+  const ctx: Ctx = { state, rng, events: [] };
+  for (const u of state.units) {
+    const d = byPlayer[u.owner][u.id];
+    if (!d) continue;
+    u.pos = { x: d.x, y: d.y };
+    u.facing = d.facing;
+    u.momentum = d.momentum;
+  }
+  state.phase = 'move';
+  state.lastSeen = [{}, {}];
+  updateSight(state);
+  ctx.events.push({ type: 'phase', phase: 'move' });
+  state.rngState = rng.state;
+  return { state, events: ctx.events };
+}
+
+/** 檢查一方的部署：要在自己的部署區、不壓到隊友或大隕石、朝向 45° 的倍數、起始動能 0–2（戰機至少最低速度） */
+export function validateDeploy(state: GameState, player: PlayerId, plans: PlayerDeploy): string[] {
+  const errors: string[] = [];
+  const z = deployZone(player);
+  const placed: { id: string; d: DeployPlan; r: number }[] = [];
+  for (const u of state.units.filter((x) => x.owner === player)) {
+    const d = plans[u.id];
+    if (!d) continue;
+    const r = radiusOf(u);
+    if (![d.x, d.y, d.facing, d.momentum].every(Number.isFinite)) errors.push(`${u.label}：部署資料不正確`);
+    else if (d.x < z.x0 || d.x > z.x1 || d.y < z.y0 || d.y > z.y1) errors.push(`${u.label}：要放在自己的部署區`);
+    else if (state.obstacles.some((o) => o.kind === 'rock' && Math.hypot(d.x - o.x, d.y - o.y) < o.r + r)) errors.push(`${u.label}：壓到大隕石`);
+    else if (placed.some((q) => Math.hypot(q.d.x - d.x, q.d.y - d.y) < q.r + r + 0.1)) errors.push(`${u.label}：和隊友重疊`);
+    const step = Math.round(d.facing / (45 * DEG));
+    if (Math.abs(d.facing - step * 45 * DEG) > 1e-6) errors.push(`${u.label}：朝向要是 45° 的倍數`);
+    const min = minSpeedOf(u);
+    if (!Number.isInteger(d.momentum) || d.momentum < Math.min(min, 2) || d.momentum > Math.max(2, min)) errors.push(`${u.label}：起始動能要在 ${Math.min(min, 2)}–${Math.max(2, min)}`);
+    placed.push({ id: u.id, d, r });
+  }
+  return errors;
 }
 
 /** 整回合（移動＋動作），測試與批次模擬用；王牌移動用同一份移動指令、不追擊 */

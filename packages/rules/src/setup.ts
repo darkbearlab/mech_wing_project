@@ -5,6 +5,7 @@ import { generateObstacles } from './terrain';
 import { sighting, updateSight } from './visibility';
 import { chassisParts } from './body';
 import { CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, PILOTS, randomRoster, type RosterEntry } from './data';
+import { DEFAULT_SETTINGS, controlPoints, entryCost, newObjectives, type BattleSettings } from './objectives';
 import type { EquipState, GameState, PartState, PlayerId, UnitState } from './types';
 
 export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, pos: { x: number; y: number }, facing: number): UnitState {
@@ -35,6 +36,7 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
     label: `${owner === 0 ? 'A' : 'B'}${index + 1} ${chassis.id}`,
     chassisId: chassis.id,
     pilotId: pilot.id,
+    cost: entryCost(entry),
     pos,
     facing,
     momentum: Math.max(START_MOMENTUM, chassis.minSpeed ?? 0),
@@ -58,7 +60,7 @@ export function pickRosters(seed: number): [RosterEntry[], RosterEntry[]] {
   return [a, ROSTER_MODE === 'mirror' ? structuredClone(a) : randomRoster(() => rng.next())];
 }
 
-export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]] = pickRosters(seed)): GameState {
+export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]] = pickRosters(seed), settings: BattleSettings = DEFAULT_SETTINGS): GameState {
   const units: UnitState[] = [];
   rosters.forEach((roster, owner) => {
     const y = owner === 0 ? 2 : MAP_SIZE - 2;
@@ -68,10 +70,12 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
       units.push(createUnit(entry, owner as PlayerId, i, { x, y }, facing));
     });
   });
-  const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0));
-  const state: GameState = { turn: 1, phase: 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null };
-  // 開場時雙方都知道對方的部署位置（第 0 回合的目擊），之後就要靠視野
-  for (const u of units) state.lastSeen[(1 - u.owner) as PlayerId][u.id] = sighting(u, 0);
+  // 有據點時，大隕石與隕石群要避開據點
+  const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0), settings.control ? controlPoints() : []);
+  const free = settings.deploy === 'free';
+  const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null, settings: structuredClone(settings), objectives: newObjectives() };
+  // 固定排開時雙方都知道對方的部署位置（第 0 回合的目擊），之後就要靠視野；自由部署則看不到
+  if (!free) for (const u of units) state.lastSeen[(1 - u.owner) as PlayerId][u.id] = sighting(u, 0);
   updateSight(state);
   return state;
 }

@@ -5,6 +5,8 @@
 //       躲在大隕石後面只露給一台敵機；還沒交火時不衝到隊友前面。
 // 王牌移動：有能力的機體一律先擱置，等其他人動完、看清楚再決定（敵機位置確定，咬尾更準）。
 // 追擊：會避免把背後露給敵機（被咬住會多挨一槍），也會找能咬住敵機背後的位置；追擊步驟挑期望傷害最高的一槍。
+// 勝利條件：斬首時集火敵方旗艦、自己的旗艦待在後面；達陣時派 1–2 台快的去對方達陣圈停住，敵機靠近自己的達陣圈就優先打它；
+//       據點時把機體分到各據點。開戰前自由部署時，挑前方有大隕石掩護的路線一字排開，旗艦在後。
 // 行動：全隊選一個集火目標（優先離它隊友最遠、我方最多台打得到的敵機），挑期望傷害最高的射擊；
 //       命中率太低就先鎖定（下一發加成），沒得打就拔刀、拔槍或鎖定集火目標。
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
@@ -19,7 +21,8 @@ import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
-import type { ActionPlan, EquipDef, EquipState, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
+import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
+import type { ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
@@ -130,6 +133,10 @@ interface TeamPlan {
   mateRear: number;
   /** 還沒交火時各機體的集結位置：集火目標前方、我方這一側，一字排開 */
   slots: Map<string, Vec>;
+  /** 有地圖目標的機體：要去的位置、到了要不要停住（達陣要停住，據點只要在圈內） */
+  objective: Map<string, { pos: Vec; r: number; stop: boolean }>;
+  /** 自己的旗艦（斬首時要保護） */
+  flagship: string | null;
 }
 
 /** 集結點離集火目標的距離（大約在中距離帶外緣，還沒進入對方有效射程） */
@@ -212,7 +219,14 @@ function rallySlots(own: UnitView[], focus: UnitView | null, enemies: UnitView[]
 }
 
 /** 全隊的集火目標：受傷重、威脅大、落單（離它的隊友遠）、我方多台打得到或靠得近的敵機 */
-function pickFocus(own: UnitView[], enemies: UnitView[], obstacles: Obstacle[]): UnitView | null {
+interface FocusHints {
+  /** 斬首：敵方旗艦 */
+  flagship?: string | null;
+  /** 達陣：自己的達陣圈（靠近它的敵機優先處理） */
+  guard?: Vec | null;
+}
+
+function pickFocus(own: UnitView[], enemies: UnitView[], obstacles: Obstacle[], hints: FocusHints = {}): UnitView | null {
   if (!enemies.length || !own.length) return null;
   const c = centroid(own);
   let best: { e: UnitView; v: number } | null = null;
@@ -221,7 +235,9 @@ function pickFocus(own: UnitView[], enemies: UnitView[], obstacles: Obstacle[]):
     const reach = own.filter((u) => dist(u.pos, e.pos) < 10).length;
     const others = enemies.filter((x) => x !== e);
     const alone = others.length ? Math.min(6, Math.min(...others.map((x) => dist(x.pos, e.pos)))) : 0;
-    const v = hurtOf(e) * 4 + danger * 0.6 + alone * 0.5 + reach * 0.8 - dist(c, e.pos) * 0.25;
+    let v = hurtOf(e) * 4 + danger * 0.6 + alone * 0.5 + reach * 0.8 - dist(c, e.pos) * 0.25 + (CHASSIS[e.chassisId]?.cost ?? 0) * 0.1;
+    if (hints.flagship === e.id) v += 4;
+    if (hints.guard && dist(e.pos, hints.guard) < 7) v += 6 - dist(e.pos, hints.guard) * 0.5;
     if (!best || v > best.v) best = { e, v };
   }
   return best!.e;
@@ -275,7 +291,7 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
     const tp = predict(target);
     const d = edge(pos, tp);
     // 受傷重的往後退：拉開到更遠的距離
-    const want = pref.melee ? 0 : pref.range + hurt * 3;
+    const want = pref.melee ? 0 : pref.range + hurt * 3 + (team.flagship === u.id ? 2 : 0);
     // 還沒交火時以集結為主，距離只是次要
     score -= Math.abs(d - want) * (pref.melee ? 2 : 1) * (team.engaged ? 1 : 0.4);
     const ang = Math.abs(angleDiff(angleOf(sub(tp, pos)), facing));
@@ -306,7 +322,7 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
     const ep = { pos: predict(e), facing: e.facing };
     if (tailing(ep, { pos, facing })) threat += expectedDamage(e, ep.pos, e.facing, u, pos, facing, team.obstacles, ASSUMED_SKILL, skill);
   }
-  score -= threat * (2 + hurt * 3);
+  score -= threat * (2 + hurt * 3) * (team.flagship === u.id ? 1.6 : 1);
   // 咬住敵機背後：追擊步驟多打一槍
   if (!pref.melee) {
     let tail = 0;
@@ -325,8 +341,15 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
   // 打得到集火目標、而且這裡我方人多：主動進場
   const advantage = backers.size + 1 - foes.length;
   if (foes.length && advantage > 0 && offenseOn(u, pos, facing, team, skill) > 0.1) score += advantage * 2;
+  // 地圖目標：往目標走；達陣要在圈裡停住（動能 0）才算，據點只要在圈裡
+  const goal = team.objective.get(u.id);
+  if (goal) {
+    const d = navDist(pos, goal.pos, r, team.obstacles);
+    score -= d * 1.4;
+    if (dist(pos, goal.pos) <= goal.r) score += goal.stop ? (endMomentum === 0 ? 12 : 1) : 5;
+  }
   // 還沒交火時整隊推進：先到集結位置，而且不要比最落後的隊友靠近集火目標太多
-  if (!team.engaged && team.focus) {
+  if (!team.engaged && team.focus && !goal) {
     const slot = team.slots.get(u.id);
     if (slot) score -= navDist(pos, slot, r, team.obstacles) * 1.2;
     const ahead = team.mateRear - dist(pos, predict(team.focus));
@@ -363,8 +386,91 @@ function pickGrapple(u: UnitView, rng: Rng): GrappleChoice {
   return rng.pickWeighted(opts, (o) => (o === 'disengage' && tired ? 3 : GRAPPLE_WEIGHT[o]));
 }
 
-/** 依目前的步驟出指令（移動、王牌移動、追擊、動作） */
-export function aiOrders(view: PlayerView, rng: Rng): PlayerMoves | PlayerActions | PlayerPursuits {
+/**
+ * 分派地圖目標：達陣時派最快的 1 台（5 台以上派 2 台；斬首時不派旗艦）去對方達陣圈；
+ * 據點時每台去最近、還沒滿兩台的據點
+ */
+function assignObjectives(view: PlayerView, own: UnitView[]): TeamPlan['objective'] {
+  const out: TeamPlan['objective'] = new Map();
+  const s = view.state.settings;
+  const enemy = (1 - view.you) as PlayerId;
+  const free = own.filter((u) => !(s.decapitation && view.state.flagship[view.you] === u.id) && !view.state.grapples.some((g) => g.a === u.id || g.b === u.id));
+  if (s.goal) {
+    const zone = goalZone(enemy);
+    // 已經在圈裡停著的先留著，其餘挑快的、離得近的
+    const holder = view.state.objectives.goalHold[view.you]?.unit;
+    const runners = [...free].sort((a, b) => (b.id === holder ? 99 : 0) - (a.id === holder ? 99 : 0) || CHASSIS[b.chassisId].maxAccel - CHASSIS[a.chassisId].maxAccel || dist(a.pos, zone) - dist(b.pos, zone));
+    for (const u of runners.slice(0, own.length >= 5 ? 2 : 1)) out.set(u.id, { pos: zone, r: GOAL_RADIUS, stop: true });
+  }
+  if (s.control) {
+    const load = new Map<number, number>();
+    const pts = controlPoints();
+    for (const u of free.filter((x) => !out.has(x.id))) {
+      const order = pts.map((p, i) => ({ i, d: dist(u.pos, p) })).sort((a, b) => a.d - b.d);
+      const pick = order.find((o) => (load.get(o.i) ?? 0) < 2) ?? order[0];
+      load.set(pick.i, (load.get(pick.i) ?? 0) + 1);
+      out.set(u.id, { pos: pts[pick.i], r: CONTROL_RADIUS * 0.8, stop: false });
+    }
+  }
+  return out;
+}
+
+/**
+ * 開戰前的自由部署：左中右三條路線挑一條（前方有大隕石可以掩護的優先），在部署區前緣一字排開、面向敵方；
+ * 旗艦放在後排；有達陣時留一台最便宜的守在自己的達陣圈前
+ */
+export function aiDeploy(view: PlayerView, rng: Rng): PlayerDeploy {
+  const out: PlayerDeploy = {};
+  const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
+  const z = deployZone(view.you);
+  const s = view.state.settings;
+  const up = view.you === 0 ? 1 : -1;
+  const facing = view.you === 0 ? Math.PI / 2 : -Math.PI / 2;
+  const front = view.you === 0 ? z.y1 - 0.8 : z.y0 + 0.8;
+  const back = front - up * 2.2;
+  const rocks = view.state.obstacles.filter((o) => o.kind === 'rock');
+  const ahead = front + up * 5;
+  const lanes = [MAP_SIZE * 0.25, MAP_SIZE * 0.5, MAP_SIZE * 0.75].map((x) => ({
+    x,
+    v: rocks.filter((o) => Math.abs(o.x - x) < 4 && Math.abs(o.y - ahead) < 4).length * 2 + (s.goal && x === MAP_SIZE / 2 ? 1 : 0) + rng.next() * 1.5,
+  }));
+  const lane = lanes.sort((a, b) => b.v - a.v)[0].x;
+  const flag = s.decapitation ? view.state.flagship[view.you] : null;
+  const guard = s.goal && own.length >= 4 ? [...own].filter((u) => u.id !== flag).sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0))[0]?.id : undefined;
+  const momentum = (u: UnitView) => Math.max(1, minSpeedOf(u));
+  const clampX = (x: number) => Math.max(z.x0 + 0.8, Math.min(z.x1 - 0.8, x));
+  const line = own.filter((u) => u.id !== flag && u.id !== guard);
+  line.forEach((u, i) => {
+    const k = i === 0 ? 0 : Math.ceil(i / 2) * (i % 2 ? -1 : 1);
+    out[u.id] = { x: clampX(lane + k * 2.8), y: front, facing, momentum: momentum(u) };
+  });
+  const flagU = own.find((u) => u.id === flag);
+  if (flagU) out[flagU.id] = { x: clampX(lane), y: back, facing, momentum: momentum(flagU) };
+  const guardU = own.find((u) => u.id === guard);
+  if (guardU) {
+    const gz = goalZone(view.you);
+    out[guardU.id] = { x: clampX(gz.x + (lane < gz.x ? 2 : -2)), y: back, facing, momentum: momentum(guardU) };
+  }
+  // 同一排擠到一起時往後挪
+  const placed: { x: number; y: number }[] = [];
+  for (const u of own) {
+    const d = out[u.id];
+    while (placed.some((q) => Math.hypot(q.x - d.x, q.y - d.y) < 2.6)) d.x = clampX(d.x + 2.7);
+    placed.push(d);
+  }
+  return out;
+}
+
+/** 依勝利條件給集火的提示 */
+function focusHints(view: PlayerView): FocusHints {
+  const s = view.state.settings;
+  const enemy = (1 - view.you) as PlayerId;
+  return { flagship: s.decapitation ? view.state.flagship[enemy] : null, guard: s.goal ? goalZone(view.you) : null };
+}
+
+/** 依目前的步驟出指令（部署、移動、王牌移動、追擊、動作） */
+export function aiOrders(view: PlayerView, rng: Rng): PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy {
+  if (view.phase === 'deploy') return aiDeploy(view, rng);
   if (view.phase === 'move') return aiMoves(view, rng);
   if (view.phase === 'ace') return aiAceMoves(view, rng);
   if (view.phase === 'pursuit') return aiPursuits(view);
@@ -402,8 +508,24 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
   const grappled = new Set(view.state.grapples.flatMap((g) => [g.a, g.b]));
   // 交火中：任一台敵機下回合打得到我方任一台
   const engaged = enemies.some((e) => own.some((u) => expectedDamage(e, predict(e), null, u, u.pos, u.facing, view.state.obstacles, ASSUMED_SKILL, null) > 0.1));
-  const team: TeamPlan = { enemies, allies: own, focus: pickFocus(own, enemies, view.state.obstacles), planned: [], obstacles: view.state.obstacles, engaged, support: new Map(), mateRear: Infinity, slots: new Map() };
-  team.slots = rallySlots(own, team.focus, enemies, view.state.obstacles);
+  const team: TeamPlan = {
+    enemies,
+    allies: own,
+    focus: pickFocus(own, enemies, view.state.obstacles, focusHints(view)),
+    planned: [],
+    obstacles: view.state.obstacles,
+    engaged,
+    support: new Map(),
+    mateRear: Infinity,
+    slots: new Map(),
+    objective: assignObjectives(view, own),
+    flagship: view.state.settings.decapitation ? view.state.flagship[view.you] : null,
+  };
+  team.slots = rallySlots(own.filter((u) => !team.objective.has(u.id)), team.focus, enemies, view.state.obstacles);
+  // 完全不知道敵人在哪（自由部署後還沒發現）：保持隊形往對面推進搜索
+  if (!enemies.length)
+    for (const u of own)
+      if (!team.objective.has(u.id)) team.objective.set(u.id, { pos: { x: MAP_SIZE / 2 + (u.pos.x - MAP_SIZE / 2) * 0.6, y: view.you === 0 ? MAP_SIZE * 0.62 : MAP_SIZE * 0.38 }, r: 2, stop: false });
   const out: PlayerMoves = {};
   const base: MovePlan = { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false };
   // 受傷重的先決定位置（讓它先找好掩蔽），其餘照順序
@@ -465,7 +587,7 @@ export function aiPursuits(view: PlayerView): PlayerPursuits {
   const out: PlayerPursuits = {};
   const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
   const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
-  const focus = pickFocus(own, enemies, view.state.obstacles);
+  const focus = pickFocus(own, enemies, view.state.obstacles, focusHints(view));
   for (const [id, opts] of Object.entries(view.pursuit ?? {})) {
     let best: { o: (typeof opts)[number]; v: number } | null = null;
     for (const o of opts) {
@@ -486,7 +608,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
   const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active' && !view.state.bumped.includes(u.id));
   const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
   const out: PlayerActions = {};
-  const focus = pickFocus(own, enemies, view.state.obstacles);
+  const focus = pickFocus(own, enemies, view.state.obstacles, focusHints(view));
   const aimed: Record<string, number> = {};
   for (const u of own) {
     const skill = PILOTS[u.pilotId!]?.skill ?? 1;

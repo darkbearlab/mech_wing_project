@@ -1,6 +1,6 @@
 // 本機模式：Match 直接跑在瀏覽器裡，給 GitHub Pages 這類沒有伺服器的環境用。
 // 回傳的訊息格式和 WebSocket 伺服器相同，main.ts 不需要分辨來源。
-import { Match, Rng, aiOrders, contentVersion, createGame, submitStep, type BattleRecord, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
+import { DEFAULT_SETTINGS, Match, Rng, aiOrders, contentVersion, createGame, submitStep, type BattleRecord, type BattleSettings, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
 import { draftPack } from './content';
 import { uploadBattle } from './record';
 
@@ -29,6 +29,8 @@ export class LocalGame {
     public opponent: Opponent = 'ai',
     /** 出擊準備選的陣容；沒有就照資料包的隨機規則 */
     public rosters?: [RosterEntry[], RosterEntry[]],
+    /** 勝利條件與部署方式 */
+    public settings: BattleSettings = DEFAULT_SETTINGS,
   ) {
     this.match = this.newMatch();
   }
@@ -43,6 +45,7 @@ export class LocalGame {
       contentVersion: version,
       pack: version === 'draft' ? (draftPack ?? undefined) : undefined,
       rosters: this.rosters && structuredClone(this.rosters),
+      settings: structuredClone(this.settings),
       seats,
       build: __BUILD__,
       startedAt: new Date().toISOString(),
@@ -51,7 +54,7 @@ export class LocalGame {
       turns: 0,
     };
     this.uploaded = false;
-    return new Match(seed, createGame(seed, this.rosters));
+    return new Match(seed, createGame(seed, this.rosters, this.settings));
   }
 
   /** 送出這一步的指令並記進紀錄 */
@@ -89,7 +92,7 @@ export class LocalGame {
       return 0;
     }
     const ok = this.step(() => {
-      const errors = this.send(seat, msg.t === 'moves' ? msg.moves : msg.t === 'pursuits' ? msg.pursuits : msg.actions);
+      const errors = this.send(seat, msg.t === 'moves' ? msg.moves : msg.t === 'pursuits' ? msg.pursuits : msg.t === 'deploy' ? msg.deploy : msg.actions);
       if (errors.length) this.deliver({ t: 'error', errors });
       return errors.length === 0;
     });

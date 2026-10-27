@@ -86,6 +86,7 @@ export function validateContent(pack: ContentPack): string[] {
     if (c.minSpeed !== undefined && !(Number.isInteger(c.minSpeed) && c.minSpeed >= 0 && c.minSpeed <= MAX_DIAL_SPEED)) err(w, `最低速度要是 0–${MAX_DIAL_SPEED} 的整數`);
     if (c.closeCombat !== undefined && typeof c.closeCombat !== 'boolean') err(w, 'closeCombat 要是 true 或 false');
     if (c.crew !== undefined && !CREWS.includes(c.crew)) err(w, `crew 要是 ${CREWS.join('／')}`);
+    if (c.cost !== undefined && !isNum(c.cost, 0)) err(w, '費用要是 0 以上的數字');
     const min = c.minSpeed ?? 0;
     if (min > 0 && !(c.dial ?? []).some((m) => m.startsWith('straight-') && Number(m.split('-')[2]) >= min)) err(w, `最低速度 ${min}：機動盤至少要有一個速度 ≥ ${min} 的直線`);
     if (!c.dial?.length) err(w, '機動盤是空的');
@@ -118,6 +119,7 @@ export function validateContent(pack: ContentPack): string[] {
     const nt = (p.abilities ?? []).includes('newtype');
     if (nt && !NT_SENSES.includes(p.ntSense ?? '')) err(w, `新人類要設定擊墜感受（${NT_SENSES.join('／')}）`);
     if (!nt && p.ntSense !== undefined) err(w, '不是新人類，不能設定擊墜感受');
+    if (p.cost !== undefined && !isNum(p.cost, 0)) err(w, '費用要是 0 以上的數字');
   }
 
   /** 檢查一套配裝（裝備存在、位置和安裝方式相符、宿主正確、佔手衝突） */

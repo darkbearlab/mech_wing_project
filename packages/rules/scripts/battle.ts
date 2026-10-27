@@ -6,6 +6,7 @@
 // 陣容模式：config（照設定）、random、mirror、default。PACK=資料包.json 用指定的資料包。
 // FROM=logs/battle-12.json：用那場紀錄的地圖與陣容開局，雙方都交給 AI（--stats 時每場 AI 的亂數不同）。
 // AI_OLD=../src/ai_old.ts：一方換成另一份 AI（兩邊輪流換），統計分成「新」「舊」比較。
+// 勝利條件：WIN=kill50,decap,goal,control6（預設 kill50,decap）、TURNS=12、DEPLOY=free（預設照順序排開）。
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
@@ -26,15 +27,18 @@ import {
   randomRoster,
   readyRanged,
   replayRecord,
+  killScoreOf,
   submitStep,
   useContent,
   type BattleRecord,
+  type BattleSettings,
   type ContentPack,
   type GameEvent,
   type PlayerActions,
   type PlayerId,
   type PlayerMoves,
   type PlayerPursuits,
+  type PlayerDeploy,
   type TurnPhase,
   type PlayerView,
   type RosterEntry,
@@ -60,18 +64,35 @@ const statsMode = args[0] === '--stats';
 const games = statsMode ? Number(args[1] ?? 100) : 1;
 const seed0 = statsMode ? 1 : Number(args[0] ?? 1);
 const mode = (statsMode ? args[2] : args[1]) ?? 'config';
+/** 從環境變數讀勝利條件 */
+function settingsFromEnv(): BattleSettings {
+  const win = (process.env.WIN ?? 'kill50,decap').split(',').map((x) => x.trim());
+  const num = (prefix: string) => {
+    const w = win.find((x) => x.startsWith(prefix));
+    return w ? Number(w.slice(prefix.length)) || undefined : undefined;
+  };
+  return {
+    killScore: num('kill'),
+    decapitation: win.includes('decap'),
+    goal: win.includes('goal'),
+    control: num('control'),
+    turnLimit: Number(process.env.TURNS ?? 12),
+    deploy: process.env.DEPLOY === 'free' ? 'free' : 'fixed',
+  };
+}
+const settings = settingsFromEnv();
 const from = process.env.FROM ? (JSON.parse(readFileSync(process.env.FROM, 'utf-8')) as BattleRecord) : null;
 
 interface Ai {
   aiMoves: (v: PlayerView, rng: Rng) => PlayerMoves;
   aiActions: (v: PlayerView, rng: Rng) => PlayerActions;
-  aiOrders?: (v: PlayerView, rng: Rng) => PlayerMoves | PlayerActions | PlayerPursuits;
+  aiOrders?: (v: PlayerView, rng: Rng) => PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy;
 }
 const newAi: Ai = { aiMoves, aiActions, aiOrders };
 const oldAi: Ai | null = process.env.AI_OLD ? await import(pathToFileURL(resolve(process.env.AI_OLD)).href) : null;
 /** 舊版 AI 沒有 aiOrders 時：王牌移動照移動出、追擊放棄 */
 const ordersOf = (ai: Ai, v: PlayerView, rng: Rng) =>
-  ai.aiOrders ? ai.aiOrders(v, rng) : v.phase === 'pursuit' ? {} : v.phase === 'action' ? ai.aiActions(v, rng) : ai.aiMoves(v, rng);
+  ai.aiOrders ? ai.aiOrders(v, rng) : v.phase === 'pursuit' || v.phase === 'deploy' ? {} : v.phase === 'action' ? ai.aiActions(v, rng) : ai.aiMoves(v, rng);
 
 function rosters(seed: number): [RosterEntry[], RosterEntry[]] {
   if (from) return structuredClone(from.rosters ?? pickRosters(from.seed));
@@ -112,7 +133,7 @@ interface Side {
   lost: number;
 }
 const newSide = (): Side => ({ wins: 0, rockHits: 0, rockRepeat: 0, friendlyBumps: 0, shots: 0, hits: 0, lowShots: 0, locks: 0, volleys: 0, pursuitVolleys: 0, defers: 0, ntKillStress: 0, outnumbered: 0, unitTurns: 0, noActionTurns: 0, focusShots: 0, actionTurnsWithShots: 0, lost: 0 });
-const S = { games: 0, turns: 0, draws: 0, ends: {} as Record<string, number>, side: {} as Record<string, Side> };
+const S = { games: 0, turns: 0, draws: 0, ends: {} as Record<string, number>, reasons: {} as Record<string, number>, side: {} as Record<string, Side> };
 const sideOf = (name: string) => (S.side[name] ??= newSide());
 
 /** 能射到 target 的最高命中率（看得到射線、在射界與距離內）；打不到回傳 0 */
@@ -125,7 +146,9 @@ function bestChance(a: UnitState, t: UnitState, m: Match): number {
   return best;
 }
 
-type Orders = PlayerMoves | PlayerActions | PlayerPursuits | null;
+const REASON = { annihilation: '全滅', decapitation: '斬首', killScore: '擊墜分', goal: '達陣', control: '據點', turnLimit: '回合上限' };
+
+type Orders = PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy | null;
 
 /** 整理一場對戰的經過；verbose 時印出逐回合紀錄，同時累計統計。names 是兩方在統計裡的名字 */
 function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A', 'B']) {
@@ -146,6 +169,10 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
   const resolved = (phase: TurnPhase, plans: [Orders, Orders]) => {
     const events: GameEvent[] = m.turnResolvedEvents;
     if (phase === 'pursuit') say(`── 第 ${turn} 回合 追擊 ──`);
+    if (phase === 'deploy') {
+      say('── 部署 ──');
+      for (const u of m.state.units) say(`  ${u.label} → (${f1(u.pos.x)},${f1(u.pos.y)}) 朝 ${deg(u.facing)}° 動能 ${u.momentum}`);
+    }
     if (phase === 'move' || phase === 'ace') {
       say(phase === 'move' ? `\n── 第 ${turn} 回合 移動 ──` : `── 第 ${turn} 回合 王牌移動 ──`);
       for (const p of [0, 1] as const) {
@@ -224,6 +251,9 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
             say(`  ${label(e.unit)} 壓力 ${e.amount > 0 ? '+' : ''}${e.amount}（${e.reason}）→ ${e.total}`);
           }
           break;
+        case 'objective':
+          say(`  ◎ ${e.text}`);
+          break;
         case 'pilot':
           say(`  ${label(e.unit)} 駕駛 ${e.state}`);
           break;
@@ -246,9 +276,10 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
   const finish = () => {
     S.games++;
     S.turns += m.state.turn;
+    if (m.state.winReason) S.reasons[m.state.winReason] = (S.reasons[m.state.winReason] ?? 0) + 1;
     if (m.state.winner === 'draw') S.draws++;
     else if (m.state.winner !== null) side(m.state.winner).wins++;
-    say(`\n結果：${m.state.winner === null ? '沒打完（中途重開或關掉）' : m.state.winner === 'draw' ? '平手' : `${m.state.winner === 0 ? 'A' : 'B'} 方勝`}（第 ${m.state.turn} 回合）`);
+    say(`\n結果：${m.state.winner === null ? '沒打完（中途重開或關掉）' : m.state.winner === 'draw' ? '平手' : `${m.state.winner === 0 ? 'A' : 'B'} 方勝`}（第 ${m.state.turn} 回合${m.state.winReason ? `，${REASON[m.state.winReason]}` : ''}）　擊墜分 A ${killScoreOf(m.state, 0)} / B ${killScoreOf(m.state, 1)}`);
   };
   return { resolved, finish };
 }
@@ -256,7 +287,7 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
 /** 雙方都由 AI 操作打一場；比較模式下第 g 場奇數局讓舊 AI 拿 A 方 */
 function play(g: number, verbose: boolean) {
   const seed = from ? from.seed : seed0 + g;
-  const m = new Match(seed, createGame(seed, rosters(seed)));
+  const m = new Match(seed, createGame(seed, rosters(seed), from?.settings ?? settings));
   const rng = new Rng((seed0 + g) * 7919 + 3);
   const ais: [Ai, Ai] = oldAi ? (g % 2 ? [oldAi, newAi] : [newAi, oldAi]) : [newAi, newAi];
   const names = oldAi ? ais.map((a) => (a === newAi ? '新' : '舊')) : ['A', 'B'];
@@ -304,6 +335,7 @@ if (statsMode && !replayMode) {
   const pct = (a: number, b: number) => `${((a / Math.max(1, b)) * 100).toFixed(0)}%`;
   const per = (n: number) => (n / S.games).toFixed(2);
   console.log(`[${from ? `FROM ${process.env.FROM}` : mode}] ${S.games} 場，平均 ${(S.turns / S.games).toFixed(1)} 回合，平手 ${S.draws}　退場 ${JSON.stringify(S.ends)}`);
+  console.log(`勝負原因 ${Object.entries(S.reasons).map(([k, n]) => `${REASON[k as keyof typeof REASON]} ${n}`).join('、')}　條件 ${JSON.stringify(settings)}`);
   for (const [name, s] of Object.entries(S.side).sort()) {
     console.log(
       `${name}：勝 ${s.wins}　損失 每場 ${per(s.lost)} 台　落單 ${pct(s.outnumbered, s.unitTurns)} 的機體回合　撞隕石 每場 ${per(s.rockHits)}（連撞 ${per(s.rockRepeat)}）　友軍互撞 每場 ${per(s.friendlyBumps)}`,

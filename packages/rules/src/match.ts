@@ -1,7 +1,7 @@
-import { inGrapple, resolveAceMovement, resolveActions, resolveMovement, resolvePursuit } from './resolve';
+import { inGrapple, resolveAceMovement, resolveActions, resolveDeploy, resolveMovement, resolvePursuit, validateDeploy } from './resolve';
 import { createGame } from './setup';
 import { pursuitOptions, validatePursuits, type PursuitOption } from './pursuit';
-import type { GameEvent, GameState, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
+import type { GameEvent, GameState, PlayerActions, PlayerDeploy, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
 import { validateAction, validateMove } from './unit';
 import { filterEvents, viewState, type StateView } from './visibility';
 
@@ -18,7 +18,7 @@ export interface PlayerView {
   pursuit?: Record<string, PursuitOption[]>;
 }
 
-type Orders = PlayerMoves | PlayerActions | PlayerPursuits;
+type Orders = PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy;
 
 /**
  * 一場對戰的權威狀態。與傳輸層無關：本機 Node 伺服器與日後的 Durable Object 都只包這一層。
@@ -84,6 +84,11 @@ export class Match {
     return this.accept(player, moves, errors);
   }
 
+  submitDeploy(player: PlayerId, deploy: PlayerDeploy): string[] {
+    if (this.phase !== 'deploy') return ['現在不是部署階段'];
+    return this.accept(player, deploy, validateDeploy(this.state, player, deploy));
+  }
+
   submitPursuits(player: PlayerId, pursuits: PlayerPursuits): string[] {
     if (this.phase !== 'pursuit') return ['現在不是追擊階段'];
     return this.accept(player, pursuits, validatePursuits(this.state, player, pursuits));
@@ -120,7 +125,9 @@ export class Match {
     if (!a || !b) return;
     const phase = this.phase;
     const result =
-      phase === 'move'
+      phase === 'deploy'
+        ? resolveDeploy(this.state, [a as PlayerDeploy, b as PlayerDeploy])
+        : phase === 'move'
         ? resolveMovement(this.state, [a as PlayerMoves, b as PlayerMoves])
         : phase === 'ace'
           ? resolveAceMovement(this.state, [a as PlayerMoves, b as PlayerMoves])

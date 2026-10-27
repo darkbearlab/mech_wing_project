@@ -5,11 +5,14 @@ import { dist } from './geometry';
 import type { Rng } from './rng';
 import type { Obstacle, Vec } from './types';
 
-export function generateObstacles(rng: Rng): Obstacle[] {
+const AVOID_GAP = 2.5;
+
+/** avoid：要空出來的點（例如據點），障礙物離它們至少 AVOID_GAP */
+export function generateObstacles(rng: Rng, avoid: Vec[] = []): Obstacle[] {
   const M = C.MAP_SIZE;
   const out: Obstacle[] = [];
   const fits = (p: Vec, r: number) =>
-    out.every((o) => dist(p, o) > o.r + r + C.OBSTACLE_GAP) && p.x - r > 1 && p.x + r < M - 1;
+    out.every((o) => dist(p, o) > o.r + r + C.OBSTACLE_GAP) && p.x - r > 1 && p.x + r < M - 1 && avoid.every((q) => dist(p, q) > r + AVOID_GAP);
   const place = (kind: Obstacle['kind'], rMin: number, rMax: number) => {
     for (let tries = 0; tries < 40; tries++) {
       const r = rng.range(rMin, rMax);
