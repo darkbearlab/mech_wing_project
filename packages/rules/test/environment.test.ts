@@ -8,6 +8,8 @@ import { parseManeuver } from '../src/maneuvers';
 import type { PlayerMoves } from '../src/types';
 import { makeState, rifleX00 } from './helpers';
 import { rollPart } from '../src/damage';
+import { hitChance } from '../src/combat';
+import { EQUIPMENT } from '../src/data';
 import { Rng } from '../src/rng';
 
 beforeEach(() => {
@@ -75,5 +77,20 @@ describe('瞄準要害', () => {
     };
     expect(rate(0)).toBeLessThan(0.3);
     expect(rate(10)).toBeGreaterThan(0.45);
+  });
+});
+
+describe('技能差距與爆擊', () => {
+  const s = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 90 }, { entry: rifleX00, owner: 1, x: 10, y: 15, facingDeg: -90 }]);
+  const [a, t] = s.units;
+  const chance = (atk: number, tgt: number) => hitChance({ attacker: a, attackerSkill: atk, weapon: EQUIPMENT['beam_rifle'], target: t, targetSkill: tgt, relSpeed: null, shooterMelee: false })!.chance;
+  it('目標技能比射擊方高 3 級以上，每多一級命中再 −6；最低 0%', () => {
+    expect(chance(1, 4) - chance(1, 5)).toBe(3 + 6);
+    expect(chance(4, 5) - chance(4, 6)).toBe(3);
+    expect(chance(0, 30)).toBe(0);
+  });
+  it('命中可以超過 100（超過的部分是爆擊率），最多 200', () => {
+    expect(chance(30, 0)).toBeGreaterThan(100);
+    expect(chance(60, 0)).toBe(200);
   });
 });

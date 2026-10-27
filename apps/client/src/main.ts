@@ -1845,8 +1845,8 @@ function pursuitControls(u: UnitView): string {
     const on = cur?.target === o.target && cur?.weapon === o.weapon;
     const w = equipName(u, o.weapon);
     return tip(
-      `<button class="${on ? 'on' : ''}" data-pursue="${i}">${esc(labelOf(o.target).split(' ')[0])}・${esc(w)}　${o.chance}%</button>`,
-      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3)}，估計命中 ${o.chance}%（看不到對手的駕駛）。`,
+      `<button class="${on ? 'on' : ''}" data-pursue="${i}">${esc(labelOf(o.target).split(' ')[0])}・${esc(w)}　${o.chance > 100 ? `爆擊 ${Math.min(100, o.chance - 100)}%` : `${o.chance}%`}</button>`,
+      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3)}，估計${chanceText(o.chance)}（看不到對手的駕駛）。`,
     );
   });
   buttons.push(tip(`<button class="${cur === null ? 'on' : ''}" data-pursue="-1">放棄</button>`, '這台不追擊。'));
@@ -1919,10 +1919,12 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     if (def.pointBlank === false && rangeBand(u, t) === 0) return '太近，不能開火';
   }
   const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover }) : null;
-  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・約 ${h.chance}%` : '射程外';
+  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}` : '射程外';
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
+/** 命中率文字：超過 100 的部分是爆擊率 */
+const chanceText = (c: number) => (c > 100 ? `必中・爆擊約 ${Math.min(100, c - 100)}%` : `約 ${c}%`);
 const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離' } as const;
 
 function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
@@ -2171,7 +2173,7 @@ function describe(e: GameEvent): string | null {
     case 'phase':
       return e.phase === 'ace' ? '── 王牌移動 ──' : e.phase === 'pursuit' ? '── 追擊 ──' : null;
     case 'shot':
-      return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
+      return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
     case 'damage':
       return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
     case 'knockback':
