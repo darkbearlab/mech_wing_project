@@ -42,6 +42,8 @@ import {
   type MovePlan,
   type PursuitPlan,
   type DeployPlan,
+  type Scenario,
+  armorOf,
   aiDeploy,
   deployZone,
   minSpeedOf,
@@ -65,6 +67,7 @@ import {
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
 import { loadContent } from './content';
 import { openLineup } from './lineup';
+import { openMenu, type Side } from './menu';
 import { LocalGame, type Opponent } from './local';
 import { mechSilhouette } from './silhouette';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
@@ -533,9 +536,19 @@ attachCameraControls(canvas, cam, {
   },
   onClick(sx, sy) {
     const hit = unitAt(sx, sy);
-    if (!view || !hit || show) return;
     const sel = selected ? unitView(selected) : undefined;
     const plan = sel ? actionDrafts[sel.id] : undefined;
+    // 煙霧彈、氣球：點地圖（或點機體）選落點
+    if (view && !show && view.phase === 'action' && sel?.owner === view.you && plan && (plan.action.type === 'smoke' || plan.action.type === 'decoy') && !view.submitted[view.you]) {
+      const w = hit ? hit.pos : cam.unproject(sx, sy);
+      if (w) {
+        plan.action.at = { x: Math.round(w.x * 10) / 10, y: Math.round(w.y * 10) / 10 };
+        touched.add(sel.id);
+        renderPanel();
+      }
+      return;
+    }
+    if (!view || !hit || show) return;
     if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !hit.hidden && !view.submitted[view.you]) {
       setTarget(sel.id, hit.id);
       return;
@@ -883,6 +896,8 @@ function drawGround() {
   g.lineWidth = 1;
   for (const o of view?.state.obstacles ?? []) if (o.kind === 'field') drawField(o);
   for (const o of view?.state.obstacles ?? []) if (o.kind === 'rock') drawRock(o);
+  for (const o of view?.state.obstacles ?? []) if (o.kind === 'smoke') drawSmoke(o);
+  drawBalloons();
 }
 
 /** 凸包（Andrew 演算法），畫隕石的側面輪廓用 */
@@ -903,19 +918,74 @@ function hull(pts: Vec[]): Vec[] {
 }
 
 /** 大隕石：有高度的岩塊，側面用上下兩圈的凸包填起來 */
+/** 煙霧：灰色的圓，標示還剩幾回合 */
+function drawSmoke(o: Obstacle) {
+  g.fillStyle = 'rgba(150,150,145,0.32)';
+  g.strokeStyle = 'rgba(200,200,195,0.5)';
+  ringWorld(o.x, o.y, o.r, 0.6, 0, Math.PI * 2, 40);
+  g.fill();
+  g.stroke();
+  const c = pr(o.x, o.y - o.r - 0.3, 0.6);
+  if (!c.visible || !view) return;
+  g.fillStyle = 'rgba(220,220,215,0.85)';
+  g.font = '11px sans-serif';
+  g.textAlign = 'center';
+  g.fillText(`煙霧（剩 ${Math.max(1, (o.until ?? view.state.turn) - view.state.turn + 1)} 回合）`, c.x, c.y);
+}
+
+/** 欺敵氣球：看得出是氣球的（自己的全部看得到） */
+function drawBalloons() {
+  for (const b of view?.state.balloons ?? []) {
+    const top = pr(b.pos.x, b.pos.y, UNIT_Z + 0.5);
+    const base = pr(b.pos.x, b.pos.y, 0);
+    if (!top.visible) continue;
+    g.strokeStyle = color(b.owner, 0.7);
+    g.setLineDash([2, 2]);
+    g.beginPath();
+    g.ellipse(top.x, top.y, Math.max(5, top.k * 0.25), Math.max(6, top.k * 0.32), 0, 0, Math.PI * 2);
+    g.stroke();
+    g.setLineDash([]);
+    g.beginPath();
+    g.moveTo(top.x, top.y + Math.max(6, top.k * 0.32));
+    g.lineTo(base.x, base.y);
+    g.stroke();
+    g.fillStyle = color(b.owner, 0.85);
+    g.font = '11px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(b.owner === view!.you ? '我方氣球' : '氣球', top.x, top.y - 10);
+  }
+}
+
+/** 煙霧彈、氣球的預覽：可丟的範圍與落點 */
+function drawUtilityPreview(u: UnitView, kind: 'smoke' | 'decoy', at: Vec) {
+  const reach = (kind === 'smoke' ? config.SMOKE_THROW_RANGE : config.DECOY_PLACE_RANGE) + radiusOf(u);
+  g.strokeStyle = 'rgba(255,207,74,0.45)';
+  g.setLineDash([3, 5]);
+  ringWorld(u.pos.x, u.pos.y, reach, 0, 0, Math.PI * 2, 64);
+  g.stroke();
+  g.setLineDash([]);
+  if (!Number.isFinite(at.x)) return;
+  g.strokeStyle = 'rgba(255,207,74,0.95)';
+  g.lineWidth = 2;
+  ringWorld(at.x, at.y, kind === 'smoke' ? config.SMOKE_RADIUS : 0.5, 0, 0, Math.PI * 2, 40);
+  g.stroke();
+  g.lineWidth = 1;
+}
+
 function drawRock(o: Obstacle) {
   const height = 1.2 + o.r * 0.4;
   const ring = (z: number) => Array.from({ length: 28 }, (_, i) => pr(o.x + Math.cos((i / 28) * Math.PI * 2) * o.r, o.y + Math.sin((i / 28) * Math.PI * 2) * o.r, z)).filter((q) => q.visible);
   const body = hull([...ring(0), ...ring(height)]);
   if (body.length < 3) return;
-  g.fillStyle = '#3d3630';
-  g.strokeStyle = '#5c5048';
+  const town = view?.state.settings.terrain === 'town';
+  g.fillStyle = town ? '#3a3f46' : '#3d3630';
+  g.strokeStyle = town ? '#59616b' : '#5c5048';
   g.beginPath();
   body.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
   g.closePath();
   g.fill();
   g.stroke();
-  g.fillStyle = '#5e544b';
+  g.fillStyle = town ? '#5a626c' : '#5e544b';
   ringWorld(o.x, o.y, o.r * 0.92, height, 0, Math.PI * 2, 28);
   g.fill();
 }
@@ -929,7 +999,7 @@ function drawField(o: Obstacle) {
   g.setLineDash([]);
   let seed = [...o.id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7);
   const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-  g.fillStyle = 'rgba(170,150,125,0.75)';
+  g.fillStyle = view?.state.settings.terrain === 'forest' ? 'rgba(90,150,90,0.8)' : 'rgba(170,150,125,0.75)';
   for (let i = 0; i < Math.round(o.r * 9); i++) {
     const a = rnd() * Math.PI * 2;
     const d = Math.sqrt(rnd()) * o.r;
@@ -950,7 +1020,7 @@ function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
 }
 
 function drawUnit(u: UnitView, pos: Vec, facing: number) {
-  const out = u.status !== 'active';
+  const out = u.status !== 'active' || !!u.unknown;
   const R = radiusOf(u);
   const top = pr(pos.x, pos.y, UNIT_Z);
   const base = pr(pos.x, pos.y, 0);
@@ -1008,7 +1078,7 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   g.font = '11px sans-serif';
   g.textAlign = 'center';
   const flag = view?.state.settings.decapitation && view.state.flagship.includes(u.id) ? '♛' : '';
-  const tag = flag + u.label.split(' ')[0] + (u.hidden ? `? T${u.seenTurn}` : u.vague === 'sluggish' ? ' ⚠' : '');
+  const tag = u.unknown ? '？不明' : flag + u.label.split(' ')[0] + (u.hidden ? `? T${u.seenTurn}` : u.vague === 'sluggish' ? ' ⚠' : '');
   g.fillText(tag, top.x, top.y - r - 5);
   g.globalAlpha = 1;
 }
@@ -1133,7 +1203,11 @@ function drawPreviews() {
     // 已選的射擊／鎖定目標
     for (const [id, plan] of Object.entries(actionDrafts)) {
       const a = unitView(id);
-      const t = plan.action.type !== 'none' && plan.action.target ? unitView(plan.action.target) : null;
+      if (a && (plan.action.type === 'smoke' || plan.action.type === 'decoy')) {
+        drawUtilityPreview(a, plan.action.type, plan.action.at);
+        continue;
+      }
+      const t = (plan.action.type === 'shoot' || plan.action.type === 'lock') && plan.action.target ? unitView(plan.action.target) : null;
       if (!a || !t) continue;
       g.strokeStyle = plan.action.type === 'shoot' ? 'rgba(255,207,74,0.8)' : 'rgba(120,220,255,0.7)';
       g.setLineDash([6, 4]);
@@ -1265,8 +1339,8 @@ function renderStatus() {
   $('seatLinks').innerHTML = local
     ? local.opponent === 'aivai'
       ? '觀戰中（從 A 方視角）'
-      : local.opponent === 'ai'
-        ? `你是 <b style="color:${color(seat)}">A 方</b>，B 方由電腦操作`
+      : local.opponent === 'ai' || local.opponent === 'aiA'
+        ? `你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>，${SIDE((1 - seat) as PlayerId)} 方由電腦操作`
         : `同機輪流　現在是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>`
     : `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b> <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${SIDE(other)} 方視窗</a>`;
   if (!view) {
@@ -1326,6 +1400,7 @@ function orderDone(u: UnitView): boolean {
   if (!touched.has(u.id)) return false;
   if (view!.phase !== 'action') return true;
   const a = actionDrafts[u.id]?.action;
+  if (a?.type === 'smoke' || a?.type === 'decoy') return Number.isFinite(a.at.x);
   return !a || a.type === 'none' || !!a.target;
 }
 
@@ -1362,7 +1437,8 @@ function renderUnitList() {
         <div class="meter" title="推進劑 ${u.propellant}/${u.maxPropellant}"><i style="width:${prop * 100}%;background:#ef9f27"></i></div>
         <div class="st ${done ? 'done' : ''}">${st}</div></div>`;
     })
-    .join('');
+    .join('') +
+    (view.state.reserves ?? []).map((r) => `<div class="ucard reserve"><b>${esc(r.label)}</b><div class="st">第 ${r.turn} 回合進場</div></div>`).join('');
   el.querySelectorAll<HTMLElement>('[data-unit]').forEach((c) => {
     c.onclick = () => {
       selected = c.dataset.unit!;
@@ -1425,6 +1501,8 @@ function defaultTipFor(u: UnitView): string {
   const plan = actionDrafts[u.id];
   const a = plan?.action;
   if (!a || a.type === 'none') return plan?.swap ? '拔出武器。' : '選一件裝備，再點地圖上的敵機當目標。';
+  if (a.type === 'smoke') return Number.isFinite(a.at.x) ? `煙霧彈丟到選好的位置：半徑 ${config.SMOKE_RADIUS}，射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}，裡面的機體敵方認不出是什麼。` : `點地圖選煙霧彈的落點（${config.SMOKE_THROW_RANGE} 格內）。`;
+  if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
   const t = unitView(a.target);
   return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。命中率是估計值，看不到對手的駕駛與姿態。`;
@@ -1665,6 +1743,7 @@ function partCell(u: UnitView, id: string): string {
 }
 
 function infoHtml(u: UnitView): string {
+  if (u.unknown) return `<div class="uname" style="color:#b4b2a9">不明機體</div><div class="small muted">隔著煙霧認不出是什麼，可能是真的機體，也可能是欺敵氣球。靠近 ${config.SMOKE_ID_RANGE} 格內、或它開火時才認得出來。</div>`;
   const ch = CHASSIS[u.chassisId];
   const mine = u.owner === view!.you;
   let html = `<div class="uname" style="color:${color(u.owner)}">${esc(u.label)} <span class="muted small">${esc(ch.name.replace(/^X-\d+ /, ''))}・重量級 ${ch.weightClass}</span></div>`;
@@ -1813,7 +1892,10 @@ function moveControls(u: UnitView, plan: MovePlan): string {
     html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
   }
   const limiterTip = `限制器解除：這回合最大加減速 +1，壓力 +${config.LIMITER_STRESS}。${m.kind === 'hover' ? '懸停時不能用。' : ''}`;
-  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${deferBtn}</div>`;
+  const purgeBtn = armorOf(u)
+    ? tip(`<button class="${plan.purge ? 'on' : ''}" data-purge="1">拋棄外裝甲</button>`, `拋棄外裝甲（免費）：${EQUIPMENT[u.equipment.find((e) => EQUIPMENT[e.defId].kind === 'armor')!.defId].name}還能再擋 ${(() => { const e = u.equipment.find((x) => EQUIPMENT[x.defId].kind === 'armor')!; return u.parts[e.id].durability - u.parts[e.id].damage; })()} 點傷害。穿著時只能用頭部武器、迴避 −${armorOf(u)!.evasionPenalty ?? 0}、最大加減速 −${armorOf(u)!.accelPenalty ?? 0}；拋棄後恢復，這回合就生效。`)
+    : '';
+  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${purgeBtn}${deferBtn}</div>`;
   return html + '</div></div>';
 }
 
@@ -1856,7 +1938,7 @@ function pursuitControls(u: UnitView): string {
 interface EquipOption {
   key: string;
   label: string;
-  kind: 'shoot' | 'draw' | 'lock' | 'none';
+  kind: 'shoot' | 'draw' | 'lock' | 'none' | 'smoke' | 'decoy';
   equip?: string;
 }
 
@@ -1878,6 +1960,12 @@ function equipOptions(u: UnitView): EquipOption[] {
       if ((e.location !== 'stowed' && e.location !== 'housed') || !equipAlive(u, e) || (def.kind !== 'melee' && def.kind !== 'ranged')) continue;
       out.push({ key: `draw:${e.id}`, label: `${def.name}・拔出${freeDraw(u as unknown as UnitState, e) ? '（不佔行動）' : ''}`, kind: 'draw', equip: e.id });
     }
+  }
+  // 戰術道具：煙霧彈、欺敵氣球（點地圖選位置）
+  for (const e of u.equipment) {
+    const def = EQUIPMENT[e.defId];
+    if (def.kind !== 'utility' || !def.utility || !equipAlive(u, e) || (e.ammo !== undefined && e.ammo <= 0)) continue;
+    out.push({ key: `${def.utility}:${e.id}`, label: `${def.name}・${def.utility === 'smoke' ? '丟出' : '放置'}（剩 ${e.ammo ?? '∞'}）`, kind: def.utility, equip: e.id });
   }
   if (!roleLost(u, 'sensor')) out.push({ key: 'lock', label: '感測器・鎖定', kind: 'lock' });
   out.push({ key: 'none', label: '不行動', kind: 'none' });
@@ -1902,6 +1990,7 @@ function optionOn(o: EquipOption, plan: ActionPlan, u: UnitView): boolean {
   if (o.kind === 'shoot') return a.type === 'shoot' && a.weapon === o.equip;
   if (o.kind === 'draw') return plan.swap?.equip === o.equip;
   if (o.kind === 'lock') return a.type === 'lock';
+  if (o.kind === 'smoke' || o.kind === 'decoy') return a.type === o.kind && a.weapon === o.equip;
   return a.type === 'none' && !plan.swap;
 }
 
@@ -1930,6 +2019,8 @@ const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離' } as const;
 function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。`;
   if (o.kind === 'none') return '這回合不行動。';
+  if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
+  if (o.kind === 'decoy') return `放出欺敵氣球（${config.DECOY_PLACE_RANGE} 格內）：放在煙霧裡，敵方看起來就是一台不明機體；出了煙霧一眼就是氣球。被打中、鎖定或敵機靠近就破。`;
   const def = EQUIPMENT[u.equipment.find((e) => e.id === o.equip)!.defId];
   const eq = u.equipment.find((e) => e.id === o.equip)!;
   if (o.kind === 'draw') return `把${def.name}換到手上${def.kind === 'melee' ? '，之後突進撞到敵機時才砍得到' : ''}。${quick || freeDraw(u as unknown as UnitState, eq) ? '不佔行動。' : '會用掉這回合的行動。'}`;
@@ -2000,6 +2091,7 @@ function bindControls(u: UnitView | undefined) {
         changed();
       }),
   );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-purge]').forEach((b) => (b.onclick = () => ((move.purge = !move.purge), changed())));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-face]').forEach((b) => (b.onclick = () => ((deployDrafts[u.id].facing = Number(b.dataset.face)), changed())));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-mom]').forEach((b) => (b.onclick = () => ((deployDrafts[u.id].momentum = Number(b.dataset.mom)), changed())));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-limiter]').forEach((b) => {
@@ -2036,12 +2128,15 @@ function bindControls(u: UnitView | undefined) {
     const e = u.equipment.find((x) => x.id === id);
     return quick || (!!e && !!EQUIPMENT[e.defId].tags?.includes('quickDraw'));
   };
-  const target = () => (plan.action.type !== 'none' ? plan.action.target : '');
+  const target = () => (plan.action.type === 'shoot' || plan.action.type === 'lock' ? plan.action.target : '');
   ctr.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach((b) => {
     b.onclick = () => {
       const o = equipOptions(u).find((x) => x.key === b.dataset.opt)!;
       if (o.kind === 'shoot') {
         plan.action = { type: 'shoot', weapon: o.equip!, target: target() };
+        if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
+      } else if (o.kind === 'smoke' || o.kind === 'decoy') {
+        plan.action = { type: o.kind, weapon: o.equip!, at: { x: NaN, y: NaN } };
         if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
       } else if (o.kind === 'lock') {
         plan.action = { type: 'lock', target: target() };
@@ -2063,7 +2158,7 @@ function bindControls(u: UnitView | undefined) {
 
 function setTarget(unitId: string, targetId: string) {
   const plan = actionDrafts[unitId];
-  if (!plan || plan.action.type === 'none') return;
+  if (!plan || (plan.action.type !== 'shoot' && plan.action.type !== 'lock')) return;
   plan.action.target = targetId;
   touched.add(unitId);
   renderPanel();
@@ -2130,7 +2225,7 @@ function submitOrders() {
   if (view!.phase === 'deploy') return sendMsg({ t: 'deploy', deploy: deployDrafts });
   // 沒選目標的射擊／鎖定視為不行動
   const actions: Record<string, ActionPlan> = {};
-  for (const [id, p] of Object.entries(actionDrafts)) actions[id] = p.action.type !== 'none' && !p.action.target ? { ...p, action: { type: 'none' } } : p;
+  for (const [id, p] of Object.entries(actionDrafts)) actions[id] = (p.action.type === 'shoot' || p.action.type === 'lock') && !p.action.target ? { ...p, action: { type: 'none' } } : (p.action.type === 'smoke' || p.action.type === 'decoy') && !Number.isFinite(p.action.at.x) ? { ...p, action: { type: 'none' } } : p;
   sendMsg({ t: 'actions', actions });
 }
 
@@ -2168,6 +2263,16 @@ function describe(e: GameEvent): string | null {
       return e.result === 'none' ? null : `${L(e.a)} 與 ${L(e.b)} 接觸（Vc ${e.vc}）：${RESULT_NAMES[e.result]}`;
     case 'clash':
       return clashText(e);
+    case 'purge':
+      return `${L(e.unit)} 拋棄外裝甲`;
+    case 'smoke':
+      return `${L(e.unit)} 丟出煙霧彈`;
+    case 'decoy':
+      return `${L(e.unit)} 放出欺敵氣球`;
+    case 'decoyPop':
+      return `欺敵氣球破了（${e.reason}）`;
+    case 'arrive':
+      return `${L(e.unit)} 增援進場`;
     case 'defer':
       return `${L(e.unit)} 擱置移動，等待王牌移動`;
     case 'phase':
@@ -2258,20 +2363,35 @@ $('logToggle').onclick = () => {
 };
 
 function restart() {
-  // 本機模式：回到出擊準備，選好陣容再開打
-  if (local) {
-    const game = local;
-    openLineup(game.opponent, (rosters, opponent, settings) => {
-      game.rosters = rosters;
-      game.opponent = opponent;
-      game.settings = settings;
-      saveOpponent(opponent);
-      clearAndReset();
-      switchSeat(0);
-    });
-    return;
-  }
+  // 本機模式：回到主選單
+  if (local) return showMenu();
   clearAndReset();
+}
+
+/** 開一場本機對戰（第一次建立，之後重設同一個對局物件） */
+function startLocal(rosters: LocalGame['rosters'], opponent: Opponent, settings: LocalGame['settings'], scenario: Scenario | undefined, startSeat: PlayerId) {
+  if (!local) local = new LocalGame(onMessage, opponent, rosters, settings, scenario);
+  else {
+    local.rosters = rosters;
+    local.opponent = opponent;
+    local.settings = settings;
+    local.scenario = scenario;
+    clearAndReset();
+  }
+  switchSeat(startSeat);
+}
+
+/** 主選單：自由對戰走出擊準備；重演戰役直接照劇本開打 */
+function showMenu() {
+  openMenu({
+    free: () =>
+      openLineup(local?.opponent === 'aiA' ? 'ai' : (local?.opponent ?? initialOpponent()), (rosters, opponent, settings) => {
+        saveOpponent(opponent);
+        startLocal(rosters, opponent, settings, undefined, 0);
+      }),
+    scenario: (sc: Scenario, side: Side) => startLocal(sc.rosters(), side === 'watch' ? 'aivai' : side === 0 ? 'ai' : 'aiA', sc.settings(), sc, side === 1 ? 1 : 0),
+    help: () => setHelp(true),
+  });
 }
 
 function clearAndReset() {
@@ -2342,11 +2462,7 @@ if (mode === 'local') {
     const tag = $('contentTag');
     tag.textContent = `資料 ${version}`;
     tag.title = note;
-    openLineup(initialOpponent(), (rosters, opponent, settings) => {
-      saveOpponent(opponent);
-      local = new LocalGame(onMessage, opponent, rosters, settings);
-      switchSeat(0);
-    });
+    showMenu();
   });
 } else {
   connect();

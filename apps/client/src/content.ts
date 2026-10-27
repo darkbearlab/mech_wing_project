@@ -10,11 +10,13 @@ export let draftPack: ContentPack | null = null;
 export async function loadContent(source: string | null): Promise<{ version: string; note: string }> {
   if (source === 'builtin') return { version: contentVersion(), note: '內建資料' };
   // draft：機庫的草稿（試玩用，不會記成正式版本）
+  // 開發版：?content=/@fs/… 直接讀本機的資料包檔案（測試還沒發佈的資料）
+  const local = import.meta.env.DEV && source?.startsWith('/');
   const path = source === 'draft' ? '/draft' : source && source !== 'latest' ? `/packs/${encodeURIComponent(source)}` : '/packs/latest';
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const res = await fetch(API + path, { signal: ctrl.signal });
+    const res = await fetch(local ? source! : API + path, { signal: ctrl.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();

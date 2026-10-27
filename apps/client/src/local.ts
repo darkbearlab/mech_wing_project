@@ -1,6 +1,6 @@
 // 本機模式：Match 直接跑在瀏覽器裡，給 GitHub Pages 這類沒有伺服器的環境用。
 // 回傳的訊息格式和 WebSocket 伺服器相同，main.ts 不需要分辨來源。
-import { DEFAULT_SETTINGS, Match, Rng, aiOrders, contentVersion, createGame, submitStep, type BattleRecord, type BattleSettings, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
+import { DEFAULT_SETTINGS, Match, Rng, aiOrders, scriptedOrders, type Scenario, contentVersion, createGame, submitStep, type BattleRecord, type BattleSettings, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
 import { draftPack } from './content';
 import { uploadBattle } from './record';
 
@@ -10,8 +10,8 @@ interface Unseen {
   events: GameEvent[];
 }
 
-/** hotseat：同一台裝置輪流；ai：A 方是人、B 方是電腦；aivai：雙方都是電腦（觀戰） */
-export type Opponent = 'hotseat' | 'ai' | 'aivai';
+/** hotseat：同一台裝置輪流；ai：A 方是人、B 方是電腦；aiA：B 方是人、A 方是電腦（重演戰役扮演對手方）；aivai：雙方都是電腦（觀戰） */
+export type Opponent = 'hotseat' | 'ai' | 'aiA' | 'aivai';
 
 const randomSeed = () => (Math.random() * 2 ** 32) >>> 0;
 
@@ -31,6 +31,8 @@ export class LocalGame {
     public rosters?: [RosterEntry[], RosterEntry[]],
     /** 勝利條件與部署方式 */
     public settings: BattleSettings = DEFAULT_SETTINGS,
+    /** 重演戰役：電腦那一方照劇本走 */
+    public scenario?: Scenario,
   ) {
     this.match = this.newMatch();
   }
@@ -75,7 +77,7 @@ export class LocalGame {
   }
 
   private aiSeats(): PlayerId[] {
-    return this.opponent === 'aivai' ? [0, 1] : this.opponent === 'ai' ? [1] : [];
+    return this.opponent === 'aivai' ? [0, 1] : this.opponent === 'ai' ? [1] : this.opponent === 'aiA' ? [0] : [];
   }
 
   private humanSeats(): PlayerId[] {
@@ -138,7 +140,7 @@ export class LocalGame {
         if ((this.match.phase as string) === 'over') break;
         const v = this.match.viewFor(p);
         if (v.submitted[p]) continue;
-        this.send(p, aiOrders(v, this.rng));
+        this.send(p, this.scenario ? scriptedOrders(this.scenario, v, this.rng) : aiOrders(v, this.rng));
         acted = true;
         if (capture()) break;
       }
