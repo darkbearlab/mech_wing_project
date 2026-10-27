@@ -1,7 +1,10 @@
 // 規則式 AI：只看自己席位的可見資訊（看不到對手駕駛、壓力、推進劑），不作弊。
 // 移動：對每個可用機動模擬路徑（撞上大隕石就停在撞點），依終點的火力、受威脅程度、與目標的距離、
 //       隊形、邊界、下回合會不會撞上、壓力與推進劑打分。受傷越重越重視自保。
-// 行動：全隊選一個集火目標，挑期望傷害最高的射擊（集火目標與受傷的敵機加權）；沒得打就拔刀、拔槍或鎖定。
+//       以多打少：終點打得到我的敵機若比「能支援我的隊友＋我」多就大扣分，所以會等隊友一起進場、
+//       躲在大隕石後面只露給一台敵機；還沒交火時不衝到隊友前面。
+// 行動：全隊選一個集火目標（優先離它隊友最遠、我方最多台打得到的敵機），挑期望傷害最高的射擊；
+//       命中率太低就先鎖定（下一發加成），沒得打就拔刀、拔槍或鎖定集火目標。
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import { closeCombatOf, minSpeedOf, radiusOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
@@ -13,7 +16,7 @@ import { buildPath } from './movement';
 import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
-import type { ActionPlan, EquipState, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
+import type { ActionPlan, EquipDef, EquipState, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
@@ -79,6 +82,10 @@ function hurtOf(u: UnitView): number {
 }
 
 const ASSUMED_SKILL = 3;
+/** 命中率低於這個就先鎖定，不浪費這回合 */
+const LOW_SHOT = 22;
+/** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
+const LOCK_PROBE: EquipDef = { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } };
 
 /** 從 from 打 target 的最佳期望傷害（attackerFacing 為 null 時假設手持武器會轉向目標） */
 function expectedDamage(shooter: UnitView, from: Vec, facing: number | null, target: UnitView, at: Vec, targetFacing: number, obstacles: Obstacle[], skill: number, targetSkill: number | null): number {
@@ -107,19 +114,108 @@ interface TeamPlan {
   allies: UnitView[];
   focus: UnitView | null;
   /** 隊友已經決定的機動：終點與路徑上各時間點的位置（同時移動，要錯開） */
-  planned: { id: string; pos: Vec; r: number; track: Vec[] }[];
+  planned: { id: string; pos: Vec; facing: number; r: number; track: Vec[] }[];
   obstacles: Obstacle[];
+  /** 兩隊已經在彼此射程內（交火中）；還沒交火時要整隊推進 */
+  engaged: boolean;
+  /** 每台敵機下回合會被哪些隊友打到（隊友用已決定的終點，還沒決定的用預測位置） */
+  support: Map<string, Set<string>>;
+  /** 最落後的隊友（已決定或預測）離集火目標的距離；還沒交火時不要比它近太多 */
+  mateRear: number;
+  /** 還沒交火時各機體的集結位置：集火目標前方、我方這一側，一字排開 */
+  slots: Map<string, Vec>;
 }
 
-/** 全隊的集火目標：受傷重、威脅大、離我方近的敵機 */
+/** 集結點離集火目標的距離（大約在中距離帶外緣，還沒進入對方有效射程） */
+const RALLY_DIST = 8;
+
+/** 繞過大隕石的大概路程：直線被擋住就加上繞過去的距離，讓機體知道要提早往旁邊繞 */
+function navDist(a: Vec, b: Vec, r: number, obstacles: Obstacle[]): number {
+  let d = dist(a, b);
+  const ab = sub(b, a);
+  const len2 = ab.x * ab.x + ab.y * ab.y || 1;
+  for (const o of obstacles) {
+    if (o.kind !== 'rock') continue;
+    const t = Math.max(0, Math.min(1, ((o.x - a.x) * ab.x + (o.y - a.y) * ab.y) / len2));
+    const gap = dist({ x: a.x + ab.x * t, y: a.y + ab.y * t }, o) - o.r - r;
+    if (gap < 0.5) d += (0.5 - gap) * 2 + o.r;
+  }
+  return d;
+}
+
+/** 從 pos 打集火目標的期望傷害 */
+const offenseOn = (u: UnitView, pos: Vec, facing: number, team: TeamPlan, skill: number) =>
+  team.focus ? expectedDamage(u, pos, facing, team.focus, predict(team.focus), team.focus.facing, team.obstacles, skill, null) : 0;
+
+const centroid = (us: { pos: Vec }[]): Vec => ({ x: us.reduce((n, u) => n + u.pos.x, 0) / us.length, y: us.reduce((n, u) => n + u.pos.y, 0) / us.length });
+
+/** 這台以外的隊友下回合大概在哪：已決定的用終點，還沒決定的照動能往前猜 */
+function matePoses(u: UnitView, team: TeamPlan): { id: string; pos: Vec; facing: number; unit: UnitView }[] {
+  return team.allies
+    .filter((a) => a.id !== u.id)
+    .map((a) => {
+      const pl = team.planned.find((p) => p.id === a.id);
+      return { id: a.id, pos: pl ? pl.pos : predict(a), facing: pl ? pl.facing : a.facing, unit: a };
+    });
+}
+
+/** 輪到 u 決定機動前，算好隊友能支援哪些敵機、隊友的最前線 */
+function prepareTeam(u: UnitView, team: TeamPlan): void {
+  const mates = matePoses(u, team);
+  team.support = new Map(
+    team.enemies.map((e) => [e.id, new Set(mates.filter((m) => expectedDamage(m.unit, m.pos, m.facing, e, predict(e), e.facing, team.obstacles, ASSUMED_SKILL, null) > 0.1).map((m) => m.id))]),
+  );
+  const f = team.focus ? predict(team.focus) : null;
+  team.mateRear = f && mates.length ? Math.max(...mates.map((m) => dist(m.pos, f))) : Infinity;
+}
+
+/**
+ * 集結位置：在集火目標周圍（我方這一側 ±75°）找一個點，讓大家走得近、打得到集火目標、
+ * 又盡量不被其他敵機打到（離得遠或被大隕石擋住），也就是繞到落單敵機的側翼；各機體照目前左右順序在那裡排開
+ */
+function rallySlots(own: UnitView[], focus: UnitView | null, enemies: UnitView[], obstacles: Obstacle[]): Map<string, Vec> {
+  const slots = new Map<string, Vec>();
+  if (!focus || !own.length) return slots;
+  const c = centroid(own);
+  const rocks = obstacles.filter((o) => o.kind === 'rock');
+  const toUs = angleOf(sub(c, focus.pos));
+  let best: { back: number; cost: number } | null = null;
+  for (let a = -75; a <= 75; a += 15) {
+    const back = toUs + a * DEG;
+    const r = { x: focus.pos.x + Math.cos(back) * RALLY_DIST, y: focus.pos.y + Math.sin(back) * RALLY_DIST };
+    let cost = own.reduce((n, u) => n + dist(u.pos, r), 0) * 0.3;
+    if (r.x < 2 || r.y < 2 || r.x > MAP_SIZE - 2 || r.y > MAP_SIZE - 2) cost += 20;
+    if (rocks.some((o) => dist(r, o) < o.r + 1.5)) cost += 10;
+    if (lineOfFire(obstacles, r, focus.pos) === 'blocked') cost += 8;
+    for (const e of enemies) {
+      if (e === focus) continue;
+      const d = dist(e.pos, r);
+      if (d < 11 && lineOfFire(obstacles, e.pos, r) !== 'blocked') cost += (11 - d) * 1.2;
+    }
+    if (!best || cost < best.cost) best = { back, cost };
+  }
+  const back = best!.back;
+  const rally = { x: focus.pos.x + Math.cos(back) * RALLY_DIST, y: focus.pos.y + Math.sin(back) * RALLY_DIST };
+  const side = back + Math.PI / 2;
+  const lateral = (u: UnitView) => (u.pos.x - c.x) * Math.cos(side) + (u.pos.y - c.y) * Math.sin(side);
+  [...own].sort((a, b) => lateral(a) - lateral(b)).forEach((u, i) => {
+    const off = (i - (own.length - 1) / 2) * 2.6;
+    slots.set(u.id, { x: rally.x + Math.cos(side) * off, y: rally.y + Math.sin(side) * off });
+  });
+  return slots;
+}
+
+/** 全隊的集火目標：受傷重、威脅大、落單（離它的隊友遠）、我方多台打得到或靠得近的敵機 */
 function pickFocus(own: UnitView[], enemies: UnitView[], obstacles: Obstacle[]): UnitView | null {
   if (!enemies.length || !own.length) return null;
-  const cx = own.reduce((n, u) => n + u.pos.x, 0) / own.length;
-  const cy = own.reduce((n, u) => n + u.pos.y, 0) / own.length;
+  const c = centroid(own);
   let best: { e: UnitView; v: number } | null = null;
   for (const e of enemies) {
     const danger = own.reduce((n, u) => n + expectedDamage(e, e.pos, null, u, u.pos, u.facing, obstacles, ASSUMED_SKILL, null), 0);
-    const v = hurtOf(e) * 4 + danger * 0.8 - dist({ x: cx, y: cy }, e.pos) * 0.25;
+    const reach = own.filter((u) => dist(u.pos, e.pos) < 10).length;
+    const others = enemies.filter((x) => x !== e);
+    const alone = others.length ? Math.min(6, Math.min(...others.map((x) => dist(x.pos, e.pos)))) : 0;
+    const v = hurtOf(e) * 4 + danger * 0.6 + alone * 0.5 + reach * 0.8 - dist(c, e.pos) * 0.25;
     if (!best || v > best.v) best = { e, v };
   }
   return best!.e;
@@ -174,7 +270,8 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
     const d = edge(pos, tp);
     // 受傷重的往後退：拉開到更遠的距離
     const want = pref.melee ? 0 : pref.range + hurt * 3;
-    score -= Math.abs(d - want) * (pref.melee ? 2 : 1);
+    // 還沒交火時以集結為主，距離只是次要
+    score -= Math.abs(d - want) * (pref.melee ? 2 : 1) * (team.engaged ? 1 : 0.4);
     const ang = Math.abs(angleDiff(angleOf(sub(tp, pos)), facing));
     if (pref.melee) score += ang < 60 * DEG ? 2 : 0;
     else score += ang < 45 * DEG ? 2 : -ang;
@@ -190,13 +287,33 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
   }
   // 威脅：敵機下回合從預測位置打過來的期望傷害（找掩蔽、躲射界），受傷越重越在意
   let threat = 0;
+  const foes: UnitView[] = [];
   for (const e of team.enemies) {
-    threat += expectedDamage(e, predict(e), null, u, pos, facing, team.obstacles, ASSUMED_SKILL, skill);
+    const t = expectedDamage(e, predict(e), null, u, pos, facing, team.obstacles, ASSUMED_SKILL, skill);
+    threat += t;
+    // 算落單時保守一點：敵機留在原地或照預測前進，任一種打得到就算
+    if (t > 0.1 || expectedDamage(e, e.pos, null, u, pos, facing, team.obstacles, ASSUMED_SKILL, skill) > 0.1) foes.push(e);
     if (heldOf(e, 'melee').length && dist(predict(e), pos) < 4) threat += 1;
   }
-  score -= threat * (1.2 + hurt * 3);
+  score -= threat * (2 + hurt * 3);
+  // 以多打少：打得到我的敵機，比「能還擊它們的隊友＋我」多就是落單
+  const backers = new Set(foes.flatMap((e) => [...(team.support.get(e.id) ?? [])]));
+  const outnumbered = foes.length - (backers.size + 1);
+  if (outnumbered > 0) score -= outnumbered * (6 + hurt * 4);
+  // 掩蔽：能打到集火目標、又只露給一台敵機（其他被隕石擋住或在射界外）
+  if (!pref.melee && foes.length <= 1 && offenseOn(u, pos, facing, team, skill) > 0.1) score += 2;
+  // 打得到集火目標、而且這裡我方人多：主動進場
+  const advantage = backers.size + 1 - foes.length;
+  if (foes.length && advantage > 0 && offenseOn(u, pos, facing, team, skill) > 0.1) score += advantage * 2;
+  // 還沒交火時整隊推進：先到集結位置，而且不要比最落後的隊友靠近集火目標太多
+  if (!team.engaged && team.focus) {
+    const slot = team.slots.get(u.id);
+    if (slot) score -= navDist(pos, slot, r, team.obstacles) * 1.2;
+    const ahead = team.mateRear - dist(pos, predict(team.focus));
+    if (Number.isFinite(ahead) && ahead > 3) score -= (ahead - 3) * 1.5;
+  }
 
-  // 隊形：不要擠在一起（會互撞），也不要落單
+  // 隊形：不要擠在一起（會互撞），也不要離最近的隊友超過 4.5 格
   // 撞到隊友會擦撞、這回合不能行動，代價很大
   for (const pl of team.planned) {
     if (dist(pl.pos, pos) < pl.r + r + 0.3) score -= 15;
@@ -206,7 +323,7 @@ function scoreManeuver(u: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng): 
   const mates = [...team.planned.map((p) => p.pos), ...team.allies.filter((a) => !team.planned.some((p) => p.id === a.id)).map((a) => a.pos)];
   if (mates.length) {
     const near = Math.min(...mates.map((p) => dist(p, pos)));
-    if (near > 7) score -= (near - 7) * 0.5;
+    if (near > 4.5) score -= (near - 4.5) * 0.8;
   }
 
   const cost = maneuverCost(u, m);
@@ -231,24 +348,39 @@ export function aiMoves(view: PlayerView, rng: Rng): PlayerMoves {
   const seen = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
   const enemies = seen.length ? seen : view.state.units.filter((u) => u.owner !== view.you && u.status === 'active');
   const grappled = new Set(view.state.grapples.flatMap((g) => [g.a, g.b]));
-  const team: TeamPlan = { enemies, allies: own, focus: pickFocus(own, seen, view.state.obstacles), planned: [], obstacles: view.state.obstacles };
+  // 交火中：任一台敵機下回合打得到我方任一台
+  const engaged = enemies.some((e) => own.some((u) => expectedDamage(e, predict(e), null, u, u.pos, u.facing, view.state.obstacles, ASSUMED_SKILL, null) > 0.1));
+  const team: TeamPlan = { enemies, allies: own, focus: pickFocus(own, enemies, view.state.obstacles), planned: [], obstacles: view.state.obstacles, engaged, support: new Map(), mateRear: Infinity, slots: new Map() };
+  team.slots = rallySlots(own, team.focus, enemies, view.state.obstacles);
   const out: PlayerMoves = {};
+  const base: MovePlan = { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false };
   // 受傷重的先決定位置（讓它先找好掩蔽），其餘照順序
-  for (const u of [...own].sort((a, b) => hurtOf(b) - hurtOf(a))) {
-    const base: MovePlan = { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false };
-    if (grappled.has(u.id)) {
-      out[u.id] = { ...base, grapple: pickGrapple(u, rng) };
-      // 纏鬥中的機體留在原地，隊友要繞開
-      team.planned.push({ id: u.id, pos: u.pos, r: radiusOf(u), track: Array.from({ length: TRACK + 1 }, () => u.pos) });
-      continue;
-    }
+  const order = [...own].sort((a, b) => hurtOf(b) - hurtOf(a));
+  const chosen = new Map<string, ManeuverSpec>();
+  const choose = (u: UnitView) => {
+    team.planned = team.planned.filter((p) => p.id !== u.id);
+    prepareTeam(u, team);
     const options = availableManeuvers(u);
     let best: { score: number; end: Vec; facing: number; track?: Vec[]; m: ManeuverSpec } = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver(cruiseManeuver(u)) };
     for (const m of options) {
       const s = scoreManeuver(u, m, team, rng);
       if (s.score > best.score) best = { ...s, m };
     }
-    team.planned.push({ id: u.id, pos: best.end, r: radiusOf(u), track: best.track ?? [u.pos] });
+    team.planned.push({ id: u.id, pos: best.end, facing: best.facing, r: radiusOf(u), track: best.track ?? [u.pos] });
+    chosen.set(u.id, best.m);
+  };
+  // 纏鬥中的機體留在原地，隊友要繞開
+  for (const u of order.filter((x) => grappled.has(x.id))) team.planned.push({ id: u.id, pos: u.pos, facing: u.facing, r: radiusOf(u), track: Array.from({ length: TRACK + 1 }, () => u.pos) });
+  // 想兩輪：第一輪先決定的機體只能猜後面的隊友會去哪；第二輪每台都知道隊友實際的打算，再重新決定一次
+  const free = order.filter((x) => !grappled.has(x.id));
+  for (let round = 0; round < 2; round++) for (const u of free) choose(u);
+
+  for (const u of order) {
+    if (grappled.has(u.id)) {
+      out[u.id] = { ...base, grapple: pickGrapple(u, rng) };
+      continue;
+    }
+    const best = { m: chosen.get(u.id)! };
     const plan: MovePlan = { ...base, maneuver: best.m.id };
     const target = nearest(u.pos, enemies);
     const d = target ? edge(u.pos, target.pos) : Infinity;
@@ -294,15 +426,22 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const plan: ActionPlan = { action: { type: 'none' } };
     const near = nearest(u.pos, enemies);
     const d = near ? edge(u.pos, near.pos) : Infinity;
-    if (shot && shot.chance >= 12) {
+    // 鎖定對象：集火目標優先，其次最近的；要在鎖定距離內、還沒鎖上
+    const lockable = (t: UnitView | null) =>
+      !!t && !roleLost(u, 'sensor') && u.lockOn !== t.id && !!hitChance({ attacker: u, attackerSkill: 0, weapon: LOCK_PROBE, target: t, targetSkill: null, relSpeed: null, shooterMelee: false });
+    const lockTarget = [focus, near].find(lockable) ?? null;
+    // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS
+    if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
+      plan.action = { type: 'lock', target: lockTarget.id };
+    } else if (shot && shot.chance >= 12) {
       plan.action = { type: 'shoot', weapon: shot.weapon.id, target: shot.target.id };
       aimed[shot.target.id] = (aimed[shot.target.id] ?? 0) + 1;
     } else if (canHold(u) && !heldOf(u, 'melee').length && stowedOf(u, 'melee').length && d < 7) {
       plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'melee')[0].id };
     } else if (canHold(u) && !heldOf(u, 'ranged').length && !heldOf(u, 'melee').length && stowedOf(u, 'ranged').length) {
       plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'ranged')[0].id };
-    } else if (!roleLost(u, 'sensor') && near && d <= 10 && u.lockOn !== near.id) {
-      plan.action = { type: 'lock', target: near.id };
+    } else if (lockTarget) {
+      plan.action = { type: 'lock', target: lockTarget.id };
     }
     out[u.id] = plan;
   }
