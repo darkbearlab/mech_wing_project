@@ -50,6 +50,9 @@ const toward = (from: Vec, to: Vec, step: number): Vec => {
 /** 把 p 拉回母機的控制距離內 */
 const leash = (mother: Vec, p: Vec, range: number): Vec => (dist(mother, p) <= range ? p : add(mother, scale(normalize(sub(p, mother)), range)));
 
+/** 炮群這一步實際會走到哪：目標點拉回母機（移動後位置）的控制距離內，再從 from 走最多 move */
+export const podDestination = (from: Vec, to: Vec, mother: Vec, ps: PsycommuDef): Vec => toward(from, leash(mother, to, ps.range), ps.move);
+
 /**
  * 移動步驟（機體移動之後）：照指令放出、移動或收回炮群。目標點先拉回母機的控制距離內，炮群朝它走最多 move；
  * 走完還在控制距離外就失控（這回合不能指揮）
@@ -73,8 +76,7 @@ export function movePods(ctx: Ctx, plans: Record<string, MovePlan>, units: Itera
         ctx.events.push({ type: 'actionFail', unit: u.id, reason: problem });
         continue;
       }
-      const from = e.pod?.pos ?? u.pos;
-      const pos = toward(from, leash(u.pos, order.to, ps.range), ps.move);
+      const pos = podDestination(e.pod?.pos ?? u.pos, order.to, u.pos, ps);
       if (!e.pod) {
         e.pod = { pos, ...(ps.charge !== undefined ? { charge: ps.charge } : {}) };
         ctx.events.push({ type: 'pod', unit: u.id, equip: e.id, what: 'launch', at: { ...pos } });

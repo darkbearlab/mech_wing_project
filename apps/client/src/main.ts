@@ -45,6 +45,10 @@ import {
   techniqueUse,
   normalizeChoice,
   dangerClose,
+  psycommuOf,
+  canPsycommu,
+  podDestination,
+  bitsLeft,
   type Scenario,
   armorOf,
   aiDeploy,
@@ -197,6 +201,8 @@ let show: Show | null = null;
 let hoverManeuver: { unit: string; maneuver: string } | null = null;
 /** 這一步已經點過選項的機體（用來判斷「已下指令」） */
 let touched = new Set<string>();
+/** 正在地圖上點選炮群目標點：哪台的哪個炮群 */
+let podPick: { unit: string; equip: string } | null = null;
 /** 滑鼠目前停在哪台機體上（行動步驟顯示命中率） */
 let hoverUnit: string | null = null;
 interface LogLine {
@@ -346,6 +352,7 @@ function applyView(v: PlayerView) {
     document.getElementById('confirm')!.hidden = true;
     moveDrafts = {};
     actionDrafts = {};
+    podPick = null;
     pursuitDrafts = {};
     deployDrafts = {};
     for (const u of ownUnits()) {
@@ -375,7 +382,35 @@ function applyView(v: PlayerView) {
 
 const ownUnits = () => (view ? view.state.units.filter((u) => u.owner === view!.you) : []);
 const unitView = (id: string) => view?.state.units.find((u) => u.id === id);
-const labelOf = (id: string) => unitView(id)?.label ?? show?.prevUnits.find((u) => u.id === id)?.label ?? id;
+const labelOf = (id: string) => unitView(id)?.label ?? show?.prevUnits.find((u) => u.id === id)?.label ?? podLabel(id) ?? id;
+
+// ---- 感應武器（炮群） ----
+
+const podGear = (u: UnitView) => u.equipment.filter((e) => !!psycommuOf(e));
+/** 找炮群（id 是那件感應武器的 id）：先找現在的，再找動畫開始前的 */
+function podById(id: string, includeDocked = false): { u: UnitView; e: EquipState } | null {
+  for (const list of [view?.state.units ?? [], show?.prevUnits ?? []])
+    for (const u of list) {
+      const e = u.equipment.find((x) => x.id === id && (includeDocked || !!x.pod));
+      if (e) return { u, e };
+    }
+  return null;
+}
+/** 炮群的名稱：有線臂寫手臂部位（右臂），無線寫武器名 */
+const podName = (u: UnitView, e: EquipState) => (psycommuOf(e)?.wired && e.host ? `有線臂（${u.parts[e.host]?.name ?? e.host}）` : EQUIPMENT[e.defId].name);
+function podLabel(id: string): string | undefined {
+  const f = podById(id, true);
+  return f ? `${f.u.label.split(' ')[0]} ${podName(f.u, f.e)}` : undefined;
+}
+/** 炮群現在能不能指揮（客戶端估計，和規則同一套條件） */
+function podIssue(u: UnitView, e: EquipState): string | null {
+  const ps = psycommuOf(e)!;
+  if (!e.pod) return '沒有放出去';
+  if (u.blackout) return '駕駛黑視，無法指揮';
+  if (Math.hypot(u.pos.x - e.pod.pos.x, u.pos.y - e.pod.pos.y) > ps.range + 1e-6) return '離母機太遠，失去控制';
+  if (e.pod.charge !== undefined && e.pod.charge <= 0) return '能量用完，要收回充能';
+  return null;
+}
 const inGrapple = (id: string) => !!view?.state.grapples.some((g) => g.a === id || g.b === id);
 const equipName = (u: UnitView | undefined, eqId: string | null) => {
   if (!eqId) return '空手';
@@ -542,6 +577,18 @@ attachCameraControls(canvas, cam, {
     const hit = unitAt(sx, sy);
     const sel = selected ? unitView(selected) : undefined;
     const plan = sel ? actionDrafts[sel.id] : undefined;
+    // 炮群：點地圖（或點機體）選移動目標點
+    if (view && !show && (view.phase === 'move' || view.phase === 'ace') && podPick && sel?.id === podPick.unit && moveDrafts[sel.id] && !view.submitted[view.you]) {
+      const w = hit ? hit.pos : cam.unproject(sx, sy);
+      if (w) {
+        const m = moveDrafts[sel.id];
+        m.pods = { ...m.pods, [podPick.equip]: { to: { x: Math.round(w.x * 10) / 10, y: Math.round(w.y * 10) / 10 } } };
+        podPick = null;
+        touched.add(sel.id);
+        renderPanel();
+      }
+      return;
+    }
     // 煙霧彈、氣球：點地圖（或點機體）選落點
     if (view && !show && view.phase === 'action' && sel?.owner === view.you && plan && (plan.action.type === 'smoke' || plan.action.type === 'decoy') && !view.submitted[view.you]) {
       const w = hit ? hit.pos : cam.unproject(sx, sy);
@@ -619,7 +666,12 @@ function drawFrame(now: number) {
   if (beat) drawBeatEffect(beat, elapsed, over);
 }
 
-const posOf = (id: string, over: Map<string, Disp>): Disp | undefined => over.get(id) ?? show?.display.get(id);
+const posOf = (id: string, over: Map<string, Disp>): Disp | undefined => {
+  const d = over.get(id) ?? show?.display.get(id);
+  if (d) return d;
+  const pod = podById(id)?.e.pod;
+  return pod ? { x: pod.pos.x, y: pod.pos.y, f: 0, status: 'active' } : undefined;
+};
 /** 效果用的位置：機體浮空標記的高度 */
 const fx = (v: Vec) => pr(v.x, v.y, UNIT_Z);
 
@@ -762,7 +814,7 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
   const text = describe(head);
   if (text && beat.kind !== 'note') drawBanner(text);
   if (head.type === 'shot') {
-    const a = posOf(head.attacker, over)!;
+    const a = head.from ?? posOf(head.attacker, over)!;
     const t = posOf(head.target, over)!;
     const style = WEAPON_STYLE[head.weapon] ?? WEAPON_STYLE.beam_rifle;
     const len = Math.hypot(t.x - a.x, t.y - a.y) || 1;
@@ -1021,6 +1073,143 @@ function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
     .map((x) => ({ ...x, k: pr(x.pos.x, x.pos.y, 0).k }))
     .sort((a, b) => a.k - b.k)
     .forEach((x) => drawUnit(x.u, x.pos, x.f));
+  drawPods(list);
+}
+
+/** 炮群：無線的是一簇光點（支數）加能量格，線控臂是小方塊加連回母機的虛線 */
+function drawPods(list: { u: UnitView; pos: Vec }[]) {
+  for (const { u, pos } of list) {
+    if (u.status !== 'active') continue;
+    for (const e of u.equipment) {
+      if (!e.pod) continue;
+      const ps = psycommuOf(e);
+      if (!ps) continue;
+      const at = e.pod.pos;
+      const c = pr(at.x, at.y, 0);
+      if (!c.visible) continue;
+      const k = Math.max(1, c.k * 0.06);
+      const rgb = u.owner === 0 ? '133,183,235' : '240,149,149';
+      const light = u.owner === 0 ? '#b5d4f4' : '#f7c1c1';
+      g.font = '11px sans-serif';
+      g.textAlign = 'center';
+      if (ps.wired) {
+        g.strokeStyle = `rgba(${rgb},0.7)`;
+        g.setLineDash([3, 3]);
+        polyWorld([
+          [pos.x, pos.y, 0],
+          [at.x, at.y, 0],
+        ]);
+        g.stroke();
+        g.setLineDash([]);
+        const w = 9 * k;
+        const h = 5 * k;
+        g.fillStyle = `rgba(${rgb},0.35)`;
+        g.strokeStyle = light;
+        g.beginPath();
+        g.rect(c.x - w, c.y - h, w * 2, h * 2);
+        g.fill();
+        g.stroke();
+        g.fillStyle = light;
+        g.fillText(podName(u, e).replace(/^有線臂（(.*)）$/, '$1'), c.x, c.y - h - 5);
+        continue;
+      }
+      const n = Math.min(12, bitsLeft(e));
+      g.fillStyle = u.owner === 0 ? '#e6f1fb' : '#fcebeb';
+      for (let i = 0; i < n; i++) {
+        const r = 0.12 + 0.42 * Math.sqrt((i + 0.5) / n);
+        const p = pr(at.x + Math.cos(i * 2.4) * r, at.y + Math.sin(i * 2.4) * r, 0);
+        g.beginPath();
+        g.arc(p.x, p.y, 1.8 * k, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.strokeStyle = `rgba(${rgb},0.5)`;
+      ringWorld(at.x, at.y, 0.65);
+      g.stroke();
+      const top = pr(at.x, at.y - 0.65, 0).y - 8 * k;
+      g.fillStyle = light;
+      g.fillText(`${EQUIPMENT[e.defId].name} ×${bitsLeft(e)}`, c.x, top - 6 * k);
+      if (ps.charge !== undefined) {
+        const left = e.pod.charge ?? ps.charge;
+        const pw = 8 * k;
+        for (let i = 0; i < ps.charge; i++) {
+          const x = c.x - (ps.charge * (pw + 3)) / 2 + i * (pw + 3);
+          g.fillStyle = i < left ? `rgba(${rgb},0.9)` : `rgba(${rgb},0.2)`;
+          g.fillRect(x, top - 2, pw, 3);
+        }
+      }
+    }
+  }
+}
+
+/** 炮群的指令預覽：選取母機時畫控制距離（以移動後位置為中心）、炮群的移動範圍；已下的移動指令畫黃色虛線 */
+function drawPodPlans() {
+  if (view?.phase === 'move' || view?.phase === 'ace') {
+    for (const [id, plan] of Object.entries(moveDrafts)) {
+      const u = unitView(id);
+      if (!u || !podGear(u).length) continue;
+      const end = plan.defer || inGrapple(id) ? u.pos : worldPose(buildPath(u, plan), 1).pos;
+      const sel = id === selected;
+      for (const e of podGear(u)) {
+        const ps = psycommuOf(e)!;
+        const order = plan.pods?.[e.id];
+        const from = e.pod?.pos ?? end;
+        if (sel && (e.pod || podPick?.equip === e.id || (order && 'to' in order))) {
+          g.strokeStyle = 'rgba(133,183,235,0.35)';
+          g.setLineDash([4, 5]);
+          ringWorld(end.x, end.y, ps.range, 0, 0, Math.PI * 2, 72);
+          g.stroke();
+          g.setLineDash([2, 4]);
+          g.strokeStyle = 'rgba(133,183,235,0.25)';
+          ringWorld(from.x, from.y, ps.move, 0, 0, Math.PI * 2, 64);
+          g.stroke();
+          g.setLineDash([]);
+        }
+        if (!order) continue;
+        g.strokeStyle = sel ? 'rgba(255,207,74,0.9)' : 'rgba(255,207,74,0.45)';
+        g.setLineDash([4, 3]);
+        if ('recall' in order) {
+          if (e.pod)
+            polyWorld([
+              [e.pod.pos.x, e.pod.pos.y, 0],
+              [end.x, end.y, 0],
+            ]);
+          g.stroke();
+          g.setLineDash([]);
+          continue;
+        }
+        const dest = podDestination(from, order.to, end, ps);
+        polyWorld([
+          [from.x, from.y, 0],
+          [dest.x, dest.y, 0],
+        ]);
+        g.stroke();
+        g.setLineDash([]);
+        ringWorld(dest.x, dest.y, 0.3);
+        g.stroke();
+      }
+    }
+  } else if (view?.phase === 'action') {
+    for (const [id, plan] of Object.entries(actionDrafts)) {
+      const u = unitView(id);
+      if (!u) continue;
+      for (const [eid, targets] of Object.entries(plan.pods ?? {})) {
+        const pod = u.equipment.find((e) => e.id === eid)?.pod;
+        if (!pod) continue;
+        for (const tid of targets) {
+          const t = unitView(tid);
+          if (!t) continue;
+          g.strokeStyle = 'rgba(255,207,74,0.8)';
+          g.setLineDash([6, 4]);
+          polyWorld([
+            [pod.pos.x, pod.pos.y, 0],
+            [t.pos.x, t.pos.y, 0],
+          ]);
+          g.stroke();
+          g.setLineDash([]);
+        }
+      }
+    }
+  }
 }
 
 /** 機體名稱拆成型號與名稱：「RX-78-2 鋼彈」→ 型號 RX-78-2、名稱 鋼彈 */
@@ -1235,6 +1424,7 @@ function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'fa
 }
 
 function drawPreviews() {
+  drawPodPlans();
   drawDeferRings();
   drawRearArc();
   if (view?.phase === 'pursuit') {
@@ -1267,7 +1457,7 @@ function drawPreviews() {
         drawUtilityPreview(a, plan.action.type, plan.action.at);
         continue;
       }
-      const t = (plan.action.type === 'shoot' || plan.action.type === 'lock') && plan.action.target ? unitView(plan.action.target) : null;
+      const t = (plan.action.type === 'shoot' || plan.action.type === 'lock') && plan.action.target ? (unitView(plan.action.target) ?? (podById(plan.action.target)?.e.pod ? { pos: podById(plan.action.target)!.e.pod!.pos } : null)) : null;
       if (!a || !t) continue;
       g.strokeStyle = plan.action.type === 'shoot' ? 'rgba(255,207,74,0.8)' : 'rgba(120,220,255,0.7)';
       g.setLineDash([6, 4]);
@@ -1960,7 +2150,74 @@ function moveControls(u: UnitView, plan: MovePlan): string {
     ? tip(`<button class="${plan.purge ? 'on' : ''}" data-purge="1">拋棄外裝甲</button>`, `拋棄外裝甲（免費）：${EQUIPMENT[u.equipment.find((e) => EQUIPMENT[e.defId].kind === 'armor')!.defId].name}還能再擋 ${(() => { const e = u.equipment.find((x) => EQUIPMENT[x.defId].kind === 'armor')!; return u.parts[e.id].durability - u.parts[e.id].damage; })()} 點傷害。穿著時只能用頭部武器、迴避 −${armorOf(u)!.evasionPenalty ?? 0}、最大加減速 −${armorOf(u)!.accelPenalty ?? 0}；拋棄後恢復，這回合就生效。`)
     : '';
   html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${purgeBtn}${deferBtn}</div>`;
-  return html + '</div></div>';
+  return html + '</div></div>' + (plan.defer ? '' : podMoveControls(u, plan));
+}
+
+/** 移動卡的感應武器區：放出／移動（再點地圖選目標點）、不動、收回 */
+function podMoveControls(u: UnitView, plan: MovePlan): string {
+  const gear = podGear(u);
+  if (!gear.length) return '';
+  if (!canPsycommu(u as unknown as UnitState)) return '<div class="muted small">感應武器：駕駛不是新人類或強化人，不能用。</div>';
+  if ((view!.state.settings.environment ?? 'space') !== 'space') return '<div class="muted small">感應武器只能在宇宙使用。</div>';
+  let html = '';
+  for (const e of gear) {
+    const ps = psycommuOf(e)!;
+    const order = plan.pods?.[e.id];
+    const charge = e.pod?.charge ?? ps.charge;
+    html += `<div class="sec">${esc(podName(u, e))}${ps.wired ? '' : ` ×${bitsLeft(e)}`}${ps.charge !== undefined ? `　能量 ${charge}/${ps.charge}` : ''}　控制 ${ps.range}・移動 ${ps.move}</div>`;
+    if (!equipAlive(u, e) || bitsLeft(e) <= 0) {
+      html += '<div class="muted small">已經沒了。</div>';
+      continue;
+    }
+    if (!e.pod && (e.readyTurn ?? 0) > view!.state.turn) {
+      html += `<div class="muted small">充能中，第 ${e.readyTurn} 回合可以再放出。</div>`;
+      continue;
+    }
+    const picking = podPick?.unit === u.id && podPick.equip === e.id;
+    const go = picking || (!!order && 'to' in order);
+    const goTip = ps.wired
+      ? `${e.pod ? '移動' : '放出'}有線臂：直接移到點選的位置（最多 ${ps.move} 格、離母機 ${ps.range} 格內，超出會自動拉回），不會碰撞。指揮攻擊不佔行動；本體也開火時壓力再 +${config.PSYCOMMU_DUAL_STRESS}。放出時這隻手不能用。炮群在場上每回合壓力 +${config.PSYCOMMU_STRESS}。`
+      : `${e.pod ? '移動' : '放出'}${EQUIPMENT[e.defId].name}：直接移到點選的位置（最多 ${ps.move} 格、離母機 ${ps.range} 格內，超出會自動拉回），不會碰撞。指揮攻擊會用掉這回合的行動，每次用掉 1 點能量；用完要收回，充能 ${config.PSYCOMMU_RECHARGE_TURNS} 個完整回合。炮群在場上每回合壓力 +${config.PSYCOMMU_STRESS}。`;
+    html += '<div class="row">';
+    html += tip(`<button class="${go ? 'on' : ''}" data-pod-go="${e.id}">${e.pod ? '移動' : '放出'}</button>`, goTip);
+    html += tip(`<button class="${!order && !picking ? 'on' : ''}" data-pod-stay="${e.id}">${e.pod ? '不動' : '不放出'}</button>`, e.pod ? '炮群留在原地（母機移動後超出控制距離就會失控）。' : '這回合不放出。');
+    if (e.pod) html += tip(`<button class="${order && 'recall' in order ? 'on' : ''}" data-pod-recall="${e.id}">收回</button>`, ps.wired ? '收回有線臂：裝回去就是一般的手臂，手指炮照常能直接開火。' : `收回${EQUIPMENT[e.defId].name}：充能 ${config.PSYCOMMU_RECHARGE_TURNS} 個完整回合後才能再放出。`);
+    html += '</div>';
+    if (picking) html += '<div class="small" style="color:#ffcf4a">點地圖選目標點（超出範圍會自動拉回）。</div>';
+  }
+  return html;
+}
+
+/** 行動卡的指揮炮群區：每個炮群選 1–2 個目標 */
+function podActionControls(u: UnitView, plan: ActionPlan): string {
+  const out = podGear(u).filter((e) => e.pod);
+  if (!out.length) return '';
+  const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active' && !x.hidden);
+  let html = '';
+  for (const e of out) {
+    const ps = psycommuOf(e)!;
+    const def = EQUIPMENT[e.defId];
+    html += `<div class="sec">指揮${esc(podName(u, e))}${ps.wired ? '' : `（${bitsLeft(e)} 支）`}</div>`;
+    const issue = podIssue(u, e);
+    if (issue) {
+      html += `<div class="muted small">${esc(issue)}。</div>`;
+      continue;
+    }
+    const chosen = plan.pods?.[e.id] ?? [];
+    html += '<div class="row">';
+    for (const t of enemies) {
+      const at = e.pod!.pos;
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: null, shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
+      const est = h ? `${bandName(h.band)}・${chanceText(h.chance)}${dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險' : ''}` : '炮群射程外';
+      html += tip(`<button class="${chosen.includes(t.id) ? 'on' : ''}${dangerClose(view!.state, t.id) ? ' danger' : ''}" data-pod-t="${e.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${t.label}：${est}`);
+    }
+    html += tip(`<button class="${chosen.length ? '' : 'on'}" data-pod-t="${e.id}|">不指揮</button>`, '這回合不指揮這個炮群。');
+    html += '</div>';
+    const n = bitsLeft(e);
+    if (chosen.length === 2) html += `<div class="muted small">分給兩個目標（${Math.ceil(n / 2)}／${Math.floor(n / 2)} 支）。</div>`;
+    html += ps.wired ? `<div class="muted small">線控不佔行動；本體也開火時壓力 +${config.PSYCOMMU_DUAL_STRESS}。</div>` : '<div class="warn small">會用掉這回合的行動（本體不能開火）。再點一台就分給兩個目標。</div>';
+  }
+  return html;
 }
 
 /** 部署：朝向（以你面對敵方的方向為上）與起始動能 */
@@ -2117,6 +2374,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, grappleTip(u, o)))
       .join('')}</div><div class="warn small">纏鬥中不能射擊、鎖定或用道具，可以換武器。</div>`;
   }
+  if (!grappled) html += podActionControls(u, plan);
   html += '<div class="sec">選一件裝備</div><div class="optList">';
   html += equipOptions(u)
     .filter((o) => !grappled || o.kind === 'draw' || o.kind === 'none')
@@ -2130,6 +2388,16 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
     html += enemies
       .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}${a.type === 'shoot' && dangerClose(view!.state, t.id) ? ' danger' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `鎖定 ${t.label}`))
       .join('');
+    // 看得到的敵方炮群也可以當射擊目標
+    if (a.type === 'shoot')
+      for (const o of view!.state.units.filter((x) => x.owner !== view!.you))
+        for (const e of o.equipment) {
+          if (!e.pod) continue;
+          const w = u.equipment.find((x) => x.id === a.weapon);
+          const ps = psycommuOf(e)!;
+          const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: e.id, chassisId: '', pos: e.pod.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, e.pod.pos), targetEvasion: ps.evasion ?? 0 }) : null;
+          html += tip(`<button class="${a.target === e.id ? 'on' : ''}" data-target="${e.id}">${esc(o.label.split(' ')[0])} ${esc(podName(o, e))}</button>`, `射擊 ${o.label} 的${podName(o, e)}：${h ? chanceText(h.chance) : '射程外'}。${ps.wired ? '打中就是打那隻手臂。' : '每發命中打掉一支。'}`);
+        }
     html += '</div>';
   }
   const drawnFree = plan.swap && (quick || !!EQUIPMENT[u.equipment.find((e) => e.id === plan.swap!.equip)?.defId ?? '']?.tags?.includes('quickDraw'));
@@ -2185,6 +2453,50 @@ function bindControls(u: UnitView | undefined) {
       changed();
     };
   });
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-pod-go]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        podPick = { unit: u.id, equip: b.dataset.podGo! };
+        changed();
+      }),
+  );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-pod-stay]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (move?.pods) delete move.pods[b.dataset.podStay!];
+        podPick = null;
+        changed();
+      }),
+  );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-pod-recall]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        move.pods = { ...move.pods, [b.dataset.podRecall!]: { recall: true } };
+        podPick = null;
+        changed();
+      }),
+  );
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-pod-t]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (!plan) return;
+        const [eid, tid] = b.dataset.podT!.split('|');
+        const list = (plan.pods?.[eid] ?? []).filter((x) => x !== tid);
+        if (tid && list.length === (plan.pods?.[eid] ?? []).length) list.push(tid);
+        while (list.length > 2) list.shift();
+        const pods = { ...plan.pods };
+        if (!tid || !list.length) delete pods[eid];
+        else pods[eid] = list;
+        plan.pods = Object.keys(pods).length ? pods : undefined;
+        // 指揮無線炮群會用掉行動：本體的動作改成不行動
+        const wireless = Object.keys(pods).some((id) => !psycommuOf(u.equipment.find((x) => x.id === id)!)?.wired);
+        if (wireless) {
+          plan.action = { type: 'none' };
+          if (plan.swap && !freeDraw(u as unknown as UnitState, u.equipment.find((x) => x.id === plan.swap!.equip) ?? u.equipment[0])) plan.swap = undefined;
+        }
+        changed();
+      }),
+  );
   ctr.querySelectorAll<HTMLButtonElement>('button[data-grapple]').forEach((b) => (b.onclick = () => plan && ((plan.grapple = b.dataset.grapple as GrappleChoice), changed())));
   ctr.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-f]').forEach((el) => {
     el.onchange = () => {
@@ -2207,6 +2519,11 @@ function bindControls(u: UnitView | undefined) {
   ctr.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach((b) => {
     b.onclick = () => {
       const o = equipOptions(u).find((x) => x.key === b.dataset.opt)!;
+      // 本體要行動：無線炮群的指揮取消（線控的不受影響）
+      if (o.kind !== 'none' && plan.pods && !(o.kind === 'draw' && isFreeDraw(o.equip!))) {
+        for (const id of Object.keys(plan.pods)) if (!psycommuOf(u.equipment.find((x) => x.id === id)!)?.wired) delete plan.pods[id];
+        if (!Object.keys(plan.pods).length) plan.pods = undefined;
+      }
       if (o.kind === 'shoot') {
         plan.action = { type: 'shoot', weapon: o.equip!, target: target() };
         if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
@@ -2352,7 +2669,15 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 擱置移動，等待王牌移動`;
     case 'phase':
       return e.phase === 'ace' ? '── 王牌移動 ──' : e.phase === 'pursuit' ? '── 追擊 ──' : null;
+    case 'pod': {
+      const f = podById(e.equip, true);
+      const name = f ? podName(f.u, f.e) : '炮群';
+      return `${L(e.unit)} ${{ launch: '放出', recall: '收回', lost: '失去控制：', destroyed: '的' }[e.what]}${name}${e.what === 'destroyed' ? '被擊毀' : ''}`;
+    }
+    case 'podHit':
+      return `${L(e.unit)} 的${EQUIPMENT[podById(e.equip, true)?.e.defId ?? '']?.name ?? '炮群'}被擊落 1 支（剩 ${e.bits}）`;
     case 'shot':
+      if (e.pod) return `${L(e.attacker)} 指揮${(() => { const f = podById(e.pod, true); return f ? podName(f.u, f.e) : '炮群'; })()}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
       return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}${e.strays ? `，誤擊 ${e.strays}` : ''}`;
     case 'damage':
       return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
