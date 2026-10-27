@@ -1820,7 +1820,7 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
   const t = unitView(a.target);
-  return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。命中率是估計值，看不到對手的駕駛與姿態。`;
+  return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL}）看不到，所以沒算。`;
 }
 
 function bindTips() {
@@ -2272,7 +2272,8 @@ function podActionControls(u: UnitView, plan: ActionPlan): string {
     html += '<div class="row">';
     for (const t of enemies) {
       const at = e.pod!.pos;
-      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: null, shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
+      // 炮群本身當作不動（和結算一樣），相對速度就是目標的速度
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
       const est = h ? `${bandName(h.band)}・${chanceText(h.chance)}${dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險' : ''}` : '炮群射程外';
       html += tip(`<button class="${chosen.includes(t.id) ? 'on' : ''}${dangerClose(view!.state, t.id) ? ' danger' : ''}" data-pod-t="${e.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${t.label}：${est}`);
     }
@@ -2314,7 +2315,7 @@ function pursuitControls(u: UnitView): string {
     const w = equipName(u, o.weapon);
     return tip(
       `<button class="${on ? 'on' : ''}" data-pursue="${i}">${esc(labelOf(o.target).split(' ')[0])}・${esc(w)}　${o.chance > 100 ? `爆擊 ${Math.min(100, o.chance - 100)}%` : `${o.chance}%`}</button>`,
-      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3)}，估計${chanceText(o.chance)}（看不到對手的駕駛）。`,
+      `用${w}追擊 ${labelOf(o.target)}：${bandName(o.band as 0 | 1 | 2 | 3)}，估計${chanceText(o.chance)}。`,
     );
   });
   buttons.push(tip(`<button class="${cur === null ? 'on' : ''}" data-pursue="-1">放棄</button>`, '這台不追擊。'));
@@ -2399,8 +2400,11 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
-/** 命中率文字：超過 100 的部分是爆擊率 */
-const chanceText = (c: number) => (c > 100 ? `必中・爆擊約 ${Math.min(100, c - 100)}%` : `約 ${c}%`);
+/**
+ * 命中率文字：駕駛以外的因素（距離、相對速度、射擊線、射界、鎖定、外裝甲、頭部）都算進去了；
+ * 對方的駕駛看不到，閃避（技能 × 3）沒算，所以不說「必中」。超過 100 的部分是爆擊率
+ */
+const chanceText = (c: number) => (c > 100 ? `約 ${c}%（爆擊約 ${Math.min(100, c - 100)}%）・未計對方駕駛閃避` : `約 ${c}%・未計對方駕駛閃避`);
 const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離' } as const;
 
 function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
