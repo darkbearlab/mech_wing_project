@@ -44,6 +44,7 @@ import {
   type DeployPlan,
   techniqueUse,
   normalizeChoice,
+  dangerClose,
   type Scenario,
   armorOf,
   aiDeploy,
@@ -354,7 +355,7 @@ function applyView(v: PlayerView) {
         deployDrafts[u.id] = { x: u.pos.x, y: u.pos.y, facing: snapFacing(u.facing), momentum: Math.max(lo, Math.min(hi, u.momentum)) };
       }
       if (v.phase === 'move' || (v.phase === 'ace' && v.aceUnits?.includes(u.id))) moveDrafts[u.id] = initialMove(u);
-      if (v.phase === 'action') actionDrafts[u.id] = { action: { type: 'none' } };
+      if (v.phase === 'action') actionDrafts[u.id] = { action: { type: 'none' }, ...(inGrapple(u.id) ? { grapple: normalizeChoice(u as unknown as UnitState, undefined) } : {}) };
       // 追擊：先幫忙選好估計傷害最高的一槍，玩家可以改或放棄
       const opts = v.pursuit?.[u.id];
       if (v.phase === 'pursuit' && opts?.length) {
@@ -390,7 +391,7 @@ function weaponPower(u: UnitView, eqId: string): number {
 }
 
 function initialMove(u: UnitView): MovePlan {
-  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false, grapple: normalizeChoice(u as unknown as UnitState, undefined) };
+  return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false };
 }
 
 /** 套用規劃中的換武器後，手上會拿著什麼 */
@@ -1859,7 +1860,7 @@ const TECH_TIPS: Record<GrappleChoice, string> = {
 
 /** 纏鬥選項的說明：這台用哪件武器、擲幾顆骰、得手造成多少傷害 */
 function grappleTip(u: UnitView, c: GrappleChoice): string {
-  const base = `${TECH_TIPS[c]}被剋的一方對手多 ${config.COUNTER_DICE} 顆骰。雙方擲近戰骰比成功數，得手的一方一律把對方擊退、結束纏鬥；平手就繼續纏，雙方壓力 +1。`;
+  const base = `${TECH_TIPS[c]}被剋的一方對手多 ${config.COUNTER_DICE} 顆骰。所有射擊結算完才交手：雙方擲近戰骰比成功數，得手的一方一律把對方擊退、結束纏鬥；平手就繼續纏，雙方壓力 +1。`;
   if (c === 'disengage') return base;
   const use = techniqueUse(u as unknown as UnitState, c);
   if (!use) return base;
@@ -1871,12 +1872,7 @@ function grappleTip(u: UnitView, c: GrappleChoice): string {
 const tip = (button: string, text: string) => button.replace(/^<button /, `<button data-tip="${esc(text)}" `);
 
 function moveControls(u: UnitView, plan: MovePlan): string {
-  if (inGrapple(u.id)) {
-    const opts = grappleOptions(u as unknown as UnitState);
-    return `<div class="sec">選一個纏鬥動作</div><div class="row">${opts
-      .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, grappleTip(u, o)))
-      .join('')}</div>`;
-  }
+  if (inGrapple(u.id)) return '<div class="muted small">纏鬥中，不移動。手法在動作步驟選。</div>';
   // 王牌移動：移動步驟可以擱置（王牌移動步驟裡就不能再擱置）
   const pilot = PILOTS[u.pilotId!];
   const canDefer = view!.phase === 'move' && pilot?.abilities.includes('ace_move');
@@ -2019,7 +2015,8 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     if (def.pointBlank === false && rangeBand(u, t) === 0) return '太近，不能開火';
   }
   const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover }) : null;
-  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}` : '射程外';
+  const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
+  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${danger}` : '射程外';
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠' } as const;
@@ -2056,7 +2053,13 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
 
   const quick = PILOTS[u.pilotId!].abilities.includes('quick_draw');
   const grappled = inGrapple(u.id);
-  let html = grappled ? '<div class="warn small">纏鬥中：不能射擊、鎖定或用道具，只能換武器（例如拔出光劍）。</div>' : '';
+  let html = '';
+  if (grappled) {
+    const opts = grappleOptions(u as unknown as UnitState);
+    html += `<div class="sec">纏鬥手法</div><div class="row">${opts
+      .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, grappleTip(u, o)))
+      .join('')}</div><div class="warn small">纏鬥中不能射擊、鎖定或用道具，可以換武器。</div>`;
+  }
   html += '<div class="sec">選一件裝備</div><div class="optList">';
   html += equipOptions(u)
     .filter((o) => !grappled || o.kind === 'draw' || o.kind === 'none')
@@ -2068,7 +2071,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
     const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active' && !x.hidden);
     html += `<div class="sec">目標（也可以直接點地圖上的敵機）</div><div class="row">`;
     html += enemies
-      .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `鎖定 ${t.label}`))
+      .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}${a.type === 'shoot' && dangerClose(view!.state, t.id) ? ' danger' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `鎖定 ${t.label}`))
       .join('');
     html += '</div>';
   }
@@ -2125,7 +2128,7 @@ function bindControls(u: UnitView | undefined) {
       changed();
     };
   });
-  ctr.querySelectorAll<HTMLButtonElement>('button[data-grapple]').forEach((b) => (b.onclick = () => ((move.grapple = b.dataset.grapple as GrappleChoice), changed())));
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-grapple]').forEach((b) => (b.onclick = () => plan && ((plan.grapple = b.dataset.grapple as GrappleChoice), changed())));
   ctr.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-f]').forEach((el) => {
     el.onchange = () => {
       const v = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value;
@@ -2293,7 +2296,7 @@ function describe(e: GameEvent): string | null {
     case 'phase':
       return e.phase === 'ace' ? '── 王牌移動 ──' : e.phase === 'pursuit' ? '── 追擊 ──' : null;
     case 'shot':
-      return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
+      return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}${e.strays ? `，誤擊 ${e.strays}` : ''}`;
     case 'damage':
       return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
     case 'knockback':

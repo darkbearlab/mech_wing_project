@@ -83,7 +83,7 @@ function settleMomentum(ctx: Ctx, plans: Record<string, MovePlan>, movers: Set<s
   }
 }
 
-/** 第一步：纏鬥、同時移動（擱置的王牌先不動）。之後依序進王牌移動、追擊或動作。 */
+/** 第一步：同時移動（擱置的王牌、纏鬥中的機體不動）。之後依序進王牌移動、追擊或動作。 */
 export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, PlayerMoves]): TurnResult {
   const state: GameState = structuredClone(input);
   const rng = new Rng(state.rngState);
@@ -115,18 +115,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
     payForMove(ctx, u, plan);
   }
 
-  // 1. 纏鬥
-  for (const g of [...state.grapples]) {
-    const a = unitById(ctx, g.a);
-    const b = unitById(ctx, g.b);
-    if (a.status !== 'active' || b.status !== 'active') {
-      state.grapples = state.grapples.filter((x) => x !== g);
-      continue;
-    }
-    resolveGrapple(ctx, g, a, b, plans[a.id]?.grapple, plans[b.id]?.grapple);
-  }
-
-  // 2. 同時移動
+  // 同時移動（纏鬥中的機體不動；纏鬥在動作步驟最後才結算）
   const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, new Set([...frozen, ...deferred]));
   const movers = new Set(Object.keys(plans).filter((id) => !deferred.has(id)));
   settleMomentum(ctx, plans, movers, frozen, stopped);
@@ -192,7 +181,7 @@ export function resolvePursuit(input: GameState, byPlayer: [PlayerPursuits, Play
   return { state, events: ctx.events };
 }
 
-/** 第二步：看到移動結果後選的動作，技能高者先結算；接著回合結束。 */
+/** 第二步：看到移動結果後選的動作，技能高者先結算；所有射擊之後結算纏鬥；接著回合結束。 */
 export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions, PlayerActions]): TurnResult {
   const state: GameState = structuredClone(input);
   const rng = new Rng(state.rngState);
@@ -237,6 +226,17 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       continue;
     }
     if (doAction(ctx, turn, u, plan)) revealed.add(u.id);
+  }
+
+  // 所有射擊結算完才結算纏鬥（射進纏鬥的人不會因為順序晚而佔便宜）
+  for (const g of [...state.grapples]) {
+    const a = unitById(ctx, g.a);
+    const b = unitById(ctx, g.b);
+    if (a.status !== 'active' || b.status !== 'active') {
+      state.grapples = state.grapples.filter((x) => x !== g);
+      continue;
+    }
+    resolveGrapple(ctx, g, a, b, actionsByPlayer[a.owner][a.id]?.grapple, actionsByPlayer[b.owner][b.id]?.grapple);
   }
 
   // 回合結束：重力圈或水中動能往 0 回正（地面滑行的機體在重力圈不受影響；戰機不低於最低速度）

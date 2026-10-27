@@ -89,6 +89,8 @@ button { background: #24303c; color: var(--text); border: 1px solid var(--line);
 button:hover { background: #2d3b4a; }
 button.primary { background: #3d6b2f; border-color: #4f8a3d; }
 button.on { outline: 2px solid var(--accent); background: #3a4a5c; }
+button.danger { border-color: #c9762e; }
+button.danger::after { content: ' Danger Close'; color: #ffb35c; font-size: 10px; font-weight: bold; }
 button:disabled { opacity: 0.45; cursor: default; }
 select, input { background: #0f1419; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; font: inherit; }
 .row { display: flex; gap: 8px; align-items: center; margin: 4px 0; flex-wrap: wrap; }

@@ -306,13 +306,12 @@ export type Action =
   | { type: 'smoke'; weapon: string; at: Vec }
   | { type: 'decoy'; weapon: string; at: Vec };
 
-/** 第一步：移動（纏鬥中的機體改選纏鬥選項） */
+/** 第一步：移動（纏鬥中的機體不移動） */
 export interface MovePlan {
   maneuver: string;
   stance: Stance;
   facingOffset: number;
   limiter: boolean;
-  grapple?: GrappleChoice;
   /** 王牌移動：這一步先不動，等其他人動完再決定（要有 ace_move 能力） */
   defer?: boolean;
   /** 拋棄外裝甲（免費，和限制器同一層級的操作） */
@@ -323,6 +322,8 @@ export interface MovePlan {
 export interface ActionPlan {
   swap?: { hand: Hand; equip: string | null };
   action: Action;
+  /** 纏鬥中的機體選的手法（所有射擊結算完才結算纏鬥） */
+  grapple?: GrappleChoice;
 }
 
 export type PlayerMoves = Record<string, MovePlan>;
@@ -370,7 +371,7 @@ export type GameEvent =
       /** 防守方承受衝擊並把攻擊方拖進纏鬥 */
       caught: boolean;
     }
-  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number }
+  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number }
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
   | { type: 'stress'; unit: string; amount: number; total: number; reason: string }

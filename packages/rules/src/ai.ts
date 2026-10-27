@@ -13,7 +13,7 @@ import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import { closeCombatOf, minSpeedOf, radiusOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { hitChance, relativeSpeed } from './combat';
-import { BEATS, TECHNIQUES, techniqueUse, grappleOptions } from './grapple';
+import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './grapple';
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire } from './terrain';
 import { buildPath } from './movement';
@@ -92,6 +92,13 @@ function hurtOf(u: UnitView): number {
 
 const ASSUMED_SKILL = 3;
 /** 命中率（可超過 100）換成每發的期望傷害倍率：命中機率 ×（1 ＋ 爆擊機率） */
+/** 射纏鬥中的敵機：命中打到它本身的比例（其餘打到纏住它的隊友） */
+function aimShare(view: PlayerView, t: UnitView): number {
+  const weight = (u: UnitView) => Object.values(u.parts).filter((p) => p.kind === 'body' || !p.destroyed).reduce((n, p) => n + p.weight, 0);
+  const pool = grapplePool(view.state, t);
+  return pool.length > 1 ? weight(t) / pool.reduce((n, u) => n + weight(u), 0) : 1;
+}
+
 const hitValue = (chance: number) => (Math.min(chance, 100) / 100) * (1 + Math.max(0, Math.min(100, chance - 100)) / 100);
 /** 命中率低於這個就先鎖定，不浪費這回合 */
 const LOW_SHOT = 22;
@@ -594,9 +601,7 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
   for (const u of order) {
     if (!deciding.has(u.id)) continue;
     if (grappled.has(u.id)) {
-      const g = view.state.grapples.find((x) => x.a === u.id || x.b === u.id);
-      const oppId = g ? (g.a === u.id ? g.b : g.a) : undefined;
-      out[u.id] = { ...base, grapple: pickGrapple(u, view.state.units.find((x) => x.id === oppId), rng) };
+      out[u.id] = { ...base };
       continue;
     }
     if (deferNow.has(u.id)) {
@@ -655,6 +660,15 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
   const focus = pickFocus(own, enemies, view.state.obstacles, focusHints(view));
   const aimed: Record<string, number> = {};
   for (const u of own) {
+    // 纏鬥中：不能射擊，手上沒近戰武器就拔出來，再選手法（所有射擊之後才結算）
+    const g = view.state.grapples.find((x) => x.a === u.id || x.b === u.id);
+    if (g) {
+      const opp = view.state.units.find((x) => x.id === (g.a === u.id ? g.b : g.a));
+      const plan: ActionPlan = { action: { type: 'none' }, grapple: pickGrapple(u, opp, rng) };
+      if (canHold(u) && !heldOf(u, 'melee').length && stowedOf(u, 'melee').length) plan.swap = { hand: drawHand(u), equip: stowedOf(u, 'melee')[0].id };
+      out[u.id] = plan;
+      continue;
+    }
     const skill = PILOTS[u.pilotId!]?.skill ?? 1;
     let shot: { weapon: EquipState; target: UnitView; value: number; chance: number } | null = null;
     for (const w of heldOf(u, 'ranged')) {
@@ -665,7 +679,10 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
         const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos) });
         if (!h || (w.ammo !== undefined && w.ammo <= 0)) continue;
         // 集火：集火目標、受傷的、隊友已經瞄準的敵機加權
-        const weight = (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8) * (1 + (aimed[t.id] ?? 0) * 0.2);
+        // 誤擊風險：打到隊友的部分要倒扣，太容易打到隊友就不開火
+        const risk = 2 * aimShare(view, t) - 1;
+        if (risk < 0.2) continue;
+        const weight = (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8) * (1 + (aimed[t.id] ?? 0) * 0.2) * risk;
         const value = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * weight + rng.next() * 0.2;
         if (!shot || value > shot.value) shot = { weapon: w, target: t, value, chance: h.chance };
       }

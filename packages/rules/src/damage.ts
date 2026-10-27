@@ -12,6 +12,8 @@ export interface Ctx {
   events: GameEvent[];
   /** 目前這筆傷害是誰造成的（擊墜記在他身上）；撞隕石、自傷等沒有 */
   by?: string;
+  /** 射擊瞄準的機體：瞄準要害只加在它身上（誤擊到旁邊纏鬥的機體不算） */
+  aimAt?: string;
 }
 
 /** 以 by 的名義造成傷害（擊墜歸屬），結束後還原 */
@@ -56,11 +58,16 @@ export function spendPropellant(ctx: Ctx, u: UnitState, amount: number): void {
 }
 
 /** 依權重擲命中部位。機體部位永遠在表內（已破壞→轉軀幹）；已破壞的裝備移出權重表。 */
+const partCandidates = (u: UnitState) => Object.values(u.parts).filter((p) => p.kind === 'body' || !p.destroyed);
+const partWeight = (p: UnitState['parts'][string], coreBonus: number) => p.weight + (p.kind === 'body' && p.role === 'core' && !p.destroyed ? coreBonus : 0);
+
 /** 抽命中部位；coreBonus：核心部位多加的權重（瞄準要害） */
 export function rollPart(rng: Rng, u: UnitState, coreBonus = 0): string {
-  const candidates = Object.values(u.parts).filter((p) => p.kind === 'body' || !p.destroyed);
-  return rng.pickWeighted(candidates, (p) => p.weight + (p.kind === 'body' && p.role === 'core' && !p.destroyed ? coreBonus : 0)).id;
+  return rng.pickWeighted(partCandidates(u), (p) => partWeight(p, coreBonus)).id;
 }
+
+/** 這台機體的部位權重總和（射進纏鬥時決定打到誰） */
+export const bodyWeight = (u: UnitState, coreBonus = 0): number => partCandidates(u).reduce((n, p) => n + partWeight(p, coreBonus), 0);
 
 /** 這筆傷害的來源有瞄準要害能力的話，核心部位加權 */
 function calledShotBonus(ctx: Ctx): number {
@@ -68,10 +75,21 @@ function calledShotBonus(ctx: Ctx): number {
   return by && pilotOf(by).abilities.includes('called_shot') ? C.CALLED_SHOT_CORE_BONUS : 0;
 }
 
+/** 以 by 的名義、瞄準 aim 造成傷害 */
+export function shotBy(ctx: Ctx, by: UnitState, aim: UnitState, fn: () => void): void {
+  const prev = ctx.aimAt;
+  ctx.aimAt = aim.id;
+  try {
+    dealtBy(ctx, by, fn);
+  } finally {
+    ctx.aimAt = prev;
+  }
+}
+
 /** overflow：打壞部位後多出來的傷害，每 1 點再擲一次命中部位、各造成 1 點（火箭砲的爆風） */
 export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string, overflow = false): void {
   if (amount <= 0) return;
-  const bonus = calledShotBonus(ctx);
+  const bonus = ctx.aimAt && ctx.aimAt !== u.id ? 0 : calledShotBonus(ctx);
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {
     const armor = u.equipment.find((e) => EQUIPMENT[e.defId]?.kind === 'armor' && e.location === 'mount' && u.parts[e.id] && !u.parts[e.id].destroyed);

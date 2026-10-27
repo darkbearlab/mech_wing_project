@@ -35,6 +35,12 @@ function duel(a: UnitPlan, b: UnitPlan, state: GameState) {
   return resolveTurn(state, plans, plans);
 }
 
+/** 只結算移動（纏鬥要到動作步驟最後才結算） */
+function moveOnly(a: UnitPlan, b: UnitPlan, state: GameState) {
+  const [ua, ub] = state.units;
+  return resolveMovement(state, [{ [ua.id]: a }, { [ub.id]: b }]);
+}
+
 describe('機動模板', () => {
   it('直線、緩轉、急停反轉的終點', () => {
     const s = localPose(parseManeuver('straight-S-3'), 3, 1);
@@ -145,9 +151,12 @@ describe('同時移動與接觸', () => {
       { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 6.5, y: 10, facingDeg: 0 },
     ]);
-    const r = duel(plan({ maneuver: 'straight-S-4', stance: 'melee' }), plan({ maneuver: 'straight-S-3' }), st);
+    const r = moveOnly(plan({ maneuver: 'straight-S-4', stance: 'melee' }), plan({ maneuver: 'straight-S-3' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('clinch');
     expect(r.state.grapples).toHaveLength(1);
+    // 同一回合的動作步驟最後就交手一次
+    const full = duel(plan({ maneuver: 'straight-S-4', stance: 'melee' }), plan({ maneuver: 'straight-S-3' }), st);
+    expect(of(full.events, 'grapple')).toHaveLength(1);
   });
 
   it('突進：相對速度 3 以上一擊脫離，用骰池比成功數，攻擊方走完路徑', () => {
@@ -249,7 +258,7 @@ describe('同時移動與接觸', () => {
         ],
         seed,
       );
-      const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0', stance: 'melee' }), st);
+      const r = moveOnly(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0', stance: 'melee' }), st);
       const c = of(r.events, 'clash')[0];
       // 重裝老兵：2 + 3 + 承受 1 + 重量差 1
       expect(c.defDice).toHaveLength(7);
@@ -388,7 +397,38 @@ describe('纏鬥', () => {
   it('纏鬥中不能射擊', () => {
     const st = grappled(rifleX00, rifleX00);
     const r = duel(plan({ maneuver: 'straight-S-1', action: { type: 'shoot', weapon: st.units[0].equipment[0].id, target: st.units[1].id } }), hold('disengage'), st);
-    expect(r.events.some((e) => e.type === 'shot' && e.attacker === st.units[0].id)).toBe(r.state.grapples.length === 0);
+    // 纏鬥在所有射擊之後才結算：就算這回合脫離成功也來不及開火
+    expect(r.events.some((e) => e.type === 'shot' && e.attacker === st.units[0].id)).toBe(false);
+    expect(of(r.events, 'grapple')).toHaveLength(1);
+  });
+
+  it('射擊纏鬥中的目標：命中照部位權重分給纏在一起的機體，可能誤擊友軍；纏鬥在射擊之後結算', () => {
+    let strays = 0;
+    let aimed = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const st = makeState(
+        [
+          { entry: saberX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+          { entry: saberX00, owner: 1, x: 6, y: 10, facingDeg: 180 },
+          { entry: rifleX00, owner: 0, x: 5.5, y: 6, facingDeg: 90 },
+        ],
+        seed,
+      );
+      const [mate, foe, gunner] = st.units;
+      st.grapples.push({ a: mate.id, b: foe.id, advantage: null });
+      const shot: UnitPlan = plan({ maneuver: 'hover-S-0', action: { type: 'shoot', weapon: gunner.equipment[0].id, target: foe.id } });
+      const r = resolveTurn(st, [{ [gunner.id]: shot }, {}], [{ [gunner.id]: shot, [mate.id]: hold('cleave') }, { [foe.id]: hold('thrust') }]);
+      const i = r.events.findIndex((e) => e.type === 'shot');
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(r.events.findIndex((e) => e.type === 'grapple')).toBeGreaterThan(i);
+      const s = of(r.events, 'shot')[0];
+      strays += s.strays ?? 0;
+      aimed += s.hits - (s.strays ?? 0);
+      // 射擊緊接著的傷害：誤擊時打在友軍身上
+      if (s.hits && !s.blocked) expect((r.events[i + 1] as { unit: string }).unit).toBe(s.strays ? mate.id : foe.id);
+    }
+    expect(strays).toBeGreaterThan(0);
+    expect(aimed).toBeGreaterThan(0);
   });
 });
 

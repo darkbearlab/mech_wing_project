@@ -196,7 +196,7 @@ function reporter(m: Match, verbose: boolean, seatNote = ['', ''], names = ['A',
           const mates = m.state.units.filter((a) => a.owner === p && a.id !== id && a.status === 'active' && foes.some((e) => bestChance(a, e, m) > 0));
           const alone = u.status === 'active' && foes.length >= 2 && foes.length > mates.length + 1;
           if (alone) side(p).outnumbered++;
-          say(`  ${label(id)} ${parseManeuver(plan.maneuver).name}${plan.stance === 'melee' ? '・近戰姿態' : ''}${plan.facingOffset ? `・轉身 ${plan.facingOffset}` : ''}${plan.grapple ? `・纏鬥選 ${plan.grapple}` : ''}　→ (${f1(u.pos.x)},${f1(u.pos.y)}) 朝 ${deg(u.facing)}° 動能 ${u.momentum}　[${hp(u)}] 推 ${u.propellant} 壓 ${u.stress}${alone ? `　← 落單（${foes.length} 台敵機打得到，${mates.length} 台隊友能支援）` : ''}`);
+          say(`  ${label(id)} ${parseManeuver(plan.maneuver).name}${plan.stance === 'melee' ? '・近戰姿態' : ''}${plan.facingOffset ? `・轉身 ${plan.facingOffset}` : ''}　→ (${f1(u.pos.x)},${f1(u.pos.y)}) 朝 ${deg(u.facing)}° 動能 ${u.momentum}　[${hp(u)}] 推 ${u.propellant} 壓 ${u.stress}${alone ? `　← 落單（${foes.length} 台敵機打得到，${mates.length} 台隊友能支援）` : ''}`);
         }
       }
     } else say(`── 第 ${turn} 回合 行動 ──`);
