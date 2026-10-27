@@ -141,6 +141,7 @@ export class LocalGame {
       }
       if (!acted) break;
     }
+    if (this.match.phase === 'over') this.upload();
     return true;
   }
 
