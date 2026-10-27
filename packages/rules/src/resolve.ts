@@ -258,7 +258,13 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       if (held) benched.add(held.id);
       if (equip) benched.add(equip);
     }
-    for (const [hand, equip] of swapOrders(plan)) doSwap(ctx, u, hand, equip);
+    // 兩隻手換成同一件裝備：只換第一隻手（指令檢查也會擋下）
+    const taken = new Set<string>();
+    for (const [hand, equip] of swapOrders(plan)) {
+      if (equip && taken.has(equip)) continue;
+      if (equip) taken.add(equip);
+      doSwap(ctx, u, hand, equip);
+    }
     let actionUsed = false;
     // 指揮炮群：無線的佔這回合的行動，線控的不佔
     let wiredFired = false;
