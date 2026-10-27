@@ -13,7 +13,8 @@
     "sim": "tsx packages/rules/scripts/sim.ts",
     "aisim": "tsx packages/rules/scripts/aisim.ts",
     "content:check": "tsx packages/rules/scripts/content-check.ts",
-    "battle": "tsx packages/rules/scripts/battle.ts"
+    "battle": "tsx packages/rules/scripts/battle.ts",
+    "seat": "npm run seat -w @mech/server --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

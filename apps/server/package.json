@@ -2,7 +2,16 @@
   "name": "@mech/server",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "tsx watch src/index.ts" },
-  "dependencies": { "@mech/rules": "*", "ws": "^8.18.0" },
-  "devDependencies": { "@types/ws": "^8.5.14", "@types/node": "^22.13.0" }
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "seat": "tsx src/seat.ts"
+  },
+  "dependencies": {
+    "@mech/rules": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14",
+    "@types/node": "^22.13.0"
+  }
 }

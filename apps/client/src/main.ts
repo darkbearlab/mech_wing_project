@@ -2770,7 +2770,11 @@ $('logToggle').onclick = () => {
 function restart() {
   // 本機模式：回到主選單
   if (local) return showMenu();
-  clearAndReset();
+  // 連線房間：選好陣容與勝利條件後，請伺服器開新的一場
+  openLineup('hotseat', (rosters, _opponent, settings) => {
+    clearAndReset(false);
+    sendMsg({ t: 'setup', rosters, settings });
+  });
 }
 
 /** 開一場本機對戰（第一次建立，之後重設同一個對局物件） */
@@ -2799,7 +2803,7 @@ function showMenu() {
   });
 }
 
-function clearAndReset() {
+function clearAndReset(reset = true) {
   logs[0].length = 0;
   logs[1].length = 0;
   replays[0].length = 0;
@@ -2809,12 +2813,12 @@ function clearAndReset() {
   savedViews[0] = savedViews[1] = null;
   draftKey = '';
   renderLog();
-  sendMsg({ t: 'reset' });
+  if (reset) sendMsg({ t: 'reset' });
 }
 
 $('resetBtn').onclick = () => {
   if (local) restart();
-  else if (confirm('重開這個房間？雙方的對戰都會重設。')) restart();
+  else restart();
 };
 
 // 對手：電腦／同機輪流／電腦對戰電腦（只有本機模式）
@@ -2870,6 +2874,12 @@ if (mode === 'local') {
     showMenu();
   });
 } else {
-  connect();
+  // 連線房間：用和伺服器相同的資料包（預設都是線上最新版）
+  void loadContent(params.get('content')).then(({ version, note }) => {
+    const tag = $('contentTag');
+    tag.textContent = `資料 ${version}`;
+    tag.title = note;
+    connect();
+  });
 }
 requestAnimationFrame(drawFrame);
