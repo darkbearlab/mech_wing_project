@@ -170,6 +170,7 @@ function render(v: PlayerView): string {
   }
   out.push('\n== 敵方 ==');
   for (const u of foes) out.push(unitLine(u));
+  for (const p of s.enemyPods ?? []) out.push(`敵方炮群 [${p.id}] ${p.label} 的${p.wired ? `有線臂（${p.part ?? ''}）` : `${EQUIPMENT[p.defId].name} ×${p.bits}`} @${pt(p.pos)}（射擊目標用這個 id）`);
   out.push(`\n指令格式（寫到 ${resolve(dir, 'orders.json')}）：`);
   out.push(
     {

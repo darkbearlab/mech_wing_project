@@ -5,6 +5,22 @@ import { DEFAULT_SETTINGS, flagshipOf, killScoreOf, newObjectives, type BattleSe
 import { radiusOf } from './body';
 import { canSee, sensorRange } from './vision';
 import { podSeen } from './psycommu';
+import { EQUIPMENT } from './data';
+
+/** 看得到的敵方炮群 */
+export interface EnemyPod {
+  /** 那件感應武器的 id（射擊時當目標） */
+  id: string;
+  owner: PlayerId;
+  mother: string;
+  label: string;
+  defId: string;
+  wired: boolean;
+  /** 線控：是哪隻手臂 */
+  part?: string;
+  pos: Vec;
+  bits: number;
+}
 import type { EquipState, GameEvent, GameState, GrappleState, Obstacle, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
 
 /** 對手看得到機體，看不到駕駛 */
@@ -51,6 +67,8 @@ export interface StateView {
   deferred: string[];
   /** 看得出是氣球的欺敵氣球（自己的全部看得到） */
   balloons: { id: string; owner: PlayerId; pos: Vec }[];
+  /** 看得到的敵方炮群（和母機看不看得到無關；母機藏著也可能看到它放出來的手臂或感應炮） */
+  enemyPods: EnemyPod[];
   /** 自己還沒進場的增援 */
   reserves: { id: string; label: string; turn: number }[];
   /** 勝利條件與部署方式 */
@@ -156,20 +174,20 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
       units.push({ id: d.id, owner: d.owner, label: '不明機體', chassisId: d.chassisId, pos: { ...d.pos }, facing: d.facing, parts: structuredClone(d.parts), equipment: structuredClone(d.equipment.filter((e) => e.location !== 'housed' || e.revealed)), status: 'active', momentum: 0, vague: null, unknown: true });
     else balloons.push({ id: d.id, owner: d.owner, pos: { ...d.pos } });
   }
-  // 對手的炮群：看得到才顯示（殘影也照現在的狀況）
-  for (const v of units) {
-    if (v.owner === viewer) continue;
-    const real = s.units.find((u) => u.id === v.id);
-    if (!real) continue;
-    for (const e of v.equipment) {
-      const now = real.equipment.find((x) => x.id === e.id);
-      if (now?.pod && podSeen(s, real, now, viewer)) e.pod = structuredClone(now.pod);
-      else delete e.pod;
+  // 對手的炮群：機體資料裡不放（母機可能看不到），看得到的另外列在 enemyPods
+  for (const v of units) if (v.owner !== viewer) for (const e of v.equipment) delete e.pod;
+  const enemyPods: EnemyPod[] = [];
+  for (const u of s.units) {
+    if (u.owner === viewer || u.status !== 'active') continue;
+    for (const e of u.equipment) {
+      if (!e.pod || !podSeen(s, u, e, viewer)) continue;
+      const def = EQUIPMENT[e.defId];
+      enemyPods.push({ id: e.id, owner: u.owner, mother: u.id, label: u.label, defId: e.defId, wired: !!def.psycommu?.wired, part: e.host ? u.parts[e.host]?.name : undefined, pos: { ...e.pod.pos }, bits: e.bits ?? def.psycommu!.count });
     }
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, balloons, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, balloons, enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */

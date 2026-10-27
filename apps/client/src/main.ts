@@ -458,9 +458,14 @@ function podById(id: string, includeDocked = false): { u: UnitView; e: EquipStat
 }
 /** 炮群的名稱：有線臂寫手臂部位（右臂），無線寫武器名 */
 const podName = (u: UnitView, e: EquipState) => (psycommuOf(e)?.wired && e.host ? `有線臂（${u.parts[e.host]?.name ?? e.host}）` : EQUIPMENT[e.defId].name);
+/** 看得到的敵方炮群（母機可能看不到） */
+const enemyPod = (id: string) => view?.state.enemyPods?.find((p) => p.id === id);
+const enemyPodName = (p: NonNullable<ReturnType<typeof enemyPod>>) => (p.wired ? `有線臂（${p.part ?? ''}）` : EQUIPMENT[p.defId].name);
 function podLabel(id: string): string | undefined {
   const f = podById(id, true);
-  return f ? `${f.u.label.split(' ')[0]} ${podName(f.u, f.e)}` : undefined;
+  if (f) return `${f.u.label.split(' ')[0]} ${podName(f.u, f.e)}`;
+  const p = enemyPod(id);
+  return p ? `${p.label.split(' ')[0]} ${enemyPodName(p)}` : undefined;
 }
 /** 炮群現在能不能指揮（客戶端估計，和規則同一套條件） */
 function podIssue(u: UnitView, e: EquipState): string | null {
@@ -659,6 +664,15 @@ attachCameraControls(canvas, cam, {
       }
       return;
     }
+    // 點到看得到的敵方炮群：當射擊目標
+    if (view && !show && view.phase === 'action' && sel?.owner === view.you && plan?.action.type === 'shoot' && !view.submitted[view.you]) {
+      const w = cam.unproject(sx, sy);
+      const p = w && (view.state.enemyPods ?? []).find((x) => Math.hypot(x.pos.x - w.x, x.pos.y - w.y) < 0.8);
+      if (p && !hit) {
+        setTarget(sel.id, p.id);
+        return;
+      }
+    }
     if (!view || !hit || show) return;
     if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !hit.hidden && !view.submitted[view.you]) {
       setTarget(sel.id, hit.id);
@@ -729,8 +743,8 @@ function drawFrame(now: number) {
 const posOf = (id: string, over: Map<string, Disp>): Disp | undefined => {
   const d = over.get(id) ?? show?.display.get(id);
   if (d) return d;
-  const pod = podById(id)?.e.pod;
-  return pod ? { x: pod.pos.x, y: pod.pos.y, f: 0, status: 'active' } : undefined;
+  const pos = podById(id)?.e.pod?.pos ?? enemyPod(id)?.pos;
+  return pos ? { x: pos.x, y: pos.y, f: 0, status: 'active' } : undefined;
 };
 /** 效果用的位置：機體浮空標記的高度 */
 const fx = (v: Vec) => pr(v.x, v.y, UNIT_Z);
@@ -1139,6 +1153,19 @@ function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
     .sort((a, b) => a.k - b.k)
     .forEach((x) => drawUnit(x.u, x.pos, x.f));
   drawPods(list);
+  if (!show) drawEnemyPods();
+}
+
+/** 看得到的敵方炮群：畫法和自己的一樣，母機看不到就不畫連回母機的線 */
+function drawEnemyPods() {
+  for (const p of view?.state.enemyPods ?? []) {
+    const mother = unitView(p.mother);
+    const ghost: UnitView = {
+      ...(mother ?? { id: p.mother, owner: p.owner, label: p.label, chassisId: '', parts: {}, status: 'active', momentum: 0, vague: null }),
+      equipment: [{ id: p.id, defId: p.defId, location: 'builtin', pod: { pos: p.pos }, bits: p.bits }],
+    } as UnitView;
+    drawPods([{ u: ghost, pos: mother && !mother.hidden ? mother.pos : p.pos }]);
+  }
 }
 
 /** 炮群：無線的是一簇光點（支數）加能量格，線控臂是小方塊加連回母機的虛線 */
@@ -1522,7 +1549,7 @@ function drawPreviews() {
         drawUtilityPreview(a, plan.action.type, plan.action.at);
         continue;
       }
-      const t = (plan.action.type === 'shoot' || plan.action.type === 'lock') && plan.action.target ? (unitView(plan.action.target) ?? (podById(plan.action.target)?.e.pod ? { pos: podById(plan.action.target)!.e.pod!.pos } : null)) : null;
+      const t = (plan.action.type === 'shoot' || plan.action.type === 'lock') && plan.action.target ? (unitView(plan.action.target) ?? (enemyPod(plan.action.target) ? { pos: enemyPod(plan.action.target)!.pos } : null)) : null;
       if (!a || !t) continue;
       g.strokeStyle = plan.action.type === 'shoot' ? 'rgba(255,207,74,0.8)' : 'rgba(120,220,255,0.7)';
       g.setLineDash([6, 4]);
@@ -2459,14 +2486,12 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       .join('');
     // 看得到的敵方炮群也可以當射擊目標
     if (a.type === 'shoot')
-      for (const o of view!.state.units.filter((x) => x.owner !== view!.you))
-        for (const e of o.equipment) {
-          if (!e.pod) continue;
-          const w = u.equipment.find((x) => x.id === a.weapon);
-          const ps = psycommuOf(e)!;
-          const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: e.id, chassisId: '', pos: e.pod.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, e.pod.pos), targetEvasion: ps.evasion ?? 0 }) : null;
-          html += tip(`<button class="${a.target === e.id ? 'on' : ''}" data-target="${e.id}">${esc(o.label.split(' ')[0])} ${esc(podName(o, e))}</button>`, `射擊 ${o.label} 的${podName(o, e)}：${h ? chanceText(h.chance) : '射程外'}。${ps.wired ? '打中就是打那隻手臂。' : '每發命中打掉一支。'}`);
-        }
+      for (const p of view!.state.enemyPods ?? []) {
+        const w = u.equipment.find((x) => x.id === a.weapon);
+        const ps = EQUIPMENT[p.defId].psycommu!;
+        const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: p.id, chassisId: '', pos: p.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, p.pos), targetEvasion: ps.evasion ?? 0 }) : null;
+        html += tip(`<button class="${a.target === p.id ? 'on' : ''}" data-target="${p.id}">${esc(p.label.split(' ')[0])} ${esc(enemyPodName(p))}</button>`, `射擊 ${p.label} 的${enemyPodName(p)}：${h ? chanceText(h.chance) : '射程外'}。${p.wired ? '打中就是打那隻手臂。' : '每發命中打掉一支。'}`);
+      }
     html += '</div>';
   }
   const drawnFree = plan.swap && (quick || !!EQUIPMENT[u.equipment.find((e) => e.id === plan.swap!.equip)?.defId ?? '']?.tags?.includes('quickDraw'));
