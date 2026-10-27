@@ -64,6 +64,14 @@ const side = (p: number) => (p === 0 ? 'A' : 'B');
 
 let view: PlayerView | null = null;
 let lastPrompt = '';
+/** 第幾次提示（給 seat-wait 判斷有沒有新的一步） */
+let prompts = 0;
+/** 印出提示，同時記到 prompt.json */
+function prompt(line: string) {
+  prompts++;
+  writeFileSync(resolve(dir, 'prompt.json'), JSON.stringify({ n: prompts, line, at: Date.now() }));
+  console.log(line);
+}
 const labels = new Map<string, string>();
 const L = (id: string) => labels.get(id) ?? id;
 
@@ -254,7 +262,7 @@ function connect() {
       const key = `lobby-${msg.game}-${msg.joined[seat]}-${!!msg.terms}`;
       if (!msg.joined[seat] && key !== lastPrompt) {
         lastPrompt = key;
-        console.log(`YOUR_TURN lobby（選隊加入）${msg.terms ? '' : ' 房主還沒選條件'}`);
+        prompt(`YOUR_TURN lobby（選隊加入）${msg.terms ? '' : ' 房主還沒選條件'}`);
       }
     } else if (msg.t === 'state') {
       view = msg.view;
@@ -264,16 +272,16 @@ function connect() {
       const key = `${msg.game ?? 0}-${msg.view.state.turn}-${msg.view.phase}-${msg.view.submitted[seat]}`;
       if (needsOrders(msg.view) && key !== lastPrompt) {
         lastPrompt = key;
-        console.log(`YOUR_TURN turn=${msg.view.state.turn} phase=${msg.view.phase}`);
+        prompt(`YOUR_TURN turn=${msg.view.state.turn} phase=${msg.view.phase}`);
       } else if (msg.view.phase === 'over' && lastPrompt !== key) {
         lastPrompt = key;
-        console.log('GAME_OVER');
+        prompt('GAME_OVER');
       }
     } else if (msg.t === 'resolved') {
       const text = msg.events.map(eventText).filter(Boolean).join('\n');
       appendFileSync(resolve(dir, 'events.txt'), `\n--- ${new Date().toISOString()} ---\n${text}\n`);
       console.log(`RESOLVED ${msg.events.length} events`);
-    } else if (msg.t === 'error') console.log(`ERROR ${msg.errors.join('；')}`);
+    } else if (msg.t === 'error') prompt(`ERROR ${msg.errors.join('；')}`);
   });
   ws.on('close', (code) => {
     // 同一席位有新的連線：讓出來，不要互踢

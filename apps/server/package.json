@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "seat": "tsx src/seat.ts"
+    "seat": "tsx src/seat.ts",
+    "seat-wait": "tsx src/seat-wait.ts"
   },
   "dependencies": {
     "@mech/rules": "*",
