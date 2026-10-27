@@ -116,13 +116,29 @@ describe('感應武器', () => {
       { entry: rifleX00, owner: 1, x: 18, y: 6, facingDeg: -90 },
     ]);
     const r = turn(s, { pods: { [podId(s)]: { to: { x: 10, y: 10 } } } });
-    const podIn = (st: GameState) => viewState(st, 1).units.find((u) => u.owner === 0)!.equipment.some((e) => e.pod);
+    const podIn = (st: GameState) => viewState(st, 1).enemyPods.length > 0;
     expect(podIn(r.state)).toBe(false);
     r.state.units[1].pos = { x: 12, y: 11 };
     expect(podIn(r.state)).toBe(true);
     r.state.units[1].pos = { x: 18, y: 6 };
     r.state.units[1].pilotId = 'nt';
     expect(podIn(r.state)).toBe(true);
+  });
+
+  it('線控臂照一般視野：母機躲著看不到，手臂伸出來照樣看得到、打得到', () => {
+    const s = makeState([
+      { entry: zeong(), owner: 0, x: 20, y: 3, facingDeg: 90 },
+      { entry: { ...rifleX00, pilot: 'nt' }, owner: 1, x: 12, y: 14, facingDeg: -90 },
+    ]);
+    const id = podId(s);
+    const st = turn(s, { pods: { [id]: { to: { x: 16, y: 7 } } } }).state;
+    const v = viewState(st, 1);
+    expect(v.units.some((u) => u.id === st.units[0].id && !u.hidden)).toBe(false);
+    expect(v.enemyPods.map((p) => p.id)).toEqual([id]);
+    expect(v.enemyPods[0].wired).toBe(true);
+    const [m, gunner] = st.units;
+    const r = resolveTurn(st, [{ [m.id]: hover() }, { [gunner.id]: hover() }], [{}, { [gunner.id]: { action: { type: 'shoot', weapon: gunner.equipment[0].id, target: id } } }]);
+    expect(of(r.events, 'shot').some((e) => e.target === id)).toBe(true);
   });
 
   it('射擊無線炮群：命中一發少一支，全滅就消失', () => {

@@ -9,6 +9,7 @@ import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
 import { lineOfFire } from './terrain';
+import { canSee, sensorRange } from './vision';
 import type { EquipState, GameState, MovePlan, PlayerId, PsycommuDef, UnitState, Vec } from './types';
 import { equipAlive, pilotOf } from './unit';
 
@@ -157,12 +158,15 @@ export function findPod(state: GameState, id: string): { mother: UnitState; equi
   return null;
 }
 
-/** 這個炮群 viewer 看不看得到：線控的手臂跟機體一樣大；無線的只有很近才看得到，新人類感應得到 */
+/**
+ * 這個炮群 viewer 看不看得到（和母機看不看得到無關）：
+ * 線控的手臂跟機體一樣大，照一般視野（感測距離、視線）；無線的只有很近才看得到，新人類感應得到
+ */
 export function podSeen(state: GameState, mother: UnitState, e: EquipState, viewer: PlayerId): boolean {
   if (mother.owner === viewer) return true;
   const ps = psycommuOf(e);
   if (!ps || !e.pod) return false;
-  if (ps.wired) return true;
+  if (ps.wired) return state.units.some((o) => o.owner === viewer && o.status === 'active' && canSee(state.obstacles, o.pos, sensorRange(o), e.pod!.pos, radiusOf(o) + C.BASE_RADIUS));
   return state.units.some(
     (o) => o.owner === viewer && o.status === 'active' && dist(o.pos, e.pod!.pos) - radiusOf(o) <= (pilotOf(o).abilities.includes('newtype') || pilotOf(o).abilities.includes('cyber_newtype') ? C.POD_SIGHT_NEWTYPE : C.POD_SIGHT),
   );
