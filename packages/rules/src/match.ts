@@ -16,6 +16,8 @@ export interface PlayerView {
   aceUnits?: string[];
   /** 追擊步驟：自己這邊各機體能做的追擊 */
   pursuit?: Record<string, PursuitOption[]>;
+  /** 觀戰：只看不下指令 */
+  spectator?: boolean;
 }
 
 type Orders = PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy;
@@ -152,6 +154,20 @@ export class Match {
 
   eventsFor(player: PlayerId): GameEvent[] {
     return filterEvents(this.lastEvents, this.state, player);
+  }
+
+  /** 觀戰（從 A 方的位置看，但雙方機體都看得到、事件不過濾；看不到雙方的駕駛細節以外的東西都有） */
+  spectatorView(): PlayerView {
+    const s = structuredClone(this.state);
+    s.visible = [s.units.filter((u) => u.owner === 1).map((u) => u.id), s.units.filter((u) => u.owner === 0).map((u) => u.id)];
+    s.obscured = [[], []];
+    const submitted: [boolean, boolean] = [!!this.orders[0] || (this.phase !== 'over' && !this.hasWork(0)), !!this.orders[1] || (this.phase !== 'over' && !this.hasWork(1))];
+    return { you: 0, phase: this.phase, state: viewState(s, 0), submitted, spectator: true };
+  }
+
+  /** 觀戰用的事件：不過濾 */
+  spectatorEvents(): GameEvent[] {
+    return structuredClone(this.lastEvents);
   }
 
   viewFor(player: PlayerId): PlayerView {

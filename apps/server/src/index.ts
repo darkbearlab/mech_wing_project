@@ -24,6 +24,8 @@ interface Room {
   /** 房間裡第幾場 */
   game: number;
   sockets: [WebSocket | null, WebSocket | null];
+  /** 觀戰的連線（只看不下指令，雙方都看得到） */
+  watchers: Set<WebSocket>;
   timer: NodeJS.Timeout | null;
   deadline: number | null;
 }
@@ -38,7 +40,7 @@ function newMatch(rosters: [RosterEntry[], RosterEntry[]], settings?: BattleSett
 
 /** 新房間：等雙方選隊加入 */
 function newRoom(): Room {
-  return { match: null, lobby: { rosters: [null, null], terms: null }, game: 0, sockets: [null, null], timer: null, deadline: null };
+  return { match: null, lobby: { rosters: [null, null], terms: null }, game: 0, sockets: [null, null], watchers: new Set(), timer: null, deadline: null };
 }
 
 /** 隊伍裡每台的機型、駕駛、裝備都認得 */
@@ -80,12 +82,17 @@ function broadcastState(room: Room) {
     if (!room.match) send(room.sockets[p], { t: 'lobby', joined: room.lobby.rosters.map((r) => !!r) as [boolean, boolean], terms: room.lobby.terms, connected, game: room.game });
     else send(room.sockets[p], { t: 'state', view: room.match.viewFor(p), connected, deadline: room.deadline, game: room.game });
   }
+  for (const w of room.watchers) {
+    if (!room.match) send(w, { t: 'lobby', joined: room.lobby.rosters.map((r) => !!r) as [boolean, boolean], terms: room.lobby.terms, connected, game: room.game });
+    else send(w, { t: 'state', view: room.match.spectatorView(), connected, deadline: room.deadline, game: room.game });
+  }
 }
 
 function afterChange(room: Room, prevResolved: number, prevPhase: string) {
   if (!room.match) return broadcastState(room);
   if (room.match.resolvedCount !== prevResolved) {
     for (const p of [0, 1] as PlayerId[]) send(room.sockets[p], { t: 'resolved', events: room.match.eventsFor(p) });
+    for (const w of room.watchers) send(w, { t: 'resolved', events: room.match.spectatorEvents() });
   }
   if (room.match.resolvedCount !== prevResolved || room.match.phase !== prevPhase) armTimer(room);
   broadcastState(room);
@@ -119,6 +126,14 @@ wss.on('connection', (ws, req) => {
     armTimer(room);
   }
   const r = room;
+  // 觀戰：只收狀態，不能下指令
+  if (url.searchParams.get('seat') === 'watch') {
+    r.watchers.add(ws);
+    console.log(`[${roomId}] watcher connected`);
+    broadcastState(r);
+    ws.on('close', () => r.watchers.delete(ws));
+    return;
+  }
   r.sockets[seat]?.close(4000, '同一席位有新的連線');
   r.sockets[seat] = ws;
   console.log(`[${roomId}] seat ${seat} connected`);

@@ -86,6 +86,8 @@ const params = new URLSearchParams(location.search);
 const mode = params.get('mode') ?? (import.meta.env.PROD ? 'local' : 'server');
 const room = params.get('room') || 'test';
 let seat: PlayerId = params.get('seat') === '1' ? 1 : 0;
+/** 觀戰（?seat=watch）：雙方都看得到，不能下指令 */
+const watching = params.get('seat') === 'watch';
 
 let ws: WebSocket;
 let local: LocalGame | null = null;
@@ -96,7 +98,7 @@ let errors: string[] = [];
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}&seat=${seat}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}&seat=${watching ? 'watch' : seat}`);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMessage);
   ws.onclose = (e) => {
     connected = [false, false];
@@ -230,6 +232,12 @@ let lineupOpenedFor = -1;
 function showLobby() {
   if (!lobby) return;
   const cover = document.getElementById('cover')!;
+  if (watching) {
+    $('lineup').hidden = true;
+    cover.innerHTML = `<div><p>觀戰房間 <b>${esc(room)}</b></p><p class="muted">等待雙方選好隊伍加入（A：${lobby.joined[0] ? '已加入' : '選隊中'}、B：${lobby.joined[1] ? '已加入' : '選隊中'}）…</p></div>`;
+    cover.hidden = false;
+    return;
+  }
   if (lobby.joined[seat]) {
     $('lineup').hidden = true;
     cover.innerHTML = `<div><p>已加入房間 <b>${esc(room)}</b>，你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b></p><p class="muted">等待對手選好隊伍加入${lobby.connected[seat === 0 ? 1 : 0] ? '' : '（對手還沒連線）'}…</p></div>`;
@@ -2130,6 +2138,7 @@ function resultText(): string {
 }
 
 function controlsHtml(u: UnitView | undefined): string {
+  if (watching) return '';
   if (replayNow || show || !u || view!.phase === 'over' || local?.opponent === 'aivai') return '';
   if (u.owner !== view!.you || u.status !== 'active' || view!.submitted[view!.you] || !needsOrder(u)) return '';
   if (view!.phase === 'pursuit') return pursuitControls(u);
@@ -2654,6 +2663,10 @@ function setTarget(unitId: string, targetId: string) {
 
 function renderSubmit() {
   const col = $('submitCol');
+  if (watching && !show && !replayNow && !replayQueue) {
+    col.innerHTML = '<div class="muted small">觀戰中</div>';
+    return;
+  }
   if (replayNow || (replayQueue && !show)) {
     col.innerHTML = '<button class="big" id="skipBtn">跳過這段</button><button class="big" id="stopReplayBtn">結束重播</button>';
     $('skipBtn').onclick = skipShow;
