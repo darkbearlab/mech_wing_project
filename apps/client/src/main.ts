@@ -1933,7 +1933,7 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   // 王牌移動：移動步驟可以擱置（王牌移動步驟裡就不能再擱置）
   const pilot = PILOTS[u.pilotId!];
   const canDefer = view!.phase === 'move' && pilot?.abilities.includes('ace_move');
-  const deferTip = `王牌移動：這一步先不動，等所有機體（包括對方）動完、看到結果後再替這台下移動指令。${pilot?.abilities.includes('newtype') ? `新人類：對方有新人類在場時，擱置會讓壓力 +${config.ACE_DEFER_STRESS}。` : ''}`;
+  const deferTip = `王牌移動：這一步先不動，等所有機體（包括對方）動完、看到結果後再替這台下移動指令。這一步被碰撞就失去王牌移動。${pilot?.abilities.includes('newtype') ? `新人類：對方有新人類在場時，擱置會讓壓力 +${config.ACE_DEFER_STRESS}。` : ''}`;
   const deferBtn = canDefer ? tip(`<button class="${plan.defer ? 'on' : ''}" data-defer="1">擱置</button>`, deferTip) : '';
   if (planCost(u, plan).blocked) plan.maneuver = cruiseManeuver(u);
   const m = parseManeuver(plan.maneuver);
