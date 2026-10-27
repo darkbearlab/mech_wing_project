@@ -92,7 +92,7 @@ export function coveringShield(def: UnitState, from: Vec): EquipState | null {
 
 export const inShieldArc = (def: UnitState, from: Vec): boolean => coveringShield(def, from) !== null;
 
-const blockChance = (def: UnitState): number => C.SHIELD_BLOCK_BASE + pilotOf(def).skill * C.SHIELD_BLOCK_PER_SKILL;
+const blockChance = (def: UnitState): number => C.SHIELD_BLOCK_BASE + Math.min(pilotOf(def).skill, C.SKILL_CAP_CLOSE) * C.SHIELD_BLOCK_PER_SKILL;
 
 export const relativeSpeedMod = (r: number): number => C.RELATIVE_SPEED_HIT.find(([max]) => r <= max)![1];
 

@@ -1670,7 +1670,7 @@ function infoHtml(u: UnitView): string {
   let html = `<div class="uname" style="color:${color(u.owner)}">${esc(u.label)} <span class="muted small">${esc(ch.name.replace(/^X-\d+ /, ''))}・重量級 ${ch.weightClass}</span></div>`;
   if (mine && u.pilotId) {
     const p = PILOTS[u.pilotId];
-    const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
+    const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('called_shot') ? '瞄準要害' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
     html += `<div class="small">${esc(p.name)}（技能 ${p.skill}${tags.map((t) => `・${t}`).join('')}）　壓力 <b>${u.stress}</b>/${u.maxStress}　推進劑 <b>${u.propellant}</b>/${u.maxPropellant}</div>`;
     const flags = [u.blackout ? '<span class="warn">黑視中</span>' : '', u.lockOn ? `鎖定 ${esc(labelOf(u.lockOn))}` : '', inGrapple(u.id) ? '<span class="warn">纏鬥中</span>' : ''].filter(Boolean);
     if (flags.length) html += `<div class="small">${flags.join('　')}</div>`;

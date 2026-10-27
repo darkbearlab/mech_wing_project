@@ -705,7 +705,7 @@ function partOptions(chassisId: string | undefined, cur: string | undefined): HT
 function pilotForm(p: PilotDef & Obj) {
   return [
     sec('基本', grid(textField(p, 'name', '名稱'), numField(p, 'skill', '技術', { hint: `每點命中 +${C.HIT_PER_SKILL}、迴避 +${C.EVADE_PER_SKILL}` }), numField(p, 'maxStress', '壓力上限'), numField(p, 'recovery', '每回合壓力恢復'), numField(p, 'cost', '費用', { optional: true, hint: '組隊預算與擊墜分；空白＝0' }), selField(p, 'unique', '出擊限制', [['false', '可以重複'], ['true', '具名：一隊只能一位']], { absent: 'false' }))),
-    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類']], (v) => {
+    sec('能力', chips(p.abilities, [['quick_draw', '快速拔槍'], ['ace_move', '王牌移動'], ['newtype', '新人類'], ['called_shot', '瞄準要害']], (v) => {
       p.abilities = (v ?? []) as PilotDef['abilities'];
       // 新人類一定要有擊墜感受；取消新人類就拿掉
       if (p.abilities.includes('newtype')) p.ntSense ??= 'sensitive';

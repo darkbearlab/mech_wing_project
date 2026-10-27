@@ -74,8 +74,12 @@ export const BACK_ARC_DEG = 120;
 
 // 射擊
 export const HIT_BASE = 60;
-export const HIT_PER_SKILL = 3;
-export const EVADE_PER_SKILL = 2;
+export const HIT_PER_SKILL = 5;
+export const EVADE_PER_SKILL = 3;
+/** 近戰骰、纏鬥推擠、盾牌擋下率只算到這個技能（傳奇駕駛的優勢主要在射擊與迴避） */
+export const SKILL_CAP_CLOSE = 5;
+/** 瞄準要害（called_shot）：命中時抽部位，核心部位的權重加這麼多 */
+export const CALLED_SHOT_CORE_BONUS = 10;
 /** 射擊的相對速度修正：雙方本回合移動向量差的長度 ≤ 第一個數字時，命中 + 第二個數字 */
 export const RELATIVE_SPEED_HIT: [number, number][] = [
   [1, 15],

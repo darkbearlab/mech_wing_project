@@ -56,19 +56,27 @@ export function spendPropellant(ctx: Ctx, u: UnitState, amount: number): void {
 }
 
 /** 依權重擲命中部位。機體部位永遠在表內（已破壞→轉軀幹）；已破壞的裝備移出權重表。 */
-export function rollPart(rng: Rng, u: UnitState): string {
+/** 抽命中部位；coreBonus：核心部位多加的權重（瞄準要害） */
+export function rollPart(rng: Rng, u: UnitState, coreBonus = 0): string {
   const candidates = Object.values(u.parts).filter((p) => p.kind === 'body' || !p.destroyed);
-  return rng.pickWeighted(candidates, (p) => p.weight).id;
+  return rng.pickWeighted(candidates, (p) => p.weight + (p.kind === 'body' && p.role === 'core' && !p.destroyed ? coreBonus : 0)).id;
+}
+
+/** 這筆傷害的來源有瞄準要害能力的話，核心部位加權 */
+function calledShotBonus(ctx: Ctx): number {
+  const by = ctx.by ? ctx.state.units.find((x) => x.id === ctx.by) : undefined;
+  return by && pilotOf(by).abilities.includes('called_shot') ? C.CALLED_SHOT_CORE_BONUS : 0;
 }
 
 /** overflow：打壞部位後多出來的傷害，每 1 點再擲一次命中部位、各造成 1 點（火箭砲的爆風） */
 export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageMode, forcePart?: string, overflow = false): void {
   if (amount <= 0) return;
+  const bonus = calledShotBonus(ctx);
   if (mode === 'focused') {
-    const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u), amount);
-    if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u), 1);
+    const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus), amount);
+    if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u, bonus), 1);
   } else {
-    for (let i = 0; i < amount; i++) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u), 1);
+    for (let i = 0; i < amount; i++) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus), 1);
   }
 }
 
