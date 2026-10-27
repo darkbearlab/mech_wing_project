@@ -1,13 +1,14 @@
 // 本機替身伺服器：一個房間一個 Match，日後換成 Cloudflare Durable Object 時只換這層。
-// 開場前讀資料包：PACK=檔案路徑，否則抓線上最新版（抓不到就用內建資料）。瀏覽器的出擊準備畫面送 setup 開新的一場。
+// 開場前讀資料包：預設是原創內建資料；PACK=檔案路徑讀那個檔案，PACK=latest 抓線上最新版（已封存的鋼彈資料）。
+// 瀏覽器的出擊準備畫面送 setup 開新的一場。
 import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { CHASSIS, EQUIPMENT, Match, PILOTS, contentVersion, createGame, lineupProblems, useContent, type BattleSettings, type ClientMessage, type ContentPack, type PlayerId, type RoomTerms, type RosterEntry, type ServerMessage } from '@mech/rules';
 
 const API = process.env.MECH_API ?? 'https://mech-wing-api.darkbearlab.workers.dev';
 try {
-  const pack = process.env.PACK ? JSON.parse(readFileSync(process.env.PACK, 'utf-8')) : await (await fetch(`${API}/packs/latest`)).json();
-  useContent(pack as ContentPack);
+  const src = process.env.PACK;
+  if (src) useContent((src === 'latest' ? await (await fetch(`${API}/packs/latest`)).json() : JSON.parse(readFileSync(src, 'utf-8'))) as ContentPack);
 } catch (e) {
   console.warn('資料包讀取失敗，改用內建資料', e);
 }

@@ -241,16 +241,24 @@ export interface UnitState {
   lockOn: string | null;
   status: UnitStatus;
   blackout: boolean;
+  /** 高度（層）：站在幾層樓高的樓頂；沒寫是地面 0 */
+  z?: number;
 }
 
-/** rock：大隕石；field：隕石群（碎石區） */
+/** rock：大隕石；field：隕石群（碎石區）；building：建築（長方形、有高度） */
 export interface Obstacle {
   id: string;
-  /** rock 大隕石（地面是岩石或建築）；field 隕石群（地面是森林）；smoke 煙霧（會散） */
-  kind: 'rock' | 'field' | 'smoke';
+  /** rock 大隕石（地面是岩石）；field 隕石群（地面是森林）；smoke 煙霧（會散）；building 建築 */
+  kind: 'rock' | 'field' | 'smoke' | 'building';
   x: number;
   y: number;
+  /** 半徑；建築是外接圓半徑（擺放地形、粗略判斷用） */
   r: number;
+  /** 建築：長、寬的一半（沿地圖 x、y 軸） */
+  hx?: number;
+  hy?: number;
+  /** 建築：幾層樓高（1 層約等於一台機體的高度） */
+  levels?: number;
   /** 煙霧：最後一個還在的回合 */
   until?: number;
 }
@@ -282,6 +290,7 @@ export interface SeenRecord {
   parts: Record<string, PartState>;
   equipment: EquipState[];
   status: UnitStatus;
+  z?: number;
 }
 
 export interface GrappleState {
@@ -340,7 +349,8 @@ export interface GameState {
 
 export type Action =
   | { type: 'none' }
-  | { type: 'shoot'; weapon: string; target: string }
+  /** 射擊：weapon 加上 also 裡的武器一起打同一個目標 */
+  | { type: 'shoot'; weapon: string; target: string; also?: string[] }
   | { type: 'lock'; target: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
   | { type: 'smoke'; weapon: string; at: Vec }
@@ -356,6 +366,8 @@ export interface MovePlan {
   defer?: boolean;
   /** 拋棄外裝甲（免費，和限制器同一層級的操作） */
   purge?: boolean;
+  /** 攀升（跳躍、蹬牆）：這回合撞到不太高的建築就爬上樓頂；速度要在 config.CLIMB_MAX_SPEED 以下才能用 */
+  climb?: boolean;
   /** 感應武器（key 是裝備 id）：放出或移動到 to，或收回 */
   pods?: Record<string, PodOrder>;
 }
@@ -364,7 +376,10 @@ export type PodOrder = { to: Vec } | { recall: true };
 
 /** 第二步：移動結算後選的動作 */
 export interface ActionPlan {
+  /** 換武器（舊格式，只換一側）；新格式用 swaps */
   swap?: { hand: Hand; equip: string | null };
+  /** 換武器：每一側的手和同側的武器架交換（null 收起來）；換武器的那一側這回合不能開火，另一側照常 */
+  swaps?: Partial<Record<Hand, string | null>>;
   action: Action;
   /** 纏鬥中的機體選的手法（所有射擊結算完才結算纏鬥） */
   grapple?: GrappleChoice;
@@ -400,6 +415,8 @@ export type GameEvent =
   /** 對手看不到的那幾個時間點，取樣為 null */
   | { type: 'move'; unit: string; samples: ([number, number, number] | null)[] }
   | { type: 'obstacle'; t: number; unit: string; obstacle: string; damage: number }
+  /** 高度改變：攀升上樓頂或從樓頂邊緣落下 */
+  | { type: 'elevate'; t: number; unit: string; z: number; how: 'climb' | 'drop' }
   | { type: 'debris'; unit: string; obstacle: string; damage: number }
   | { type: 'contact'; t: number; a: string; b: string; vc: number; result: ContactResult }
   | {

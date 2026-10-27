@@ -23,6 +23,26 @@ export const FIELD_SHOT_PENALTY = 20;
 export const DEBRIS_SAFE_SPEED = 2;
 export const DEBRIS_CHANCE_PER_SPEED = 15;
 
+// 建築與高度（1 層約等於一台機體的高度）
+/** 機體的高度（層）與槍口的高度（從腳下算） */
+export const UNIT_HEIGHT = 1;
+export const MUZZLE_HEIGHT = 0.7;
+/** 射擊線被建築擋住一部分（半掩護）：命中 − */
+export const BUILDING_COVER_PENALTY = 20;
+/** 攀升（跳躍、蹬牆）：這回合的速度要在這個值以下；一次最多爬幾層；每爬一次花多少推進劑 */
+export const CLIMB_MAX_SPEED = 3;
+export const CLIMB_LEVELS = 2;
+export const CLIMB_PROPELLANT = 1;
+/** 高打低：每高 1 層命中 +，最多算幾層；比目標高時每發命中的傷害 + */
+export const HIGH_GROUND_HIT = 10;
+export const HIGH_GROUND_MAX_LEVELS = 3;
+export const HIGH_GROUND_DAMAGE = 1;
+/** 城市地圖：街廓大小、街道寬、街廓是空地的機率、最高幾層 */
+export const CITY_BLOCK = 4;
+export const CITY_STREET = 1.6;
+export const CITY_EMPTY_CHANCE = 0.25;
+export const CITY_MAX_LEVELS = 4;
+
 // 視野（底板邊緣距離）
 export const SENSOR_RANGE = 10;
 export const SENSOR_RANGE_NO_HEAD = 6;

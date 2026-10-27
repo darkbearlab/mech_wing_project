@@ -3,10 +3,11 @@ import { clinchAdvantage } from './grapple';
 import { radiusOf } from './body';
 import * as C from './config';
 import { meleeClash } from './melee';
-import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, spendPropellant, type Ctx } from './damage';
+import { pushOutOfWall, wallPenetration } from './terrain';
 import { DEG, add, angleDiff, angleOf, dist, dot, normalize, scale, sub } from './geometry';
 import { parseManeuver, pathLength, worldPose, type PathParams } from './maneuvers';
-import type { ContactResult, MovePlan, Stance, UnitState, Vec } from './types';
+import type { ContactResult, GameState, MovePlan, Obstacle, Stance, UnitState, Vec } from './types';
 import { chassisOf, moveSpeed, pilotOf, readyMelee } from './unit';
 
 interface Mover {
@@ -29,6 +30,27 @@ export interface MoveResult {
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+/** 兩台機體在不同高度（一台在樓頂、一台在街上）就不會接觸 */
+const sameLevel = (a: UnitState, b: UnitState) => Math.abs((a.z ?? 0) - (b.z ?? 0)) < 1;
+
+/** 底板碰到的建築裡，不比 z 高的最高那棟（站得上去的樓頂）；都沒有就是地面 0 */
+function footing(obstacles: Obstacle[], p: Vec, r: number, z: number): number {
+  let best = 0;
+  for (const o of obstacles) if (o.kind === 'building' && o.levels! <= z && wallPenetration(o, p, r) > 0) best = Math.max(best, o.levels!);
+  return best;
+}
+
+/** 落到腳下的高度：離開樓頂邊緣（底板完全離開）就掉到下面的樓頂或地面 */
+export function settleHeights(state: GameState, events?: Ctx['events'], t = 1): void {
+  for (const u of state.units) {
+    if (!u.z) continue;
+    const z = footing(state.obstacles, u.pos, radiusOf(u), u.z);
+    if (z >= u.z) continue;
+    u.z = z || undefined;
+    events?.push({ type: 'elevate', t, unit: u.id, z, how: 'drop' });
+  }
+}
 
 export function buildPath(u: { pos: Vec; facing: number }, plan: Pick<MovePlan, 'maneuver' | 'limiter'>): PathParams {
   const spec = parseManeuver(plan.maneuver);
@@ -62,7 +84,7 @@ export function simulateMovement(
   const radius = (m: Mover) => contactRadius(m.unit);
   for (let i = 0; i < movers.length; i++)
     for (let j = i + 1; j < movers.length; j++)
-      if (dist(movers[i].unit.pos, movers[j].unit.pos) < radius(movers[i]) + radius(movers[j]) + 1e-6) touching.add(pairKey(movers[i].unit.id, movers[j].unit.id));
+      if (sameLevel(movers[i].unit, movers[j].unit) && dist(movers[i].unit.pos, movers[j].unit.pos) < radius(movers[i]) + radius(movers[j]) + 1e-6) touching.add(pairKey(movers[i].unit.id, movers[j].unit.id));
 
   const velocity = (m: Mover, t: number): Vec => (m.moving && m.path ? worldPose(m.path, t).velocity : { x: 0, y: 0 });
   const stop = (m: Mover) => {
@@ -110,6 +132,44 @@ export function simulateMovement(
       }
     }
 
+    // 建築：撞上比自己站的地方高的牆就停下（速度超過安全值的部分化為傷害），攀升中的機體爬得上去就上樓頂；
+    // 底板完全離開樓頂邊緣就掉下去（不受速度限制）
+    for (const m of movers) {
+      if (!m.moving || !m.path || m.unit.status !== 'active') continue;
+      const u = m.unit;
+      const r = radiusOf(u);
+      const before = prev.get(u.id)!;
+      for (const o of ctx.state.obstacles) {
+        if (o.kind !== 'building' || o.levels! <= (u.z ?? 0)) continue;
+        const pen = wallPenetration(o, u.pos, r);
+        if (pen <= 0 || pen <= wallPenetration(o, before, r) + 1e-6) continue;
+        const z = u.z ?? 0;
+        if (m.plan?.climb && o.levels! - z <= C.CLIMB_LEVELS && u.propellant >= C.CLIMB_PROPELLANT) {
+          u.z = o.levels;
+          spendPropellant(ctx, u, C.CLIMB_PROPELLANT);
+          ctx.events.push({ type: 'elevate', t, unit: u.id, z: o.levels!, how: 'climb' });
+          continue;
+        }
+        u.pos = before;
+        stop(m);
+        bumped.add(u.id);
+        const damage = Math.max(0, Math.round(m.path.length) - C.ROCK_SAFE_SPEED);
+        ctx.events.push({ type: 'obstacle', t, unit: u.id, obstacle: o.id, damage });
+        if (damage) {
+          damageUnit(ctx, u, damage, 'scattered');
+          addStress(ctx, u, damage, '撞上建築');
+        }
+        break;
+      }
+      if (u.z) {
+        const z = footing(ctx.state.obstacles, u.pos, r, u.z);
+        if (z < u.z) {
+          u.z = z || undefined;
+          ctx.events.push({ type: 'elevate', t, unit: u.id, z, how: 'drop' });
+        }
+      }
+    }
+
     const live = movers.filter((m) => m.unit.status === 'active');
     const contacts: { a: Mover; b: Mover; d: number }[] = [];
     for (let i = 0; i < live.length; i++) {
@@ -119,7 +179,7 @@ export function simulateMovement(
         const key = pairKey(a.unit.id, b.unit.id);
         const d = dist(a.unit.pos, b.unit.pos);
         const rr = radius(a) + radius(b);
-        if (d >= rr) {
+        if (d >= rr || !sameLevel(a.unit, b.unit)) {
           touching.delete(key);
           continue;
         }
@@ -163,6 +223,7 @@ export function simulateMovement(
     moved[m.unit.id] = kept ? { x: m.unit.pos.x - start[0], y: m.unit.pos.y - start[1] } : { x: 0, y: 0 };
   }
   separateOverlaps(ctx, movers);
+  settleHeights(ctx.state, ctx.events);
   for (const m of movers) {
     const last = m.samples[m.samples.length - 1];
     last[0] = m.unit.pos.x;
@@ -280,7 +341,7 @@ function separateOverlaps(ctx: Ctx, movers: Mover[]) {
         const b = movers[j].unit;
         if (a.status !== 'active' && a.status !== 'unconscious') continue;
         if (b.status !== 'active' && b.status !== 'unconscious') continue;
-        if (grappled.has(pairKey(a.id, b.id))) continue;
+        if (grappled.has(pairKey(a.id, b.id)) || !sameLevel(a, b)) continue;
         const d = dist(a.pos, b.pos);
         const need = radiusOf(a) + radiusOf(b);
         if (d >= need - 1e-6) continue;
@@ -294,6 +355,12 @@ function separateOverlaps(ctx: Ctx, movers: Mover[]) {
     for (const m of movers) {
       const u = m.unit;
       for (const o of ctx.state.obstacles) {
+        if (o.kind === 'building') {
+          if (o.levels! <= (u.z ?? 0) || wallPenetration(o, u.pos, radiusOf(u)) <= 1e-6) continue;
+          u.pos = pushOutOfWall(o, u.pos, radiusOf(u));
+          moved = true;
+          continue;
+        }
         if (o.kind !== 'rock') continue;
         const d = dist(u.pos, o);
         if (d >= o.r + radiusOf(u)) continue;

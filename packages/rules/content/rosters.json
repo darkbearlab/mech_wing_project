@@ -77,12 +77,17 @@
       "pilot": "recruit",
       "equipment": [
         [
-          "machine_gun",
+          "beam_rifle",
           "right"
         ],
         [
-          "beam_saber",
-          "stowed"
+          "machine_gun",
+          "left"
+        ],
+        [
+          "bazooka",
+          "stowed",
+          "larm"
         ]
       ]
     }
@@ -145,20 +150,13 @@
       ]
     },
     {
-      "chassis": "X-02",
+      "chassis": "X-13",
       "pilot": "recruit",
       "equipment": [
         [
-          "machine_gun",
-          "right"
-        ],
-        [
-          "shield",
-          "left"
-        ],
-        [
-          "heat_axe",
-          "stowed"
+          "missile_pod",
+          "mount",
+          "torso"
         ]
       ]
     },

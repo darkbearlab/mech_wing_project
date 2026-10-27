@@ -287,5 +287,23 @@
     "tags": [
       "secondary"
     ]
+  },
+  "arm_cannon": {
+    "id": "arm_cannon",
+    "name": "武器腕",
+    "kind": "ranged",
+    "mount": "integrated",
+    "blocksHand": true,
+    "weight": 2,
+    "durability": 2,
+    "damage": 2,
+    "shots": 2,
+    "mode": "focused",
+    "ranges": {
+      "1": 10,
+      "2": 5,
+      "3": -15
+    },
+    "cost": 2
   }
 }

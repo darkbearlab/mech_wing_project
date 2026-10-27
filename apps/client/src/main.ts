@@ -20,11 +20,19 @@ import {
   alwaysReady,
   equipAlive,
   freeDraw,
+  busyHands,
+  heldItem,
+  rackSide,
+  shotWeapons,
+  swapOrders,
   handBlocked,
   rangeBand,
   readyRanged,
   relativeAngle,
   lineOfFire,
+  climbBlocked,
+  wallPenetration,
+  supportAt,
   sensorRange,
   relativeSpeed,
   moveSpeed,
@@ -189,6 +197,7 @@ function deployProblem(u: UnitView): string | null {
   if (!d) return null;
   const r = radiusOf(u);
   if (view!.state.obstacles.some((o) => o.kind === 'rock' && Math.hypot(d.x - o.x, d.y - o.y) < o.r + r)) return '壓到大隕石';
+  if (view!.state.obstacles.some((o) => o.kind === 'building' && wallPenetration(o, d, r) > 0)) return '壓到建築';
   for (const [id, q] of Object.entries(deployDrafts)) {
     const o = id !== u.id ? unitView(id) : undefined;
     if (o && Math.hypot(q.x - d.x, q.y - d.y) < radiusOf(o) + r + 0.1) return '和隊友重疊';
@@ -204,6 +213,8 @@ interface Disp {
   y: number;
   f: number;
   status: UnitView['status'];
+  /** 高度（層） */
+  z?: number;
 }
 interface Show {
   beats: Beat[];
@@ -322,7 +333,7 @@ function startShow(events: GameEvent[], replayed?: ReplayItem) {
   const prevUnits = replayed?.prevUnits ?? view?.state.units ?? [];
   if (!replayed && view && view.phase !== 'over') replays[seat].push({ turn: view.state.turn, phase: view.phase, events, prevUnits });
   replayNow = replayed ?? null;
-  const display = new Map(prevUnits.map((u) => [u.id, { x: u.pos.x, y: u.pos.y, f: u.facing, status: u.status }]));
+  const display = new Map<string, Disp>(prevUnits.map((u) => [u.id, { x: u.pos.x, y: u.pos.y, f: u.facing, status: u.status, z: u.z }]));
   show = { beats: buildBeats(events), index: -1, beatStart: 0, prevUnits, display, timer: 0 };
   renderPanel();
   nextBeat();
@@ -370,6 +381,7 @@ function settleBeat(s: Show, b: Beat) {
     }
     else if (e.type === 'reposition' || e.type === 'knockback') Object.assign(d, e.to);
     else if (e.type === 'status') d.status = e.status;
+    else if (e.type === 'elevate') d.z = e.z;
   }
 }
 
@@ -512,11 +524,12 @@ function initialMove(u: UnitView): MovePlan {
 /** 套用規劃中的換武器後，手上會拿著什麼 */
 function equipmentAfterSwap(u: UnitView, plan: ActionPlan | undefined): EquipState[] {
   const eq = structuredClone(u.equipment);
-  if (!plan?.swap) return eq;
-  const { hand, equip } = plan.swap;
-  for (const e of eq) if (e.location === hand) e.location = e.home ?? 'stowed';
-  const next = eq.find((e) => e.id === equip);
-  if (next) next.location = hand;
+  if (!plan) return eq;
+  for (const [hand, equip] of swapOrders(plan)) {
+    for (const e of eq) if (e.location === hand) e.location = e.home ?? 'stowed';
+    const next = eq.find((e) => e.id === equip);
+    if (next) next.location = hand;
+  }
   return eq;
 }
 
@@ -536,6 +549,8 @@ let H = 600;
 /** 機體浮在地面上的視覺高度（規則上不存在，只用來表現） */
 /** 效果與連線的高度：雷達式畫在地面上 */
 const UNIT_Z = 0;
+/** 一層樓畫多高（世界座標；規則上 1 層約等於一台機體的高度） */
+const LEVEL_H = 0.8;
 const color = (owner: number, alpha = 1) => (owner === 0 ? `rgba(74,163,255,${alpha})` : `rgba(255,93,93,${alpha})`);
 /** 本機輪流時各席位各自記住視角 */
 const savedViews: [CameraView | null, CameraView | null] = [null, null];
@@ -737,7 +752,9 @@ function drawFrame(now: number) {
     for (const e of beat.events) {
       if (e.type !== 'move') continue;
       const p = sampleAt(e.samples, mp.t);
-      if (p) over.set(e.unit, { ...show.display.get(e.unit)!, x: p.x, y: p.y, f: p.f });
+      // 移動中爬上樓頂、從樓頂落下：照時間點改高度
+      const lift = beat.events.filter((x): x is Extract<GameEvent, { type: 'elevate' }> => x.type === 'elevate' && x.unit === e.unit && x.t <= mp.t).pop();
+      if (p) over.set(e.unit, { ...show.display.get(e.unit)!, x: p.x, y: p.y, f: p.f, ...(lift ? { z: lift.z } : {}) });
       g.strokeStyle = 'rgba(255,255,255,0.14)';
       polyWorld(e.samples.map((smp) => (smp ? [smp[0], smp[1], 0] : null)));
       g.stroke();
@@ -773,7 +790,7 @@ function drawShowUnits(over: Map<string, Disp>) {
     show!.prevUnits.map((u) => {
       const d = posOf(u.id, over)!;
       // 看不到的敵機：移動中被看到的那幾段照常畫，其餘時間是殘影
-      return { u: { ...u, status: d.status, hidden: u.hidden && !over.has(u.id) }, pos: d, f: d.f };
+      return { u: { ...u, status: d.status, z: d.z, hidden: u.hidden && !over.has(u.id) }, pos: d, f: d.f };
     }),
   );
 }
@@ -1144,6 +1161,53 @@ function drawRock(o: Obstacle) {
   g.fill();
 }
 
+/** 建築：長方體，側面由遠到近畫，樓頂比較亮並標出層數 */
+function drawBuilding(o: Obstacle) {
+  const top = o.levels! * LEVEL_H;
+  const x0 = o.x - o.hx!;
+  const x1 = o.x + o.hx!;
+  const y0 = o.y - o.hy!;
+  const y1 = o.y + o.hy!;
+  const sides: [number, number, number, number][] = [
+    [x0, y0, x1, y0],
+    [x1, y0, x1, y1],
+    [x1, y1, x0, y1],
+    [x0, y1, x0, y0],
+  ];
+  const face = (pts: [number, number, number][]) => {
+    const q = pts.map(([x, y, z]) => pr(x, y, z));
+    if (q.some((p) => !p.visible)) return false;
+    g.beginPath();
+    q.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+    g.closePath();
+    return true;
+  };
+  g.strokeStyle = '#59616b';
+  sides
+    .map((sd) => ({ sd, k: pr((sd[0] + sd[2]) / 2, (sd[1] + sd[3]) / 2, top / 2).k }))
+    .sort((a, b) => a.k - b.k)
+    .forEach(({ sd: [ax, ay, bx, by] }, i) => {
+      if (!face([[ax, ay, 0], [bx, by, 0], [bx, by, top], [ax, ay, top]])) return;
+      g.fillStyle = i < 2 ? '#2a2f35' : '#343a41';
+      g.fill();
+      g.stroke();
+    });
+  if (face([[x0, y0, top], [x1, y0, top], [x1, y1, top], [x0, y1, top]])) {
+    g.fillStyle = '#4c545d';
+    g.fill();
+    g.strokeStyle = '#7a848f';
+    g.stroke();
+  }
+  const c = pr(o.x, o.y, top);
+  if (!c.visible) return;
+  g.fillStyle = 'rgba(205,212,220,0.85)';
+  g.font = `${Math.round(Math.max(10, Math.min(13, c.k * 0.3)))}px sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(`${o.levels} 層`, c.x, c.y);
+  g.textBaseline = 'alphabetic';
+}
+
 /** 隕石群：地上一圈虛線，加上散在空中的碎石點（位置由 id 固定） */
 function drawField(o: Obstacle) {
   g.strokeStyle = 'rgba(180,160,130,0.35)';
@@ -1167,10 +1231,16 @@ function drawField(o: Obstacle) {
 
 /** 由遠到近畫，近的蓋在遠的上面 */
 function drawUnits(list: { u: UnitView; pos: Vec; f: number }[]) {
-  list
-    .map((x) => ({ ...x, k: pr(x.pos.x, x.pos.y, 0).k }))
-    .sort((a, b) => a.k - b.k)
-    .forEach((x) => drawUnit(x.u, x.pos, x.f));
+  // 建築和機體一起由遠到近畫：建築後面的機體會被擋住，樓頂上的機體畫在那棟樓之後
+  const blds = (view?.state.obstacles ?? []).filter((o) => o.kind === 'building').map((o) => ({ o, k: pr(o.x, o.y, 0).k }));
+  const items: { k: number; draw: () => void }[] = blds.map(({ o, k }) => ({ k, draw: () => drawBuilding(o) }));
+  for (const x of list) {
+    let k = pr(x.pos.x, x.pos.y, 0).k;
+    const z = x.u.z ?? 0;
+    if (z) for (const b of blds) if (b.o.levels! <= z && wallPenetration(b.o, x.pos, radiusOf(x.u)) > 0) k = Math.max(k, b.k + 1e-6);
+    items.push({ k, draw: () => drawUnit(x.u, x.pos, x.f) });
+  }
+  items.sort((a, b) => a.k - b.k).forEach((x) => x.draw());
   drawPods(list);
   if (!show) drawEnemyPods();
 }
@@ -1373,8 +1443,20 @@ function modelAndName(u: UnitView): { model: string; name: string } {
 function drawUnit(u: UnitView, pos: Vec, facing: number) {
   const out = u.status !== 'active';
   const R = radiusOf(u);
-  const c = pr(pos.x, pos.y, 0);
+  // 站在樓頂上：整個標記畫在那個高度，再拉一條虛線到地面
+  const zw = (u.z ?? 0) * LEVEL_H;
+  const c = pr(pos.x, pos.y, zw);
   if (!c.visible) return;
+  if (zw) {
+    const ground = pr(pos.x, pos.y, 0);
+    g.strokeStyle = color(u.owner, 0.35);
+    g.setLineDash([2, 3]);
+    g.beginPath();
+    g.moveTo(ground.x, ground.y);
+    g.lineTo(c.x, c.y);
+    g.stroke();
+    g.setLineDash([]);
+  }
   // 看不到的敵機：在最後目擊的位置畫成虛線殘影
   if (u.hidden) {
     g.globalAlpha = 0.45;
@@ -1382,13 +1464,13 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   }
   // 占用半徑與朝向
   g.strokeStyle = out ? '#555' : color(u.owner, 0.7);
-  ringWorld(pos.x, pos.y, R);
+  ringWorld(pos.x, pos.y, R, zw);
   g.stroke();
   if (!out) {
     g.strokeStyle = 'rgba(255,255,255,0.75)';
     polyWorld([
-      [pos.x, pos.y, 0],
-      [pos.x + Math.cos(facing) * R * 1.5, pos.y + Math.sin(facing) * R * 1.5, 0],
+      [pos.x, pos.y, zw],
+      [pos.x + Math.cos(facing) * R * 1.5, pos.y + Math.sin(facing) * R * 1.5, zw],
     ]);
     g.stroke();
   }
@@ -1398,7 +1480,7 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
     for (const s of shieldArcs(u, facing)) {
       g.strokeStyle = '#e6e6a0';
       g.lineWidth = 3;
-      ringWorld(pos.x, pos.y, R + 0.12, 0, s.center - s.half, s.center + s.half, 16);
+      ringWorld(pos.x, pos.y, R + 0.12, zw, s.center - s.half, s.center + s.half, 16);
       g.stroke();
       g.lineWidth = 1;
     }
@@ -1474,7 +1556,7 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
   } else {
     g.font = 'bold 12px sans-serif';
     g.fillStyle = light;
-    g.fillText(`${flag}${id} ${name}${u.vague === 'sluggish' ? ' ⚠' : ''}`, c.x, top - 13);
+    g.fillText(`${flag}${id} ${name}${u.z ? ` ▲${u.z}` : ''}${u.vague === 'sluggish' ? ' ⚠' : ''}`, c.x, top - 13);
     g.font = '11px sans-serif';
     g.fillStyle = dim;
     g.fillText(out ? ({ destroyed: '擊毀', withdrawn: '脫離戰場', unconscious: '駕駛昏迷' } as Record<string, string>)[u.status] ?? '停止動作' : u.hidden ? `${model}・最後目擊 T${u.seenTurn}` : model, c.x, top);
@@ -1861,7 +1943,7 @@ const PHASE_HINT = {
   move: '替每台機體選機動和姿態，全部選好後按「送出指令」',
   ace: '其他機體已經動完：替擱置的機體選機動',
   pursuit: '有機體咬住敵機背後：選追擊的目標與武器，或放棄',
-  action: '移動已結算：選一件裝備，再點地圖上的敵機當目標',
+  action: '移動已結算：勾選要開火的武器（全部打同一個目標），再點地圖上的敵機',
   over: '',
 };
 const PHASE_NAME: Record<TurnPhase, string> = { deploy: '部署', move: '移動', ace: '王牌移動', pursuit: '追擊', action: '行動' };
@@ -1983,7 +2065,7 @@ function defaultTipFor(u: UnitView): string {
   }
   const plan = actionDrafts[u.id];
   const a = plan?.action;
-  if (!a || a.type === 'none') return plan?.swap ? '拔出武器。' : '選一件裝備，再點地圖上的敵機當目標。';
+  if (!a || a.type === 'none') return plan && swapOrders(plan).length ? '換武器（那一側這回合不能開火）。' : '勾選要開火的武器（可以多選），再點地圖上的敵機當目標。';
   if (a.type === 'smoke') return Number.isFinite(a.at.x) ? `煙霧彈丟到選好的位置：半徑 ${config.SMOKE_RADIUS}，射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}，裡面的機體敵方認不出是什麼。` : `點地圖選煙霧彈的落點（${config.SMOKE_THROW_RANGE} 格內）。`;
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
@@ -2383,7 +2465,16 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   const purgeBtn = armorOf(u)
     ? tip(`<button class="${plan.purge ? 'on' : ''}" data-purge="1">拋棄外裝甲</button>`, `拋棄外裝甲（免費）：${EQUIPMENT[u.equipment.find((e) => EQUIPMENT[e.defId].kind === 'armor')!.defId].name}還能再擋 ${(() => { const e = u.equipment.find((x) => EQUIPMENT[x.defId].kind === 'armor')!; return u.parts[e.id].durability - u.parts[e.id].damage; })()} 點傷害。穿著時只能用頭部武器、迴避 −${armorOf(u)!.evasionPenalty ?? 0}、最大加減速 −${armorOf(u)!.accelPenalty ?? 0}；拋棄後恢復，這回合就生效。`)
     : '';
-  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${purgeBtn}${deferBtn}</div>`;
+  // 攀升：只有有建築的地圖才有
+  const climbWhy = climbBlocked(u as unknown as UnitState, plan);
+  const climbBtn = view!.state.obstacles.some((o) => o.kind === 'building')
+    ? tip(
+        `<button class="${plan.climb ? 'on' : ''}" data-climb="1" ${climbWhy && !plan.climb ? 'data-off="1"' : ''}>攀升</button>`,
+        `攀升（跳躍、蹬牆）：這回合撞到 ${config.CLIMB_LEVELS} 層以內的牆就爬上樓頂，每爬一次推進劑 −${config.CLIMB_PROPELLANT}。速度 ${config.CLIMB_MAX_SPEED} 以下才能用（太快蹬不了牆）。走出樓頂邊緣會自己掉下去，不用攀升。${climbWhy ? `
+現在不能用：${climbWhy}` : ''}`,
+      )
+    : '';
+  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${climbBtn}${purgeBtn}${deferBtn}</div>`;
   return html + '</div></div>' + (plan.defer ? '' : podMoveControls(u, plan));
 }
 
@@ -2434,7 +2525,7 @@ function salvoControls(u: UnitView, plan: ActionPlan): string {
     const cur = plan.salvo?.[w.id];
     html += `<div class="row"><span class="small muted">${esc(def.name)}</span>`;
     for (const t of enemies) {
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, u.pos, t.pos) });
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
       if (!h) continue;
       html += tip(`<button class="${cur === t.id ? 'on' : ''}" data-salvo="${w.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${def.name} → ${t.label}：${bandName(h.band)}・${chanceText(h.chance)}`);
     }
@@ -2515,31 +2606,13 @@ function pursuitControls(u: UnitView): string {
 interface EquipOption {
   key: string;
   label: string;
-  kind: 'shoot' | 'draw' | 'lock' | 'none' | 'smoke' | 'decoy';
+  kind: 'shoot' | 'lock' | 'none' | 'smoke' | 'decoy';
   equip?: string;
 }
 
-/** 行動步驟可選的「裝備」：手上的射擊武器、收著的武器、感測器 */
-
-function equipOptions(u: UnitView): EquipOption[] {
+/** 行動卡「其他」區：鎖定、戰術道具、不行動 */
+function otherOptions(u: UnitView): EquipOption[] {
   const out: EquipOption[] = [];
-  const canHold = (['right', 'left'] as Hand[]).some((h) => handUsable(u, h));
-  for (const e of readyRanged(u)) {
-    const def = EQUIPMENT[e.defId];
-    if (def.tags?.includes('turret')) continue;
-    const hostHand = alwaysReady(e) && e.host ? handOfPart(u, e.host) : null;
-    const side = hostHand ? `（${hostHand === 'right' ? '右' : '左'}）` : '';
-    const notes = [def.arc !== undefined ? `前方±${def.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : ''].filter(Boolean).join('・');
-    out.push({ key: `shoot:${e.id}`, label: `${def.name}${side}・射擊${notes ? `（${notes}）` : ''}`, kind: 'shoot', equip: e.id });
-  }
-  if (canHold) {
-    for (const e of u.equipment) {
-      const def = EQUIPMENT[e.defId];
-      if ((e.location !== 'stowed' && e.location !== 'housed') || !equipAlive(u, e) || (def.kind !== 'melee' && def.kind !== 'ranged')) continue;
-      out.push({ key: `draw:${e.id}`, label: `${def.name}・拔出${freeDraw(u as unknown as UnitState, e) ? '（不佔行動）' : ''}`, kind: 'draw', equip: e.id });
-    }
-  }
-  // 戰術道具：煙霧彈、欺敵氣球（點地圖選位置）
   for (const e of u.equipment) {
     const def = EQUIPMENT[e.defId];
     if (def.kind !== 'utility' || !def.utility || !equipAlive(u, e) || (e.ammo !== undefined && e.ammo <= 0)) continue;
@@ -2550,64 +2623,141 @@ function equipOptions(u: UnitView): EquipOption[] {
   return out;
 }
 
-/** 拔出的武器放到哪隻手：先找空手，再找沒拿盾、也不是要射擊的那隻 */
-function drawHand(u: UnitView, keep?: string): Hand {
-  const hands = (['right', 'left'] as Hand[]).filter((h) => handUsable(u, h));
-  const held = (h: Hand) => u.equipment.find((e) => e.location === h && equipAlive(u, e));
-  return (
-    hands.find((h) => !held(h)) ??
-    hands.find((h) => EQUIPMENT[held(h)!.defId].kind !== 'shield' && held(h)!.id !== keep) ??
-    hands[0] ??
-    'right'
-  );
-}
-
 function optionOn(o: EquipOption, plan: ActionPlan, u: UnitView): boolean {
   if (!touched.has(u.id)) return false;
   const a = plan.action;
-  if (o.kind === 'shoot') return a.type === 'shoot' && a.weapon === o.equip;
-  if (o.kind === 'draw') return plan.swap?.equip === o.equip;
   if (o.kind === 'lock') return a.type === 'lock';
   if (o.kind === 'smoke' || o.kind === 'decoy') return a.type === o.kind && a.weapon === o.equip;
-  return a.type === 'none' && !plan.swap;
+  return a.type === 'none' && !swapOrders(plan).length;
+}
+
+/** 這回合勾選開火的武器 */
+const tickedOf = (plan: ActionPlan): string[] => (plan.action.type === 'shoot' ? shotWeapons(plan.action) : []);
+/** 武器全部取消勾選時，記住原本選好的目標 */
+const aimMemo: Record<string, string> = {};
+
+function setShot(u: UnitView, plan: ActionPlan, ids: string[]) {
+  const t = plan.action.type === 'shoot' || plan.action.type === 'lock' ? plan.action.target : (aimMemo[u.id] ?? '');
+  if (t) aimMemo[u.id] = t;
+  plan.action = ids.length ? { type: 'shoot', weapon: ids[0], target: t, ...(ids.length > 1 ? { also: ids.slice(1) } : {}) } : { type: 'none' };
+}
+
+const HAND_NAME = { right: '右手', left: '左手' } as const;
+
+interface FireOption {
+  e: EquipState;
+  /** 在哪裡：右手、左手、外掛或內建的部位 */
+  slot: string;
+  /** 在換武器那一側，這回合不能開火 */
+  benched: boolean;
+}
+
+/** 能勾的武器：現在能開火的（戰艦砲塔除外），加上這回合拔出不佔行動、馬上能開火的；換武器那一側的不能勾 */
+function fireOptions(u: UnitView, plan: ActionPlan): FireOption[] {
+  const busy = busyHands(u as unknown as UnitState, plan);
+  const out: FireOption[] = [];
+  for (const e of readyRanged(u)) {
+    if (EQUIPMENT[e.defId].tags?.includes('turret')) continue;
+    const hand = e.location === 'right' || e.location === 'left' ? e.location : null;
+    const slot = hand ? HAND_NAME[hand] : e.host ? (u.parts[e.host]?.name ?? '機體') : '機體';
+    out.push({ e, slot, benched: !!hand && busy.has(hand) });
+  }
+  for (const [hand, id] of swapOrders(plan)) {
+    const e = id ? u.equipment.find((x) => x.id === id) : undefined;
+    if (e && !busy.has(hand) && EQUIPMENT[e.defId].kind === 'ranged' && !out.some((o) => o.e.id === e.id)) out.push({ e, slot: `${HAND_NAME[hand]}（拔出）`, benched: false });
+  }
+  return out;
+}
+
+/** 換武器：每一側的手可以換成同側（或背上）武器架的武器，或收起來 */
+function swapChoices(u: UnitView, hand: Hand): EquipState[] {
+  return u.equipment.filter((e) => {
+    const def = EQUIPMENT[e.defId];
+    if ((e.location !== 'stowed' && e.location !== 'housed') || !equipAlive(u, e) || (def.kind !== 'melee' && def.kind !== 'ranged')) return false;
+    const side = rackSide(u, e);
+    return !side || side === hand;
+  });
+}
+
+function swapControls(u: UnitView, plan: ActionPlan): string {
+  const orders = new Map(swapOrders(plan));
+  let html = '';
+  for (const hand of ['right', 'left'] as Hand[]) {
+    if (!handUsable(u, hand)) continue;
+    const held = heldItem(u as unknown as UnitState, hand);
+    const choices = swapChoices(u, hand);
+    if (!choices.length && !held) continue;
+    const cur = orders.has(hand) ? (orders.get(hand) ?? '__holster') : '';
+    html += `<div class="row"><span class="small muted">${HAND_NAME[hand]}${held ? `（${esc(EQUIPMENT[held.defId].name)}）` : '（空手）'}</span>`;
+    html += tip(`<button class="${cur === '' ? 'on' : ''}" data-swap="${hand}|">不換</button>`, '這一側不換武器，照常開火。');
+    for (const e of choices) {
+      const free = freeDraw(u as unknown as UnitState, e);
+      html += tip(
+        `<button class="${cur === e.id ? 'on' : ''}" data-swap="${hand}|${e.id}">→ ${esc(EQUIPMENT[e.defId].name)}${free ? '・快拔' : ''}</button>`,
+        `把${EQUIPMENT[e.defId].name}換到${HAND_NAME[hand]}${held ? `，${EQUIPMENT[held.defId].name}收回武器架` : ''}。${free ? '快速拔出：拔出來這回合就能開火。' : `${HAND_NAME[hand]}這回合不能開火，另一側照常。`}`,
+      );
+    }
+    if (held) html += tip(`<button class="${cur === '__holster' ? 'on' : ''}" data-swap="${hand}|__holster">收起</button>`, `把${EQUIPMENT[held.defId].name}收回去，空出${HAND_NAME[hand]}（這一側這回合不能開火）。`);
+    html += '</div>';
+  }
+  return html ? `<div class="sec">換武器（和同側的武器架交換；換的那一側這回合不能開火）</div>${html}` : '';
+}
+
+/** 一件武器打這個目標的估計（null：打不到，附原因） */
+function weaponShot(u: UnitView, w: EquipState, t: UnitView): { h: NonNullable<ReturnType<typeof hitChance>> | null; why: string } {
+  const def = EQUIPMENT[w.defId];
+  const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
+  if (cover === 'blocked') return { h: null, why: '射擊線被擋住' };
+  if (w.ammo !== undefined && w.ammo <= 0) return { h: null, why: '彈藥耗盡' };
+  if (def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
+  if (def.pointBlank === false && rangeBand(u, t) === 0) return { h: null, why: '太近' };
+  const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
+  const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage });
+  return { h, why: h ? '' : '射程外' };
 }
 
 function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
-  if (plan.action.type === 'lock') return '';
-  if (plan.action.type !== 'shoot') return '';
-  const w = u.equipment.find((e) => e.id === (plan.action as { weapon: string }).weapon);
+  const ws = tickedOf(plan)
+    .map((id) => u.equipment.find((e) => e.id === id))
+    .filter((e): e is EquipState => !!e);
+  if (!ws.length) return '';
+  const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
+  if (cover === 'blocked') return '射擊線被擋住';
+  const shots = ws.map((w) => ({ w, ...weaponShot(u, w, t) }));
+  const first = shots.find((s) => s.h)?.h;
+  if (!first) return shots.map((s) => `${EQUIPMENT[s.w.defId].name}：${s.why}`).join('／');
   const relSpeed = relativeSpeed(view!.state.velocity, u.id, t.id);
-  const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos);
-  if (cover === 'blocked') return '射擊線被隕石擋住';
-  if (w) {
-    const def = EQUIPMENT[w.defId];
-    if (w.ammo !== undefined && w.ammo <= 0) return '彈藥耗盡';
-    if (def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return '射界外';
-    if (def.pointBlank === false && rangeBand(u, t) === 0) return '太近，不能開火';
-  }
   const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
-  const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed, shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage }) : null;
+  const mods = [
+    `${bandName(first.band)}`,
+    `相對速度 ${relSpeed.toFixed(1)}`,
+    cover === 'field' ? `碎石 −${config.FIELD_SHOT_PENALTY}` : '',
+    cover === 'smoke' ? `煙霧 −${config.SMOKE_SHOT_PENALTY}` : '',
+    cover === 'cover' ? `半掩護 −${config.BUILDING_COVER_PENALTY}` : '',
+    first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}・傷害 +${config.HIGH_GROUND_DAMAGE}` : '',
+    barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
+    coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
+  ].filter(Boolean);
+  const each = shots.map((s) => `${EQUIPMENT[s.w.defId].name} ${s.h ? `約 ${s.h.chance}%${s.h.chance > 100 ? `（爆擊約 ${Math.min(100, s.h.chance - 100)}%）` : ''}` : s.why}`).join('／');
   const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
-  const shield = coveringShield(t as unknown as UnitState, u.pos) ? '・對方盾弧內（可能被盾擋）' : '';
-  return h ? `${bandName(h.band)}・相對速度 ${relSpeed.toFixed(1)}${cover === 'field' ? '・碎石 −' + config.FIELD_SHOT_PENALTY : ''}・${chanceText(h.chance)}${shield}${barrage ? `・目標在防禦彈幕裡 −${barrage}` : ''}${danger}` : '射程外';
+  return `${mods.join('・')}・${each}・未計對方駕駛閃避${danger}`;
 }
 
 const BAND_SHORT = { 1: '近', 2: '中', 3: '遠', 4: '超遠' } as const;
 /**
- * 命中率文字：駕駛以外的因素（距離、相對速度、射擊線、射界、鎖定、外裝甲、頭部）都算進去了；
+ * 命中率文字：駕駛以外的因素（距離、相對速度、射擊線、射界、鎖定、外裝甲、頭部、高度）都算進去了；
  * 對方的駕駛看不到，閃避（技能 × 3）沒算，所以不說「必中」。超過 100 的部分是爆擊率
  */
 const chanceText = (c: number) => (c > 100 ? `約 ${c}%（爆擊約 ${Math.min(100, c - 100)}%）・未計對方駕駛閃避` : `約 ${c}%・未計對方駕駛閃避`);
 const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離', 4: '超遠距離' } as const;
 
-function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
-  if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。`;
-  if (o.kind === 'none') return '這回合不行動。';
+function optionTip(u: UnitView, o: EquipOption): string {
+  if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。鎖定就不能開火。`;
+  if (o.kind === 'none') return '這回合不行動（也不換武器）。';
   if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
   if (o.kind === 'decoy') return `放出欺敵氣球（${config.DECOY_PLACE_RANGE} 格內）：放在煙霧裡，敵方看起來就是一台不明機體；出了煙霧一眼就是氣球。被打中、鎖定或敵機靠近就破。`;
-  const def = EQUIPMENT[u.equipment.find((e) => e.id === o.equip)!.defId];
   const eq = u.equipment.find((e) => e.id === o.equip)!;
-  if (o.kind === 'draw') return `把${def.name}換到手上${def.kind === 'melee' ? '，之後突進撞到敵機時才砍得到' : ''}。${quick || freeDraw(u as unknown as UnitState, eq) ? '不佔行動。' : '會用掉這回合的行動。'}`;
+  const def = EQUIPMENT[eq.defId];
   const ranges = ([1, 2, 3, 4] as const)
     .filter((b) => def.ranges?.[b] !== undefined)
     .map((b) => `${BAND_SHORT[b]} ${def.ranges![b]! >= 0 ? '+' : ''}${def.ranges![b]}`)
@@ -2621,13 +2771,12 @@ function optionTip(u: UnitView, o: EquipOption, quick: boolean): string {
     eq.ammo !== undefined ? `剩 ${eq.ammo} 次` : '',
     def.tags?.includes('volatile') ? '被打壞可能引爆' : '',
   ].filter(Boolean).join('；');
-  return `${def.name}（${mountText}）：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${extra ? extra + '。' : ''}${melee}`;
+  return `${def.name}（${mountText}）：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${extra ? extra + '。' : ''}${melee}勾選的武器全部打同一個目標。`;
 }
 
 function actionControls(u: UnitView, plan: ActionPlan): string {
   if (view!.state.bumped.includes(u.id)) return '<div class="warn">這台機體在移動時擦撞，本回合不能行動。</div>';
 
-  const quick = PILOTS[u.pilotId!].abilities.includes('quick_draw');
   const grappled = inGrapple(u.id);
   let html = '';
   if (grappled) {
@@ -2635,14 +2784,23 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
     html += `<div class="sec">纏鬥手法</div><div class="row">${opts
       .map((o) => tip(`<button class="${plan.grapple === o && touched.has(u.id) ? 'on' : ''}" data-grapple="${o}">${GRAPPLE_NAMES[o]}</button>`, grappleTip(u, o)))
       .join('')}</div><div class="warn small">纏鬥中不能射擊、鎖定或用道具，可以換武器。</div>`;
+    return html + swapControls(u, plan);
   }
-  if (!grappled) html += podActionControls(u, plan) + salvoControls(u, plan);
-  html += '<div class="sec">選一件裝備</div><div class="optList">';
-  html += equipOptions(u)
-    .filter((o) => !grappled || o.kind === 'draw' || o.kind === 'none')
-    .map((o) => tip(`<button class="${optionOn(o, plan, u) ? 'on' : ''}" data-opt="${o.key}">${esc(o.label)}</button>`, optionTip(u, o, quick)))
-    .join('');
-  html += '</div>';
+  html += podActionControls(u, plan) + salvoControls(u, plan);
+  const ticked = new Set(tickedOf(plan));
+  const fire = fireOptions(u, plan);
+  if (fire.length) {
+    html += '<div class="sec">開火（勾選的武器全部打同一個目標）</div><div class="optList">';
+    html += fire
+      .map(({ e, slot, benched }) => {
+        const def = EQUIPMENT[e.defId];
+        const notes = [def.arc !== undefined ? `前方±${def.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : ''].filter(Boolean).join('・');
+        const label = `${ticked.has(e.id) ? '☑' : '☐'} ${slot}・${def.name}${notes ? `（${notes}）` : ''}${benched ? '・換武器中' : ''}`;
+        return tip(`<button class="${ticked.has(e.id) ? 'on' : ''}" data-fire="${e.id}" ${benched ? 'data-off="1"' : ''}>${esc(label)}</button>`, benched ? '這一側在換武器，這回合不能開火。' : optionTip(u, { key: e.id, label, kind: 'shoot', equip: e.id }));
+      })
+      .join('');
+    html += '</div>';
+  }
   const a = plan.action;
   if (a.type === 'shoot' || a.type === 'lock') {
     const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active' && !x.hidden);
@@ -2660,9 +2818,12 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       }
     html += '</div>';
   }
-  const drawnFree = plan.swap && (quick || !!EQUIPMENT[u.equipment.find((e) => e.id === plan.swap!.equip)?.defId ?? '']?.tags?.includes('quickDraw'));
-  if (plan.swap) html += `<div class="small ${drawnFree ? 'muted' : 'warn'}">${drawnFree ? '拔出不佔行動，還可以再選一件射擊武器或鎖定。' : '拔出武器會用掉這回合的行動。'}</div>`;
-  return html;
+  html += swapControls(u, plan);
+  html += '<div class="sec">其他</div><div class="row">';
+  html += otherOptions(u)
+    .map((o) => tip(`<button class="${optionOn(o, plan, u) ? 'on' : ''}" data-opt="${o.key}">${esc(o.label)}</button>`, optionTip(u, o)))
+    .join('');
+  return html + '</div>';
 }
 
 function bindControls(u: UnitView | undefined) {
@@ -2682,6 +2843,7 @@ function bindControls(u: UnitView | undefined) {
       move.maneuver = b.dataset.m!;
       if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
       else move.facingOffset = 0;
+      if (move.climb && climbBlocked(u as unknown as UnitState, move)) move.climb = false;
       hoverManeuver = null;
       changed();
     };
@@ -2702,6 +2864,13 @@ function bindControls(u: UnitView | undefined) {
       if (b.dataset.off) return;
       move.limiter = !move.limiter;
       if (planCost(u, move).blocked) move.maneuver = cruiseManeuver(u);
+      changed();
+    };
+  });
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-climb]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.off) return;
+      move.climb = !move.climb || undefined;
       changed();
     };
   });
@@ -2764,7 +2933,6 @@ function bindControls(u: UnitView | undefined) {
         const wireless = Object.keys(pods).some((id) => !psycommuOf(u.equipment.find((x) => x.id === id)!)?.wired);
         if (wireless) {
           plan.action = { type: 'none' };
-          if (plan.swap && !freeDraw(u as unknown as UnitState, u.equipment.find((x) => x.id === plan.swap!.equip) ?? u.equipment[0])) plan.swap = undefined;
         }
         changed();
       }),
@@ -2782,37 +2950,49 @@ function bindControls(u: UnitView | undefined) {
     };
   });
   if (!plan) return;
-  const quick = PILOTS[u.pilotId!].abilities.includes('quick_draw');
-  const isFreeDraw = (id: string | null) => {
-    const e = u.equipment.find((x) => x.id === id);
-    return quick || (!!e && !!EQUIPMENT[e.defId].tags?.includes('quickDraw'));
+  // 本體開火：無線炮群的指揮取消（線控的不受影響）
+  const dropWireless = () => {
+    if (!plan.pods) return;
+    for (const id of Object.keys(plan.pods)) if (!psycommuOf(u.equipment.find((x) => x.id === id)!)?.wired) delete plan.pods[id];
+    if (!Object.keys(plan.pods).length) plan.pods = undefined;
   };
-  const target = () => (plan.action.type === 'shoot' || plan.action.type === 'lock' ? plan.action.target : '');
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-fire]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.off) return;
+      const id = b.dataset.fire!;
+      const now = tickedOf(plan);
+      const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+      if (next.length) dropWireless();
+      if (plan.action.type !== 'shoot' && plan.action.type !== 'none') plan.action = { type: 'none' };
+      setShot(u, plan, next);
+      changed();
+    };
+  });
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-swap]').forEach((b) => {
+    b.onclick = () => {
+      const [hand, id] = b.dataset.swap!.split('|') as [Hand, string];
+      const swaps: Partial<Record<Hand, string | null>> = Object.fromEntries(swapOrders(plan));
+      if (!id) delete swaps[hand];
+      else swaps[hand] = id === '__holster' ? null : id;
+      plan.swap = undefined;
+      plan.swaps = Object.keys(swaps).length ? swaps : undefined;
+      // 換武器那一側的武器不能開火：取消勾選
+      const ok = new Set(fireOptions(u, plan).filter((o) => !o.benched).map((o) => o.e.id));
+      if (plan.action.type === 'shoot') setShot(u, plan, tickedOf(plan).filter((x) => ok.has(x)));
+      changed();
+    };
+  });
+  const target = () => (plan.action.type === 'shoot' || plan.action.type === 'lock' ? plan.action.target : (aimMemo[u.id] ?? ''));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-opt]').forEach((b) => {
     b.onclick = () => {
-      const o = equipOptions(u).find((x) => x.key === b.dataset.opt)!;
-      // 本體要行動：無線炮群的指揮取消（線控的不受影響）
-      if (o.kind !== 'none' && plan.pods && !(o.kind === 'draw' && isFreeDraw(o.equip!))) {
-        for (const id of Object.keys(plan.pods)) if (!psycommuOf(u.equipment.find((x) => x.id === id)!)?.wired) delete plan.pods[id];
-        if (!Object.keys(plan.pods).length) plan.pods = undefined;
-      }
-      if (o.kind === 'shoot') {
-        plan.action = { type: 'shoot', weapon: o.equip!, target: target() };
-        if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
-      } else if (o.kind === 'smoke' || o.kind === 'decoy') {
-        plan.action = { type: o.kind, weapon: o.equip!, at: { x: NaN, y: NaN } };
-        if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
-      } else if (o.kind === 'lock') {
-        plan.action = { type: 'lock', target: target() };
-        if (plan.swap && !isFreeDraw(plan.swap.equip)) plan.swap = undefined;
-      } else if (o.kind === 'draw') {
-        const keep = plan.action.type === 'shoot' ? plan.action.weapon : undefined;
-        const free = isFreeDraw(o.equip!);
-        plan.swap = plan.swap?.equip === o.equip && free ? undefined : { hand: drawHand(u, keep), equip: o.equip! };
-        if (!free) plan.action = { type: 'none' };
-      } else {
+      const o = otherOptions(u).find((x) => x.key === b.dataset.opt)!;
+      if (o.kind !== 'none') dropWireless();
+      if (o.kind === 'smoke' || o.kind === 'decoy') plan.action = { type: o.kind, weapon: o.equip!, at: { x: NaN, y: NaN } };
+      else if (o.kind === 'lock') plan.action = { type: 'lock', target: target() };
+      else {
         plan.action = { type: 'none' };
         plan.swap = undefined;
+        plan.swaps = undefined;
       }
       changed();
     };
@@ -2824,6 +3004,7 @@ function setTarget(unitId: string, targetId: string) {
   const plan = actionDrafts[unitId];
   if (!plan || (plan.action.type !== 'shoot' && plan.action.type !== 'lock')) return;
   plan.action.target = targetId;
+  aimMemo[unitId] = targetId;
   touched.add(unitId);
   renderPanel();
 }
@@ -2983,8 +3164,12 @@ function describe(e: GameEvent): string | null {
       return `${L(e.ship)} 的防禦彈幕打中 ${L(e.unit)}`;
     case 'fuelFire':
       return `${L(e.unit)} 燃料槽引燃！`;
-    case 'obstacle':
-      return `${L(e.unit)} 撞上隕石${e.damage ? `，受 ${e.damage} 點衝擊` : ''}`;
+    case 'obstacle': {
+      const o = view?.state.obstacles.find((x) => x.id === e.obstacle);
+      return `${L(e.unit)} 撞上${o?.kind === 'building' ? '建築' : '隕石'}${e.damage ? `，受 ${e.damage} 點衝擊` : ''}`;
+    }
+    case 'elevate':
+      return e.how === 'climb' ? `${L(e.unit)} 攀升上 ${e.z} 層樓頂` : `${L(e.unit)} 從樓頂落下${e.z ? `到 ${e.z} 層` : '到地面'}`;
     case 'debris':
       return `${L(e.unit)} 高速穿越隕石群，被碎石擊中`;
     case 'gameOver':
@@ -3138,7 +3323,7 @@ if (import.meta.env.DEV) (window as unknown as { __mech: object }).__mech = { lo
 addEventListener('pagehide', () => local?.upload());
 
 if (mode === 'local') {
-  // ?content=builtin 用內建資料，?content=0.1.4 指定版本，預設抓線上最新版
+  // 預設用原創內建資料；?content=latest 抓線上最新版（封存的鋼彈資料），?content=0.1.4 指定版本
   void loadContent(params.get('content')).then(({ version, note }) => {
     const tag = $('contentTag');
     tag.textContent = `資料 ${version}`;
