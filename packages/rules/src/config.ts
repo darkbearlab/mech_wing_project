@@ -33,7 +33,8 @@ export const FIELD_SPOT_RANGE = 4;
 export const ROSTER_MODE: 'default' | 'random' | 'mirror' = 'random';
 
 // 距離帶（底板邊緣距離的上限）
-export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10 } as const;
+/** 距離帶的上限（底板邊緣距離）；r4 超遠距離只有列出 ranges[4] 的武器（戰艦主砲）打得到 */
+export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10, r4: 20 } as const;
 
 // 機動
 /** 懸停時可原地轉身的角度（不另外消耗推進劑） */
@@ -171,6 +172,8 @@ export const SHIP_REAR_ENGINE_MULT = 4;
 export const SHIP_CLOSE_BRIDGE_MULT = 4;
 /** 戰艦：射擊方有對艦特效或瞄準要害，艦橋與引擎權重再 ×SHIP_WEAK_AIM_MULT */
 export const SHIP_WEAK_AIM_MULT = 3;
+/** 戰艦打戰艦：艦砲對轟大多打在艦體上，艦橋與引擎權重 ×這個（弱點要靠 MS 貼近） */
+export const SHIP_VS_SHIP_WEAK_MULT = 0.25;
 /** 防禦彈幕：艦尾 ±這個角度沒有彈幕；彈幕裡的非戰艦單位每回合被打傷 1 點的機率 */
 export const BARRAGE_REAR_DEG = 45;
 export const BARRAGE_HIT_CHANCE = 25;

@@ -28,7 +28,7 @@ import { armorOf, availableManeuvers, cruiseManeuver, equipAlive, handUsable, ma
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
-const RANGE_TARGET: Record<1 | 2 | 3, number> = { 1: 2, 2: 4.5, 3: 8 };
+const RANGE_TARGET: Record<1 | 2 | 3 | 4, number> = { 1: 2, 2: 4.5, 3: 8, 4: 14 };
 
 const armOk = (u: Pick<UnitView, "parts" | "equipment">, h: Hand) => handUsable(u, h);
 const heldItems = (u: UnitView) => u.equipment.filter((e) => (e.location === 'right' || e.location === 'left') && armOk(u, e.location) && equipAlive(u, e));

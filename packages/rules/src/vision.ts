@@ -4,8 +4,13 @@ import { dist } from './geometry';
 import { insideField, segmentHitsCircle } from './terrain';
 import { roleLost } from './body';
 import type { Obstacle, PartState, Vec } from './types';
+import { CHASSIS } from './data';
 
-export const sensorRange = (u: { parts: Record<string, PartState> }): number => (roleLost(u, 'sensor') ? C.SENSOR_RANGE_NO_HEAD : C.SENSOR_RANGE);
+/** 感測距離：機型有寫就照機型（戰艦的雷達），感測部位壞了減半（但不低於 SENSOR_RANGE_NO_HEAD） */
+export const sensorRange = (u: { parts: Record<string, PartState>; chassisId?: string }): number => {
+  const base = (u.chassisId && CHASSIS[u.chassisId]?.sensorRange) || C.SENSOR_RANGE;
+  return roleLost(u, 'sensor') ? Math.min(base, Math.max(C.SENSOR_RANGE_NO_HEAD, base / 2)) : base;
+};
 
 /** 從 from 看不看得到 to（底板邊緣距離；radii 是雙方半徑和） */
 export function canSee(obstacles: Obstacle[], from: Vec, range: number, to: Vec, radii = 2 * C.BASE_RADIUS): boolean {

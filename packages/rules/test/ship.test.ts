@@ -9,6 +9,7 @@ import { Rng } from '../src/rng';
 import { barragePenalty, barrageStrength, shipPartMultiplier } from '../src/ship';
 import type { GameEvent, GameState, MovePlan, PilotDef } from '../src/types';
 import { validateMove } from '../src/unit';
+import { sensorRange } from '../src/vision';
 import { makeState as baseState, rifleX00 } from './helpers';
 
 const makeState = (...a: Parameters<typeof baseState>): GameState => ({ ...baseState(...a), settings: { killScore: 0, decapitation: false, turnLimit: 99, deploy: 'fixed' } });
@@ -36,6 +37,7 @@ beforeEach(() => {
     crew: 'ship',
     closeCombat: false,
     radius: 2,
+    sensorRange: 18,
     barrage: { range: 4, perTurret: 10, max: 40 },
     parts: {
       hull: { name: '艦體', role: 'core', weight: 6, durability: 25 },
@@ -145,6 +147,20 @@ describe('戰艦', () => {
     }
     expect(sunk).toBeGreaterThan(70);
     expect(sunk).toBeLessThan(130);
+  });
+
+  it('超遠距離（R4）只有列出 ranges[4] 的武器打得到；戰艦的感測距離照機型', () => {
+    const s = makeState([
+      { entry: ship(), owner: 0, x: 12, y: 2.5, facingDeg: 90 },
+      { entry: rifleX00, owner: 1, x: 12, y: 18, facingDeg: -90 },
+    ]);
+    const [sh, t] = s.units;
+    const far = { ...EQUIPMENT['bow_gun'], ranges: { 2: 0, 3: 5, 4: 0 } };
+    const base = { attacker: sh, attackerSkill: 3, target: t, targetSkill: null, relSpeed: 2, shooterMelee: false } as const;
+    expect(hitChance({ ...base, weapon: far })!.band).toBe(4);
+    expect(hitChance({ ...base, weapon: EQUIPMENT['bow_gun'] })).toBeNull();
+    expect(sensorRange(sh)).toBe(18);
+    expect(sensorRange(t)).toBe(C.SENSOR_RANGE);
   });
 
   it('命中部位看方位：從艦尾打引擎、貼近打艦橋，對艦特效再加重', () => {
