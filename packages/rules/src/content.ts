@@ -31,8 +31,8 @@ export function useContent(pack: ContentPack): void {
 
 const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
-const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle'];
-const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot', 'brawler', 'cyber_newtype'];
+const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle', 'turret'];
+const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot', 'brawler', 'cyber_newtype', 'ship_killer'];
 const NT_SENSES = ['numb', 'strong', 'sensitive', 'fragile'];
 const CREWS = ['unmanned', 'pilot', 'ship'];
 const ENVS = ['space', 'gravity', 'water'];
@@ -63,6 +63,7 @@ export function validateContent(pack: ContentPack): string[] {
     }
     if (e.mode !== undefined && e.mode !== 'focused' && e.mode !== 'scattered') err(w, `mode 不正確（${e.mode}）`);
     if (e.arc !== undefined && !(isNum(e.arc, 1) && e.arc <= 180)) err(w, 'arc 要在 1–180 度之間');
+    if (e.arcOffset !== undefined && !(isNum(e.arcOffset, -180) && e.arcOffset <= 180)) err(w, 'arcOffset 要在 −180–180 度之間');
     if (e.ammo !== undefined && !(Number.isInteger(e.ammo) && e.ammo >= 1)) err(w, 'ammo 要是 1 以上的整數');
     for (const t of e.tags ?? []) if (!TAGS.includes(t)) err(w, `不認得的標籤 ${t}`);
     if (e.blocksHand && mount !== 'integrated') err(w, 'blocksHand 只能用在內建武器');

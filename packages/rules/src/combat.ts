@@ -6,6 +6,7 @@ import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
 import { radiusOf, roleLost } from './body';
 import { activeShields, chassisOf, equipDef, pilotOf, armorOf } from './unit';
+import { barragePenalty, bridgeLost, isShip } from './ship';
 
 export interface Positioned {
   id: string;
@@ -53,6 +54,8 @@ export interface HitInput {
   dazzled?: boolean;
   /** 目標不是機體（炮群）：用這個迴避代替機型的迴避 */
   targetEvasion?: number;
+  /** 目標在生效中的防禦彈幕裡：命中下降這麼多 */
+  barrage?: number;
 }
 
 export function hitChance(h: HitInput): { band: RangeBand; chance: number } | null {
@@ -61,7 +64,9 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (band === 0 && h.weapon.pointBlank === false) return null;
   // 固定射界：射界外打不到
   const rel = relativeAngle(h.attacker, h.target.pos);
-  if (h.weapon.arc !== undefined && rel > h.weapon.arc * DEG) return null;
+  // 固定射界：中心可以偏離正面（戰艦的舷側、艦尾砲塔）
+  const arcRel = h.weapon.arcOffset ? Math.abs(angleDiff(angleOf(sub(h.target.pos, h.attacker.pos)), h.attacker.facing + h.weapon.arcOffset * DEG)) : rel;
+  if (h.weapon.arc !== undefined && arcRel > h.weapon.arc * DEG) return null;
   const rangeMod = band === 0 ? C.ZERO_RANGE_BONUS : h.weapon.ranges?.[band];
   if (rangeMod === undefined) return null;
   const atk = chassisOf(h.attacker);
@@ -83,6 +88,8 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number } | nu
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (band === 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
+  if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
+  if (h.barrage) chance -= h.barrage;
   return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };
 }
 
@@ -135,6 +142,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     shooterMelee: turn.stance[attacker.id] === 'melee',
     cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos),
     dazzled: turn.dazzled?.has(attacker.id),
+    // 戰艦自己的射擊不受彈幕影響
+    barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
   });
   if (!h) return false;
   if (weapon.ammo !== undefined) weapon.ammo--;

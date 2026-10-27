@@ -160,6 +160,22 @@ export const SHIELD_BLOCK_PER_SKILL = 5;
 // 纏鬥
 /** 纏鬥：被剋的一方對手多幾顆骰（脫離、不擅長的徒手肉搏一律算被剋）——暫定，模擬後調整 */
 export const COUNTER_DICE = 2;
+/** 戰艦：引擎被打壞時殉爆（擊沉）的機率 */
+export const SHIP_ENGINE_EXPLODE = 50;
+/** 戰艦：艦橋被打掉後射擊命中下降 */
+export const SHIP_NO_BRIDGE_PENALTY = 30;
+/** 戰艦：從艦尾 ±這個角度打過來，引擎權重 ×SHIP_REAR_ENGINE_MULT */
+export const SHIP_REAR_ARC_DEG = 45;
+export const SHIP_REAR_ENGINE_MULT = 4;
+/** 戰艦：近距離（底板邊緣 RANGE_LIMITS.r1 以內）打過來，艦橋權重 ×SHIP_CLOSE_BRIDGE_MULT */
+export const SHIP_CLOSE_BRIDGE_MULT = 4;
+/** 戰艦：射擊方有對艦特效或瞄準要害，艦橋與引擎權重再 ×SHIP_WEAK_AIM_MULT */
+export const SHIP_WEAK_AIM_MULT = 3;
+/** 防禦彈幕：艦尾 ±這個角度沒有彈幕；彈幕裡的非戰艦單位每回合被打傷 1 點的機率 */
+export const BARRAGE_REAR_DEG = 45;
+export const BARRAGE_HIT_CHANCE = 25;
+/** 戰艦原地轉身最多幾度 */
+export const SHIP_TURN_MAX_DEG = 45;
 /** 感應武器：炮群在場上的每一回合壓力 +1（不管放出幾組）；線控炮群和本體同一回合都開火再 +1 */
 export const PSYCOMMU_STRESS = 1;
 export const PSYCOMMU_DUAL_STRESS = 1;

@@ -1,7 +1,7 @@
 import { minSpeedOf, roleLost } from './body';
 import * as C from './config';
 import { shoot, hitChance, type TurnInfo } from './combat';
-import { addStress, spendPropellant, unitById, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
@@ -12,6 +12,7 @@ import { Rng } from './rng';
 import type { ActionPlan, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
+import { barrageActive, inBarrage, isShip } from './ship';
 import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
@@ -229,9 +230,22 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
     if (u.status !== 'active') continue;
     const plan = actionsByPlayer[u.owner][u.id] ?? defaultAction();
     const podOrders = Object.entries(plan.pods ?? {}).filter(([, t]) => t?.length);
+    const salvo = isShip(u) ? Object.entries(plan.salvo ?? {}).filter(([, t]) => !!t) : [];
     if (bumped.has(u.id)) {
-      if (plan.action.type !== 'none' || plan.swap || podOrders.length) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
+      if (plan.action.type !== 'none' || plan.swap || podOrders.length || salvo.length) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '擦撞，無法行動' });
       continue;
+    }
+    // 戰艦的砲塔：每座各自選目標開火（砲手各自操作，不算連鎖動作）
+    for (const [wid, tid] of salvo) {
+      if (u.status !== 'active') break;
+      const w = readyRanged(u).find((e) => e.id === wid && EQUIPMENT[e.defId].tags?.includes('turret'));
+      const t = state.units.find((x) => x.id === tid);
+      if (!w) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '砲塔已經損壞' });
+      else if (w.ammo !== undefined && w.ammo <= 0) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '砲塔彈藥耗盡' });
+      else if (!t || t.status !== 'active') ctx.events.push({ type: 'actionFail', unit: u.id, reason: '目標已失去戰鬥能力' });
+      else if (!state.visible[u.owner].includes(t.id)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: '看不到目標' });
+      else if (shoot(ctx, turn, u, w, t)) revealed.add(u.id);
+      else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：目標不在射界或射程內` });
     }
     let actionUsed = false;
     if (plan.swap) {
@@ -298,6 +312,17 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       const next = m > 0 ? Math.max(0, m - decay) : Math.min(0, m + decay);
       u.momentum = min > 0 ? Math.max(min, next) : next;
     }
+
+  // 回合結束：防禦彈幕打傷彈幕裡的非戰艦單位（友軍也一樣）
+  for (const s of state.units) {
+    if (!isShip(s) || !barrageActive(state.units, s)) continue;
+    for (const u of state.units) {
+      if (u.status !== 'active' || isShip(u) || !inBarrage(s, u.pos, radiusOf(u))) continue;
+      if (rng.d100() > C.BARRAGE_HIT_CHANCE) continue;
+      ctx.events.push({ type: 'barrage', ship: s.id, unit: u.id });
+      dealtBy(ctx, s, () => damageUnit(ctx, u, 1, 'scattered'), false);
+    }
+  }
 
   // 回合結束：炮群（母機退場就消失；放著炮群壓力 +1）
   podUpkeep(ctx);

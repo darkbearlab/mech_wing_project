@@ -1,4 +1,4 @@
-import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
+import { FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
@@ -187,7 +187,8 @@ export function availableManeuvers(u: ManeuverLimits, limiter = false): Maneuver
 export function dialOf(u: Pick<ManeuverLimits, 'chassisId' | 'speedCut'>): string[] {
   const ch = CHASSIS[u.chassisId];
   const dial = [...ch.dial];
-  if (!(ch.minSpeed ?? 0)) {
+  // 側移：會停的機體才有（戰艦沒有）
+  if (!(ch.minSpeed ?? 0) && ch.crew !== 'ship') {
     dial.push('slide-L-1', 'slide-R-1');
     if (ch.maxAccel >= SLIDE2_MIN_ACCEL) dial.push('slide-L-2', 'slide-R-2');
   }
@@ -242,6 +243,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
   if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
+  else if (CHASSIS[u.chassisId]?.crew === 'ship' && Math.abs(plan.facingOffset) > SHIP_TURN_MAX_DEG) errors.push(`${u.label}：戰艦原地轉身最多 ${SHIP_TURN_MAX_DEG}°`);
   else if (plan.facingOffset !== 0 && !grappled && parseManeuver(plan.maneuver).kind !== 'hover') errors.push(`${u.label}：只有懸停時可以轉身`);
   return errors;
 }
@@ -249,6 +251,10 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
 export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   const errors: string[] = [];
   const a = plan.action;
+  if (plan.salvo && Object.keys(plan.salvo).length) {
+    if (CHASSIS[u.chassisId]?.crew !== 'ship') errors.push(`${u.label}：只有戰艦能齊射`);
+    else for (const id of Object.keys(plan.salvo)) if (!u.equipment.some((e) => e.id === id && EQUIPMENT[e.defId].tags?.includes('turret'))) errors.push(`${u.label}：沒有這座砲塔`);
+  }
   for (const [id, targets] of Object.entries(plan.pods ?? {})) {
     const e = u.equipment.find((x) => x.id === id);
     const ps = e && EQUIPMENT[e.defId].psycommu;

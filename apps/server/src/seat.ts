@@ -39,6 +39,10 @@ import {
   relativeAngle,
   sensorRange,
   tailing,
+  barragePenalty,
+  barrageStrength,
+  barrageActive,
+  isShip,
   type ContentPack,
   type GameEvent,
   type PlayerView,
@@ -130,6 +134,8 @@ function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: numbe
   if (coveringShield({ ...t, facing: t.facing } as unknown as UnitState, from)) tags.push('對方盾弧內（可能被盾擋）');
   else if (t.equipment.some((e) => EQUIPMENT[e.defId]?.kind === 'shield')) tags.push('盾弧外');
   if (cover === 'field') tags.push(`穿過隕石群 −${config.FIELD_SHOT_PENALTY}`);
+  const bp = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
+  if (bp) tags.push(`目標在防禦彈幕裡 −${bp}`);
   if (cover === 'smoke') tags.push(`穿過煙霧 −${config.SMOKE_SHOT_PENALTY}`);
   if (arc === undefined && relativeAngle({ pos: from, facing: u.facing }, t.pos) > (config.OFF_FRONT_DEG * Math.PI) / 180) tags.push(`我方正面射界外 −${config.OFF_FRONT_PENALTY}`);
   return tags.length ? `（${tags.join('・')}）` : '';
@@ -151,7 +157,7 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
     const def = EQUIPMENT[w.defId];
     for (const t of enemies) {
       const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos);
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover });
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never) });
       rows.push(`${w.id} ${def.name} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}` : '打不到'}`);
     }
   }
@@ -191,6 +197,7 @@ function render(v: PlayerView): string {
     out.push(unitLine(u));
     if (u.status !== 'active') continue;
     out.push(threatLine(u, foes));
+    if (isShip(u)) out.push(`  防禦彈幕：強度 ${barrageStrength(u as never)}${barrageActive(s.units as never, u as never) ? '（生效中）' : ''}；砲塔用 salvo 各自選目標`);
     const grappled = s.grapples.some((g) => g.a === u.id || g.b === u.id);
     if ((v.phase === 'move' || (v.phase === 'ace' && v.aceUnits?.includes(u.id))) && !grappled) out.push(`  可用機動：\n${maneuverTable(u)}`);
     if (v.phase === 'action') {
@@ -214,7 +221,7 @@ function render(v: PlayerView): string {
       move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 0/±45/±90/180，正的是右轉）,"limiter"?:false,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
       ace: `{"t":"moves","moves":{"<王牌 id>":{...同上}}}  要下指令的：${(v.aceUnits ?? []).join(', ')}`,
       pursuit: `{"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}`,
-      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":".."}|{"type":"lock","target":".."}|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swap"?:{"hand":"right|left","equip":"..|null"},"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]}}}}`,
+      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":".."}|{"type":"lock","target":".."}|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swap"?:{"hand":"right|left","equip":"..|null"},"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
       over: '對戰結束',
     }[v.phase as string] ?? '',
   );

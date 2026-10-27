@@ -17,10 +17,11 @@ import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire } from './terrain';
 import { buildPath } from './movement';
-import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE } from './config';
+import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
+import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { armorOf, availableManeuvers, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, readyRanged } from './unit';
@@ -617,7 +618,7 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     // 懸停時轉身面向最近的敵人
     if (best.m.kind === 'hover' && target) {
       const want = angleOf(sub(target.pos, u.pos));
-      plan.facingOffset = [...FACING_OFFSETS].sort((a, b) => Math.abs(angleDiff(want, u.facing + a * DEG)) - Math.abs(angleDiff(want, u.facing + b * DEG)))[0];
+      plan.facingOffset = [...FACING_OFFSETS].filter((f) => !isShip(u) || Math.abs(f) <= SHIP_TURN_MAX_DEG).sort((a, b) => Math.abs(angleDiff(want, u.facing + a * DEG)) - Math.abs(angleDiff(want, u.facing + b * DEG)))[0];
     }
     // 拿刀且敵人在 8 格內就近戰；沒拿刀、附近有拿刀的敵人、而且這回合走得慢，有機會改近戰姿態站穩承受衝擊（重機比較愛用）
     const swordsman = enemies.some((e) => heldOf(e, 'melee').length && edge(u.pos, e.pos) < 8);
@@ -710,6 +711,25 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
   const focus = pickFocus(own, enemies, view.state.obstacles, focusHints(view));
   const aimed: Record<string, number> = {};
   for (const u of own) {
+    // 戰艦：每座砲塔各自挑期望傷害最高的目標（集火目標、受傷的加權）
+    if (isShip(u)) {
+      const salvo: Record<string, string> = {};
+      const skill = PILOTS[u.pilotId!]?.skill ?? 1;
+      for (const w of readyRanged(u as unknown as UnitState)) {
+        const def = EQUIPMENT[w.defId];
+        if (!def.tags?.includes('turret') || (w.ammo !== undefined && w.ammo <= 0)) continue;
+        let best: { t: UnitView; v: number } | null = null;
+        for (const t of enemies) {
+          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view.state.obstacles, u.pos, t.pos) });
+          if (!h || h.chance < 10) continue;
+          const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
+          if (!best || v > best.v) best = { t, v };
+        }
+        if (best) salvo[w.id] = best.t.id;
+      }
+      out[u.id] = { action: { type: 'none' }, ...(Object.keys(salvo).length ? { salvo } : {}) };
+      continue;
+    }
     // 纏鬥中：不能射擊，手上沒近戰武器就拔出來，再選手法（所有射擊之後才結算）
     const g = view.state.grapples.find((x) => x.a === u.id || x.b === u.id);
     if (g) {
