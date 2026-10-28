@@ -431,7 +431,7 @@ function writeCatalog() {
     '',
     '== 城市戰的規則 ==',
     `傷害屬性與裝甲（三角相剋，±${config.TYPE_MULT * 100}%）：複合裝甲擋動能、怕化學能；反射裝甲擋能量、怕動能；陶瓷裝甲擋化學能、怕能量。機體部位照機型的裝甲，盾牌照盾牌的裝甲；武器和其他裝備不剋也不被剋。耐久與傷害的刻度是舊版的 10 倍（基本數值是 10 的倍數；相剋、高打低算完四捨五入，所以會有 8、13、38 這種零頭）。`,
-    `命中部位看攻擊方向（照目標的朝向：正面 ±${config.FRONT_ARC_DEG}°、背後 ${config.BACK_ARC_DEG}° 以外、其餘側面）：正面打背包權重 ×${config.HIT_DIRECTION_WEIGHT.front.propulsion}、軀幹 ×${config.HIT_DIRECTION_WEIGHT.front.core}；背後打背包 ×${config.HIT_DIRECTION_WEIGHT.back.propulsion}、頭 ×${config.HIT_DIRECTION_WEIGHT.back.sensor}；側面打靠近的那隻手 ×${config.HIT_DIRECTION_WEIGHT.side.near}、另一隻 ×${config.HIT_DIRECTION_WEIGHT.side.far}、背包 ×${config.HIT_DIRECTION_WEIGHT.side.propulsion}。外掛裝備照掛的部位、手上的武器照那隻手。近戰、撞擊照出手那台的位置；從上方打下來的（迫擊砲、垂直飛彈、跳劈）照頂部攻擊表；樓塌、地雷、墜落不看方向。`,
+    `命中部位看攻擊方向（照目標的朝向：正面 ±${config.FRONT_ARC_DEG}°、背後 ${config.BACK_ARC_DEG}° 以外、其餘側面）：正面打背包權重 ×${config.HIT_DIRECTION_WEIGHT.front.propulsion}、軀幹 ×${config.HIT_DIRECTION_WEIGHT.front.core}；背後打背包 ×${config.HIT_DIRECTION_WEIGHT.back.propulsion}、頭 ×${config.HIT_DIRECTION_WEIGHT.back.sensor}；側面打靠近的那隻手 ×${config.HIT_DIRECTION_WEIGHT.side.near}、另一隻 ×${config.HIT_DIRECTION_WEIGHT.side.far}、背包 ×${config.HIT_DIRECTION_WEIGHT.side.propulsion}。外掛裝備照掛的部位、手上的武器照那隻手。近戰、撞擊照出手那台的位置；從上方打下來的（迫擊砲、垂直飛彈、跳劈）照頂部攻擊表；樓塌、地雷、墜落不看方向。從正面打過來的傷害 ×${config.FRONT_DAMAGE_MULT}（正面裝甲最厚；從上方打下來的不算），所以繞到側面、背後打比較划算。`,
     `零距離開火（底板邊緣 ${config.RANGE_LIMITS.r0} 格內）：有 ${config.ZERO_RANGE_SELF_DAMAGE}% 機率傷到自己這件武器 ${config.DAMAGE_SCALE} 點（內建武器傷到所在部位）。`,
     `斬首：旗艦是隊上費用最高的那一台（同分取先排的），被擊墜就輸；配陣容時注意別讓又慢又脆的機體變成旗艦。`,
     `視野：感測距離內、視線沒被建築擋住就看得到（全隊共用）；看得到是雙向的。`,
