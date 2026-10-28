@@ -1,8 +1,9 @@
-import { SCREEN_MAX_SPEED, CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
+import { SCREEN_MAX_SPEED, CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_STEP_DEG, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
-import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
+import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, Obstacle, PartState, PilotDef, UnitState } from './types';
+import { coastManeuver, jumpBlocked } from './jump';
 
 export const chassisOf = (u: { chassisId: string }): ChassisDef => CHASSIS[u.chassisId];
 export const pilotOf = (u: { pilotId: string }): PilotDef => PILOTS[u.pilotId];
@@ -254,11 +255,23 @@ export function cruiseManeuver(u: ManeuverLimits): string {
   return dial.filter((m) => m.kind === 'straight').sort((a, b) => Math.abs(a.speed - u.momentum) - Math.abs(b.speed - u.momentum))[0].id;
 }
 
-export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): string[] {
+export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean, world?: { obstacles: Obstacle[]; settings?: { environment?: string } }): string[] {
   const errors: string[] = [];
   if (plan.defer) {
     if (!pilotOf(u).abilities.includes('ace_move')) errors.push(`${u.label}：駕駛沒有王牌移動能力，不能擱置`);
     else if (grappled) errors.push(`${u.label}：纏鬥中不能擱置移動`);
+    return errors;
+  }
+  // 垂直噴射器：不照機動盤
+  if (plan.jump) {
+    const why = grappled ? '纏鬥中不能噴射' : plan.climb ? '噴射和攀升不能同時用' : jumpBlocked(u, plan, world && { obstacles: world.obstacles, environment: world.settings?.environment });
+    if (why) errors.push(`${u.label}：${why}`);
+    if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
+    else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
+    if (plan.smoke) {
+      const s = screenBlocked(u, { maneuver: coastManeuver(u), smoke: plan.smoke });
+      if (s) errors.push(`${u.label}：${s}`);
+    }
     return errors;
   }
   if (!grappled) {
@@ -285,7 +298,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
   }
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
-  if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
+  if (!wholeDegrees(plan.facingOffset) || Math.abs(plan.facingOffset) > 180) errors.push(`${u.label}：轉身角度要是 −180～180 的整數度`);
   else if (CHASSIS[u.chassisId]?.crew === 'ship' && Math.abs(plan.facingOffset) > SHIP_TURN_MAX_DEG) errors.push(`${u.label}：戰艦原地轉身最多 ${SHIP_TURN_MAX_DEG}°`);
   else if (plan.facingOffset !== 0 && !grappled && parseManeuver(plan.maneuver).kind !== 'hover') errors.push(`${u.label}：只有懸停時可以轉身`);
   return errors;
@@ -358,6 +371,9 @@ export function screenBlocked(u: Gear, plan: Pick<MovePlan, 'maneuver' | 'smoke'
   if (moveSpeed(plan) > SCREEN_MAX_SPEED) return `速度 ${SCREEN_MAX_SPEED} 以下才能放煙幕（太快會衝出煙幕）`;
   return null;
 }
+
+/** 角度（度）是 FACING_STEP_DEG 的整數倍 */
+export const wholeDegrees = (deg: number): boolean => Number.isFinite(deg) && Math.abs(deg / FACING_STEP_DEG - Math.round(deg / FACING_STEP_DEG)) < 1e-6;
 
 export function defaultMove(u: UnitState): MovePlan {
   return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false };

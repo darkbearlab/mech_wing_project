@@ -17,6 +17,7 @@ export * from './match';
 export * from './ecm';
 export * from './demolition';
 export * from './forecast';
+export * from './jump';
 export * from './ai';
 export * from './record';
 export * from './pursuit';

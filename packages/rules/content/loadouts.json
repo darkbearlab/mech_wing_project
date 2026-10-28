@@ -152,6 +152,21 @@
         "mount",
         "torso"
       ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "jump_jet",
+        "mount",
+        "pack"
+      ]
     ]
   ],
   "X-01": [
@@ -232,6 +247,21 @@
         "grapnel",
         "mount",
         "legs"
+      ]
+    ],
+    [
+      [
+        "beam_saber",
+        "right"
+      ],
+      [
+        "machine_gun",
+        "stowed"
+      ],
+      [
+        "jump_jet",
+        "mount",
+        "pack"
       ]
     ]
   ],
@@ -364,6 +394,25 @@
         "smoke_discharger",
         "mount",
         "legs"
+      ]
+    ],
+    [
+      [
+        "bazooka",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "heat_axe",
+        "stowed"
+      ],
+      [
+        "jump_jet",
+        "mount",
+        "pack"
       ]
     ]
   ],

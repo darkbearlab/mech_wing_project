@@ -105,7 +105,7 @@ export class Match {
       if (!moves[u.id] && inGrapple(this.state, u.id)) moves[u.id] = { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false };
       const plan = moves[u.id];
       if (!plan) errors.push(`${u.label}：缺少移動指令`);
-      else errors.push(...validateMove(u, plan, inGrapple(this.state, u.id)));
+      else errors.push(...validateMove(u, plan, inGrapple(this.state, u.id), this.state));
     }
     return this.accept(player, moves, errors, squad);
   }
@@ -116,7 +116,7 @@ export class Match {
       const u = this.state.units.find((x) => x.id === id)!;
       const plan = moves[id];
       if (!plan) errors.push(`${u.label}：缺少王牌移動的指令`);
-      else errors.push(...validateMove(u, { ...plan, defer: false }, false));
+      else errors.push(...validateMove(u, { ...plan, defer: false }, false, this.state));
     }
     return this.accept(player, moves, errors, squad);
   }

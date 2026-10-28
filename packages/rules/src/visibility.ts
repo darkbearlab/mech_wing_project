@@ -73,6 +73,8 @@ export interface StateView {
   obstacles: Obstacle[];
   /** 本回合擦撞、不能執行動作的機體（動作階段才有） */
   bumped: string[];
+  /** 重力圈裡這回合噴射跳躍落地的機體（射擊命中下降） */
+  jumped: string[];
   /** 擱置移動、還在等王牌移動步驟的機體 */
   deferred: string[];
   /** 看得出是氣球的欺敵氣球（自己的全部看得到） */
@@ -232,7 +234,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), inbound: structuredClone(s.inbound ?? []), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), inbound: structuredClone(s.inbound ?? []), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], jumped: (s.turnInfo?.jumped ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */
@@ -292,6 +294,9 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
       case 'buildingShot':
         // 建築被打大家都看得到；看不到的射手不知道是誰
         out.push(known(e.attacker) ? e : { ...e, attacker: '', chance: 0 });
+        break;
+      case 'jump':
+        if (known(e.unit)) out.push(e);
         break;
       case 'smoke':
         // 煙霧大家都看得到；看不到是誰放的

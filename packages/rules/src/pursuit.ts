@@ -76,7 +76,7 @@ export function validatePursuits(state: GameState, player: number, plans: Player
 export function runPursuits(ctx: Ctx, plans: Record<string, PursuitPlan>): Set<string> {
   const { state } = ctx;
   const info = state.turnInfo;
-  const turn: TurnInfo = { stance: info?.stance ?? {}, velocity: info?.velocity ?? {}, dazzled: new Set() };
+  const turn: TurnInfo = { stance: info?.stance ?? {}, velocity: info?.velocity ?? {}, dazzled: new Set(), jumped: new Set(info?.jumped ?? []) };
   const fired = new Set<string>();
   let pending = Object.entries(plans).map(([id, plan]) => ({ u: state.units.find((x) => x.id === id)!, plan }));
 

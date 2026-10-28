@@ -119,7 +119,8 @@ describe('自由部署', () => {
     expect(m.viewFor(0).state.units.some((u) => u.owner === 1)).toBe(false);
     const u = s.units.find((x) => x.owner === 0)!;
     expect(validateDeploy(s, 0, { [u.id]: { x: 12, y: 12, facing: Math.PI / 2, momentum: 0 } }).join()).toMatch(/部署區/);
-    expect(validateDeploy(s, 0, { [u.id]: { x: 12, y: 3, facing: 0.3, momentum: 0 } }).join()).toMatch(/45°/);
+    expect(validateDeploy(s, 0, { [u.id]: { x: 12, y: 3, facing: 0.3, momentum: 0 } }).join()).toMatch(/整數度/);
+    expect(validateDeploy(s, 0, { [u.id]: { x: 12, y: 3, facing: (37 * Math.PI) / 180, momentum: 0 } })).toEqual([]);
     const rng = new Rng(1);
     for (const p of [0, 1] as const) expect(submitStep(m, { seat: p, phase: 'deploy', orders: aiOrders(m.viewFor(p), rng) })).toEqual([]);
     expect(m.phase).toBe('move');
