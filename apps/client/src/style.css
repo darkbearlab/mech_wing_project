@@ -139,6 +139,20 @@ select, input { background: #0f1419; color: var(--text); border: 1px solid var(-
 .luAdd { padding-top: 6px; }
 button.big { font-size: 15px; padding: 6px 16px; }
 @media (max-width: 720px) { .luCols { grid-template-columns: 1fr; } }
+/* 開房：小隊席位表 */
+.luSeats { margin: 12px 12px 0; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+.luSeats .luHead select { margin-left: 2px; }
+.luSeat { display: grid; grid-template-columns: 44px 110px minmax(0, 1fr) 110px; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
+.luSeat > span:last-child { text-align: right; }
+.luSeat0 { color: var(--a); }
+.luSeat1 { color: var(--b); }
+.tag.me, .tag.ai, .tag.ok, .tag.wait { font-size: 12px; padding: 1px 7px; border-radius: 4px; }
+.tag.me { background: rgba(74,163,255,0.18); color: var(--a); }
+.tag.ai { background: rgba(175,169,236,0.18); color: #b9b3f0; }
+.tag.ok { background: rgba(127,209,139,0.16); color: var(--ok); }
+.tag.wait { background: rgba(255,207,74,0.14); color: var(--accent); }
+.luSeat button { font-size: 12px; padding: 1px 8px; }
+@media (max-width: 720px) { .luSeat { grid-template-columns: 40px 80px minmax(0, 1fr); } .luSeat > span:last-child { display: none; } }
 
 /* 擱置移動：機動盤與姿態淡掉、不能點 */
 .ctrlRow.deferred button:not([data-defer]), .ctrlRow.deferred input, .ctrlRow.deferred select, .ctrlRow.deferred .sec { opacity: 0.3; pointer-events: none; }

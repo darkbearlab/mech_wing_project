@@ -39,4 +39,4 @@ export type ServerMessage =
   | { t: 'resolved'; events: GameEvent[] }
   | { t: 'error'; errors: string[] }
   /** 開房模式：還沒開打，誰已經加入、房主選的條件 */
-  | { t: 'lobby'; joined: [boolean, boolean]; terms: RoomTerms | null; connected: [boolean, boolean]; game: number; seats?: SeatInfo[] };
+  | { t: 'lobby'; joined: [boolean, boolean]; terms: RoomTerms | null; connected: [boolean, boolean]; game: number; seats?: SeatInfo[]; mates?: Record<string, RosterEntry[]> };

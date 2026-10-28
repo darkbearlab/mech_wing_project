@@ -6,7 +6,7 @@
 import { aiOrders } from './ai';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { Match, ordersBySquad, squadsOf, type Orders } from './match';
-import { lineupProblems, type BattleSettings } from './objectives';
+import { lineupProblems, squadShare, type BattleSettings } from './objectives';
 import type { ClientMessage, RoomTerms, SeatInfo, ServerMessage } from './protocol';
 import { Rng } from './rng';
 import { createGame } from './setup';
@@ -188,11 +188,30 @@ export class Room {
       for (const [k, r] of Object.entries(terms.ai ?? {})) {
         const s = parseSeat(k);
         if (s === 'watch' || !knownRoster(r)) return [`電腦小隊 ${k} 的隊伍不正確`];
+        const bad = lineupProblems(r, terms.scale, terms.settings, squadShare(terms.scale, squadCounts(terms)[s.side]));
+        if (squadCounts(terms)[s.side] > 1 && bad.length) return bad.map((x) => `電腦小隊 ${k}：${x}`);
         this.aiSeats.add(seatKey(s.side, s.squad));
         this.lobby.rosters[seatKey(s.side, s.squad)] = r;
       }
+      // 比房主早加入的人：照新的條件重新檢查，席位不在了或超出分到的份就請他重選
+      const valid = new Set(this.lobbySeats().map((x) => seatKey(x.side, x.squad)));
+      for (const k of Object.keys(this.lobby.rosters)) {
+        if (k === '0' || this.aiSeats.has(k)) continue;
+        const ks = parseSeat(k) as Seat;
+        const n = squadCounts(terms)[ks.side];
+        const bad = !valid.has(k) ? [`這一場沒有 ${k} 這個席位`] : n > 1 ? lineupProblems(this.lobby.rosters[k], terms.scale, terms.settings, squadShare(terms.scale, n)) : [];
+        if (!bad.length) continue;
+        delete this.lobby.rosters[k];
+        send(this.sockets.get(k) ?? null, { t: 'error', errors: bad.map((x) => `陣容不符合房主的條件：${x}`) });
+      }
     } else if (this.lobby.terms && !this.lobbySeats().some((s) => seatKey(s.side, s.squad) === key)) return [`這一場沒有 ${key} 這個席位`];
     if (this.aiSeats.has(key)) return ['這個小隊由電腦指揮'];
+    // 分小隊時，預算與台數平均分給各隊，加入時就先檢查自己這一份
+    if (this.lobby.terms && squadCounts(this.lobby.terms)[seat.side] > 1) {
+      const t = this.lobby.terms;
+      const bad = lineupProblems(roster, t.scale, t.settings, squadShare(t.scale, squadCounts(t)[seat.side]));
+      if (bad.length) return bad.map((x) => `陣容不符合房主的條件：${x}`);
+    }
     this.lobby.rosters[key] = roster;
     const t = this.lobby.terms;
     const seats = this.lobbySeats();
@@ -271,18 +290,31 @@ export class Room {
     const seats = this.seatInfo();
     const connected = ([0, 1] as PlayerId[]).map((p) => seats.some((s) => s.side === p && (s.connected || s.ai))) as [boolean, boolean];
     const multi = seats.length > 2;
-    const lobby: ServerMessage = {
+    // 大廳：房主還沒定小隊數時先連進來的小隊席位也列出來（不算進到齊與否）
+    const extra: SeatInfo[] = this.match
+      ? []
+      : [...this.sockets.keys()]
+          .filter((k) => !seats.some((s) => s.key === k))
+          .map((k) => {
+            const s = parseSeat(k) as Seat;
+            return { key: k, side: s.side, squad: s.squad, connected: true, joined: !!this.lobby.rosters[k], ai: false };
+          });
+    // 電腦小隊的隊伍只給同一方看
+    const terms = this.lobby.terms && { ...this.lobby.terms, ai: undefined };
+    const lobbyFor = (side: PlayerId | null, self: string | null): ServerMessage => ({
       t: 'lobby',
       joined: ([0, 1] as PlayerId[]).map((p) => seats.filter((s) => s.side === p).every((s) => s.joined)) as [boolean, boolean],
-      terms: this.lobby.terms,
+      terms,
       connected,
       game: this.game,
-      ...(multi ? { seats } : {}),
-    };
+      seats: [...seats, ...extra].sort((a, b) => a.side - b.side || a.squad - b.squad),
+      ...(side === null ? {} : { mates: Object.fromEntries(Object.entries(this.lobby.rosters).filter(([k]) => k !== self && (parseSeat(k) as Seat).side === side)) }),
+    });
     for (const [key, ws] of this.sockets) {
       const seat = parseSeat(key) as Seat;
-      send(ws, this.match ? { t: 'state', view: this.match.viewFor(seat.side, this.squadFor(seat)), connected, deadline: this.deadline, game: this.game, ...(multi ? { seats } : {}) } : lobby);
+      send(ws, this.match ? { t: 'state', view: this.match.viewFor(seat.side, this.squadFor(seat)), connected, deadline: this.deadline, game: this.game, ...(multi ? { seats } : {}) } : lobbyFor(seat.side, key));
     }
+    const lobby = lobbyFor(null, null);
     for (const w of this.watchers) send(w, this.match ? { t: 'state', view: this.match.spectatorView(), connected, deadline: this.deadline, game: this.game, ...(multi ? { seats } : {}) } : lobby);
   }
 

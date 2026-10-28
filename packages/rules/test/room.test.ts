@@ -88,4 +88,25 @@ describe('房間', () => {
     playOut(room, [[host, ch], [mate, cm], [guest, cg]], new Rng(2));
     expect(room.match!.phase).toBe('over');
   }, 30_000);
+
+  it('開房分小隊：預算與台數平均分，超出這一隊的份就退回；電腦小隊的隊伍不給對手看', () => {
+    const room = new Room();
+    const host = socket();
+    const guest = socket();
+    const ch = room.connect(host.ws, '0');
+    const cg = room.connect(guest.ws, '1');
+    const [r0, rb] = pickRosters(6);
+    const ra = [...r0, ...r0];
+    // 標準 85 分、6 台分兩隊：每隊 42 分、3 台
+    const terms = { settings: { ...DEFAULT_SETTINGS, decapitation: false }, scale: 'standard', squads: [2, 1], ai: { '0-1': ra.slice(3, 4) } };
+    ch.message(JSON.stringify({ t: 'join', roster: ra.slice(0, 4), terms }));
+    expect(host.got.some((m) => m.t === 'error' && m.errors.some((e) => e.includes('這一隊最多 3 台')))).toBe(true);
+    ch.message(JSON.stringify({ t: 'join', roster: ra.slice(0, 1), terms }));
+    const lobby = guest.last() as Extract<ServerMessage, { t: 'lobby' }>;
+    expect(lobby.terms?.ai).toBeUndefined();
+    expect(lobby.mates).toEqual({});
+    expect(Object.keys((host.last() as Extract<ServerMessage, { t: 'lobby' }>).mates ?? {})).toEqual(['0-1']);
+    cg.message(JSON.stringify({ t: 'join', roster: rb.slice(0, 2) }));
+    expect(room.match).not.toBeNull();
+  });
 });
