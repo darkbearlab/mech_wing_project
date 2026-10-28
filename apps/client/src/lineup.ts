@@ -34,7 +34,7 @@ const SETTINGS_KEY = 'mech-wing-settings';
 const SIDES = ['A', 'B'] as const;
 const OPPONENTS: [Opponent, string][] = [['ai', '對戰電腦'], ['hotseat', '同機輪流'], ['aivai', '電腦對戰電腦（觀戰）']];
 const SIDE_ROLE: Record<Opponent, [string, string]> = { ai: ['你', '電腦'], aiA: ['電腦', '你'], hotseat: ['玩家一', '玩家二'], aivai: ['電腦', '電腦'] };
-const TURN_LIMITS = [8, 12, 16];
+const TURN_LIMITS = [8, 12, 16, 25];
 const CONTROL_TARGET = 6;
 
 /** 出擊準備的選項：規模加上勝利條件（擊墜分門檻跟著規模） */
@@ -55,7 +55,7 @@ export interface LineupSettings {
   /** 開房：交給電腦指揮的小隊席位 */
   aiSeats?: string[];
 }
-const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed', environment: 'space', terrain: 'asteroid' };
+const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 25, deploy: 'fixed', environment: 'space', terrain: 'asteroid' };
 const MAX_SQUADS = 4;
 
 /** 席位名稱（0、0-1…）的一方與小隊 */

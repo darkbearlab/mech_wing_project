@@ -32,6 +32,21 @@ function turn(m: Match, actions: Parameters<Match['submitActions']>[1] = {}, mov
 }
 
 describe('導引武器', () => {
+  it('標定最先結算：徵招兵這回合標定，老兵同一步驟就能用導引武器打', () => {
+    const st = setup();
+    st.units[0].pilotId = 'veteran';
+    st.units[1].pilotId = 'recruit';
+    const m = new Match(4, st);
+    const [g, s] = m.state.units;
+    turn(m, { [s.id]: { action: { type: 'mark', weapon: s.equipment.find((e) => e.defId === 'designator')!.id } }, [g.id]: { action: { type: 'shoot', weapon: g.equipment.find((e) => e.defId === 'mortar')!.id, target: m.state.units[2].id } } });
+    const events = m.turnResolvedEvents;
+    const markAt = events.findIndex((e) => e.type === 'mark');
+    const shotAt = events.findIndex((e) => e.type === 'shot' || e.type === 'blast');
+    expect(markAt).toBeGreaterThanOrEqual(0);
+    expect(shotAt).toBeGreaterThan(markAt);
+    expect(events.some((e) => e.type === 'actionFail' && e.unit === g.id)).toBe(false);
+  });
+
   it('只能打被標定的目標', () => {
     const st = setup();
     expect(chance(st, 'mortar')).toBeNull();

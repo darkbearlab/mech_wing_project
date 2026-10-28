@@ -3,7 +3,7 @@
 export const MAP_SIZE = 24;
 export const BASE_RADIUS = 0.5;
 export const MOVE_STEPS = 40;
-export const TURN_LIMIT = 12;
+export const TURN_LIMIT = 25;
 
 // 地形（以地圖中心點對稱產生）
 export const ROCK_PAIRS = 1;

@@ -540,7 +540,7 @@ describe('整場模擬', () => {
         expect(JSON.stringify(again.events)).toBe(JSON.stringify(r.events));
         log.push(JSON.stringify(r.events.length));
         st = r.state;
-        expect(st.turn).toBeLessThanOrEqual(12);
+        expect(st.turn).toBeLessThanOrEqual(C.TURN_LIMIT);
       }
     }
     // 整場模擬比較慢（CI 的機器更慢）
@@ -564,7 +564,7 @@ describe('勝負與 AI', () => {
       const m = new Match(seed);
       const rng = new Rng(seed * 13);
       let guard = 0;
-      while (m.phase !== 'over' && guard++ < 40) {
+      while (m.phase !== 'over' && guard++ < 150) {
         const before = m.resolvedCount;
         for (const p of [0, 1] as const) {
           const v = m.viewFor(p);
