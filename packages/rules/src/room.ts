@@ -7,7 +7,7 @@ import { aiOrders } from './ai';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { Match, ordersBySquad, squadsOf, type Orders } from './match';
 import { contentVersion } from './content';
-import { MAX_NOTE_CHARS, type BattleRecord, type BattleStep } from './record';
+import { MAX_NOTE_CHARS, replayRecord, submitStep, type BattleRecord, type BattleStep } from './record';
 import { lineupProblems, squadShare, type BattleSettings } from './objectives';
 import type { ClientMessage, RoomTerms, SeatInfo, ServerMessage } from './protocol';
 import { Rng } from './rng';
@@ -79,9 +79,40 @@ export class Room {
   constructor(
     private readonly turnSeconds = 0,
     private readonly log: (text: string) => void = () => {},
-    private readonly onRecord: (rec: BattleRecord) => void = () => {},
+    /** inProgress：還在打（每結算一次存的進度）；false 是結束或中途放棄的最終版本 */
+    private readonly onRecord: (rec: BattleRecord, inProgress: boolean) => void = () => {},
     private readonly name?: string,
   ) {}
+
+  /**
+   * 房間重啟（伺服器回收了房間）後接著打：照紀錄重算到最後一次結算。
+   * 最後一次結算之後才送出的指令丟掉（雙方重送就好）。重算對不上就不接（回傳 false）
+   */
+  restore(rec: BattleRecord): boolean {
+    // 找出最後一次結算是第幾步
+    const probe = new Match(rec.seed, createGame(rec.seed, rec.rosters, rec.settings));
+    let resolved = 0;
+    for (const [i, s] of rec.steps.entries()) {
+      const before = probe.resolvedCount;
+      if (submitStep(probe, s).length) break;
+      if (probe.resolvedCount !== before) resolved = i + 1;
+    }
+    const kept: BattleRecord = { ...rec, steps: rec.steps.slice(0, resolved) };
+    const { match, errors } = replayRecord(kept);
+    if (errors.length) {
+      this.log(`restore failed: ${errors.join('；')}`);
+      return false;
+    }
+    this.match = match;
+    this.record = kept;
+    this.recordDone = match.phase === 'over';
+    this.aiSeats = new Set(rec.aiSeats ?? []);
+    this.aiRng = new Rng((rec.seed ^ 0x5a5a5a5a ^ resolved) >>> 0);
+    this.game++;
+    this.runAi();
+    this.broadcastState();
+    return true;
+  }
 
   /** 送出一步並記進紀錄 */
   private submit(side: PlayerId, squad: number | undefined, phase: TurnPhase, orders: BattleStep['orders']): string[] {
@@ -105,7 +136,7 @@ export class Room {
   }
 
   /** 對戰結束、或打到一半重開：把紀錄交出去（結束後再有留言就再交一次） */
-  private saveRecord(force = false) {
+  private saveRecord(force = false, abandoned = false) {
     const m = this.match;
     if (!m || !this.record || !this.record.steps.length) return;
     const over = m.phase === 'over';
@@ -115,7 +146,7 @@ export class Room {
     this.record.winner = m.state.winner;
     this.record.turns = m.state.turn;
     try {
-      this.onRecord(structuredClone(this.record));
+      this.onRecord(structuredClone(this.record), !over && !abandoned);
     } catch (e) {
       this.log(`save record failed: ${(e as Error).message}`);
     }
@@ -147,7 +178,7 @@ export class Room {
   /** 開一場：rosters 的 squad 決定小隊；ai 是電腦指揮的席位 */
   private start(rosters: [RosterEntry[], RosterEntry[]], settings: BattleSettings | undefined, ai: string[]) {
     // 上一場打到一半：先存起來
-    if (this.match && this.match.phase !== 'over') this.saveRecord(true);
+    if (this.match && this.match.phase !== 'over') this.saveRecord(true, true);
     const seed = seedOf();
     this.match = new Match(seed, createGame(seed, rosters, settings));
     this.recordDone = false;
@@ -158,6 +189,7 @@ export class Room {
       rosters: structuredClone(rosters),
       ...(settings ? { settings: structuredClone(settings) } : {}),
       seats: [ai.some((k) => k.startsWith('0')) ? 'ai' : 'human', ai.some((k) => k.startsWith('1')) ? 'ai' : 'human'],
+      ...(this.aiSeats.size ? { aiSeats: [...this.aiSeats] } : {}),
       ...(this.name ? { room: this.name } : {}),
       startedAt: new Date().toISOString(),
       steps: [],
@@ -184,7 +216,7 @@ export class Room {
       try {
         if (msg.t === 'setup') this.start(msg.rosters, msg.settings, msg.ai ?? []);
         else {
-          if (this.match && this.match.phase !== 'over') this.saveRecord(true);
+          if (this.match && this.match.phase !== 'over') this.saveRecord(true, true);
           this.match = null;
           this.lobby.rosters = {};
           this.aiSeats.clear();
@@ -394,7 +426,9 @@ export class Room {
     }
     if (this.match.resolvedCount !== prevResolved || this.match.phase !== prevPhase) this.armTimer();
     this.broadcastState();
-    this.saveRecord();
+    // 每結算一次也存一次（伺服器的房間可能被回收：打到一半的紀錄才不會不見，也能接著打）；結束時再存最終的
+    if (this.match.resolvedCount !== prevResolved && this.match.phase !== 'over') this.saveRecord(true);
+    else this.saveRecord();
   }
 
   private armTimer() {

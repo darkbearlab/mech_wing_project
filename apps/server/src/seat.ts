@@ -114,7 +114,14 @@ const side = (p: number) => (p === 0 ? 'A' : 'B');
 let view: PlayerView | null = null;
 let lastPrompt = '';
 /** 第幾次提示（給 seat-wait 判斷有沒有新的一步） */
-let prompts = 0;
+// 座位程式重啟時接著上次的編號（等提示的人才不會一直等一個已經用過的號碼）
+let prompts = (() => {
+  try {
+    return (JSON.parse(readFileSync(resolve(dir, 'prompt.json'), 'utf-8')) as { n: number }).n ?? 0;
+  } catch {
+    return 0;
+  }
+})();
 /** 印出提示，同時記到 prompt.json */
 function prompt(line: string) {
   prompts++;
@@ -464,7 +471,7 @@ function writeCatalog() {
   out.push(
     '',
     '== 回合流程 ==',
-    `每回合依序：①移動（雙方同時暗選、一起結算）→②王牌移動（只有選了擱置的王牌駕駛：看完其他人的移動才動；技能低的一批先動）→③追擊（只有咬住敵機背後的機體才會出現這一步）→④行動（射擊、標定、突進等，每台一個動作）。沒有要下指令的步驟會自動跳過。`,
+    `每回合依序：①移動（雙方同時暗選、一起結算）→②王牌移動（只有能力列表裡有 ace_move 的駕駛選了擱置才有這一步（駕駛名稱叫「王牌」的不一定有，看能力列表）：看完其他人的移動才動；技能低的一批先動）→③追擊（只有咬住敵機背後的機體才會出現這一步）→④行動（射擊、標定、突進等，每台一個動作）。沒有要下指令的步驟會自動跳過。`,
     `追擊：移動結算後，射擊方在目標背後 ±${config.PURSUIT_ARC_DEG}°、而且自己面向目標 ±${config.PURSUIT_ARC_DEG}°，距離在${['零距離', '近距離', '中距離'][config.PURSUIT_MAX_BAND]}以內，就可以用一件射擊武器多開一槍（不算這回合的動作，行動步驟照常行動）。這是繞到背後的獎勵；腳斷了動不了的機體也能追擊，只要有敵機停在它面前、背對著它。追擊用 {"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}，null 是放棄；可以選的會列在 view.txt 的「追擊選項」。最靠後咬住的先結算。`,
     '',
     '== 城市戰的規則 ==',
@@ -552,6 +559,8 @@ function connect() {
     }
     console.log('DISCONNECTED，1 秒後重連');
     reconnected = true;
+    // 重連後一律重新提示目前的畫面（伺服器的房間可能被重設回大廳）
+    lastPrompt = '';
     setTimeout(connect, 1000);
   });
   ws.on('error', () => {});

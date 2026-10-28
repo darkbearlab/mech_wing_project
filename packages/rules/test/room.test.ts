@@ -45,7 +45,7 @@ describe('房間', () => {
     expect(room.match!.phase).toBe('over');
   }, 30_000);
 
-  it('對戰紀錄：結束時存下種子、陣容、每一步指令與留言；照紀錄重播結果一樣，結束後的留言會再存一次', () => {
+  it('對戰紀錄：每回合與結束時存下種子、陣容、每一步指令與留言；照紀錄重播結果一樣，結束後的留言會再存一次', () => {
     const saved: BattleRecord[] = [];
     const room = new Room(0, () => {}, (r) => saved.push(r), 'rec-test');
     const a = socket();
@@ -58,16 +58,47 @@ describe('房間', () => {
     ca.message(JSON.stringify({ ...JSON.parse(msgFor(v, aiOrders(v, new Rng(3)) as Record<string, unknown>)), note: '先觀察對手' }));
     playOut(room, [[a, ca], [b, cb]], new Rng(9));
     expect(room.match!.phase).toBe('over');
-    expect(saved).toHaveLength(1);
-    const rec = saved[0];
+    // 每回合存一次進度，最後一份是結束時的
+    expect(saved.length).toBeGreaterThan(1);
+    expect(saved.slice(0, -1).every((r) => r.winner === null)).toBe(true);
+    const rec = saved.at(-1)!;
     expect(rec.room).toBe('rec-test');
     expect(rec.notes).toEqual([{ seat: 0, turn: 1, phase: v.phase, text: '先觀察對手' }]);
     const r = replayRecord(rec);
     expect(r.errors).toEqual([]);
     expect(r.match.state.winner).toBe(room.match!.state.winner);
+    const before = saved.length;
     cb.message(JSON.stringify({ t: 'note', text: '打得不錯' }));
-    expect(saved).toHaveLength(2);
-    expect(saved[1].notes!.at(-1)).toMatchObject({ seat: 1, phase: 'over', text: '打得不錯' });
+    expect(saved).toHaveLength(before + 1);
+    expect(saved.at(-1)!.notes!.at(-1)).toMatchObject({ seat: 1, phase: 'over', text: '打得不錯' });
+  }, 30_000);
+
+  it('房間重啟：照存下的進度接著打到結束', () => {
+    const saved: { rec: BattleRecord; live: boolean }[] = [];
+    const room = new Room(0, () => {}, (rec, live) => saved.push({ rec, live }), 'restore-test');
+    const a = socket();
+    const b = socket();
+    const ca = room.connect(a.ws, 0);
+    const cb = room.connect(b.ws, '1');
+    ca.message(JSON.stringify({ t: 'setup', rosters: pickRosters(6), settings: DEFAULT_SETTINGS }));
+    // 打幾步就「重啟」
+    const rng = new Rng(4);
+    for (let i = 0; i < 9; i++)
+      for (const [s, c] of [[a, ca], [b, cb]] as const) {
+        const m = s.last() as Extract<ServerMessage, { t: 'state' }>;
+        if (!m.view.submitted[m.view.you]) c.message(msgFor(m.view, aiOrders(m.view, rng) as Record<string, unknown>));
+      }
+    const live = saved.filter((x) => x.live).at(-1)!.rec;
+    expect(live.steps.length).toBeGreaterThan(0);
+    const room2 = new Room(0, () => {}, () => {}, 'restore-test');
+    expect(room2.restore(live)).toBe(true);
+    expect(room2.match!.resolvedCount).toBeGreaterThan(0);
+    const a2 = socket();
+    const b2 = socket();
+    const ca2 = room2.connect(a2.ws, 0);
+    const cb2 = room2.connect(b2.ws, '1');
+    playOut(room2, [[a2, ca2], [b2, cb2]], new Rng(5));
+    expect(room2.match!.phase).toBe('over');
   }, 30_000);
 
   it('一方分幾個小隊：人指揮自己的小隊，其他小隊交給電腦', () => {
