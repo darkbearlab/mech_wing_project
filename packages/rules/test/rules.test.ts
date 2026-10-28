@@ -725,7 +725,7 @@ describe('不需要準備的武器', () => {
     expect(hitChance({ ...base, weapon: EQUIPMENT.shoulder_cannon })).toBeNull();
   });
 
-  it('彈數：飛彈莢艙打兩次就沒彈', () => {
+  it('彈數：飛彈莢艙打完彈數就沒彈', () => {
     const st = makeState([
       { entry: x04, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 12, y: 10, facingDeg: 180 },
@@ -734,8 +734,9 @@ describe('不需要準備的武器', () => {
     const pod = byDef(st.units[0], 'missile_pod').id;
     // 飛彈只能打被標定的目標
     st.units[1].mark = { by: st.units[2].id };
+    const salvos = EQUIPMENT.missile_pod.ammo! / EQUIPMENT.missile_pod.shots!;
     let m = shootTurn(st, pod);
-    m = shootTurn(m.state, pod);
+    for (let i = 1; i < salvos; i++) m = shootTurn(m.state, pod);
     expect(m.state.units[0].equipment.find((e) => e.id === pod)!.ammo).toBe(0);
     m = shootTurn(m.state, pod);
     expect(m.eventsFor(0).some((e) => e.type === 'actionFail' && e.reason.includes('彈藥耗盡'))).toBe(true);
