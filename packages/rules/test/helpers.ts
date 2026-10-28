@@ -16,3 +16,16 @@ export type UnitPlan = MovePlan & ActionPlan;
 export function plan(p: Partial<UnitPlan> & { maneuver: string }): UnitPlan {
   return { stance: 'shoot', facingOffset: 0, limiter: false, action: { type: 'none' }, ...p };
 }
+
+import fighterJson from '../content/archive/cf-01.json';
+import { DEFAULT_CONTENT, useContent, type ContentPack } from '../src/content';
+
+/** 內建資料加上封存的 CF-01 核心戰機（戰機規則的測試用） */
+export function fighterPack(): ContentPack {
+  const f = fighterJson as unknown as Pick<ContentPack, 'chassis' | 'equipment' | 'loadouts'>;
+  const pack = structuredClone(DEFAULT_CONTENT);
+  return { ...pack, version: 'test-fighter', chassis: { ...pack.chassis, ...structuredClone(f.chassis) }, equipment: { ...pack.equipment, ...structuredClone(f.equipment) }, loadouts: { ...pack.loadouts, ...structuredClone(f.loadouts) } };
+}
+
+/** 換成有 CF-01 的資料（測完記得 useContent(DEFAULT_CONTENT)） */
+export const withFighter = (): void => useContent(fighterPack());

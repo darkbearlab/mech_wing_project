@@ -182,8 +182,8 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, raw: number): number {
   if (u.status === 'destroyed') return 0;
   let part = u.parts[partId];
   if (part.kind === 'body' && part.destroyed) part = u.parts[corePart(u)];
-  // 打到持盾那隻手的傷害先由盾牌承受
-  const shieldHand = handOfPart(u, part.id);
+  // 打到持盾那隻手的傷害先由盾牌承受（從上方打下來的不會，盾是擋在前面的）
+  const shieldHand = ctx.topAttack ? null : handOfPart(u, part.id);
   if (shieldHand) {
     const held = heldItem(u, shieldHand);
     if (held && equipDef(held).kind === 'shield') part = u.parts[held.id];

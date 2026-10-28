@@ -23,7 +23,7 @@ import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
 import type { RosterEntry } from '../src/data';
 import { availableManeuvers, defaultMove, equipAlive, hasFreeHand, heldItem, maneuverCost, readyRanged, validateMove } from '../src/unit';
-import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
+import { fighterPack, makeState, plan, rifleX00, saberX00, withFighter, type UnitPlan } from './helpers';
 
 // 這裡測的是基本數字：裝甲屬性相剋先拿掉（相剋另外在 armor.test.ts 測）
 beforeEach(() => {
@@ -821,6 +821,9 @@ describe('機動盤速度', () => {
 
 describe('部位配置與戰機', () => {
   const fighter: RosterEntry = { chassis: 'CF-01', pilot: 'veteran', equipment: [] };
+  // CF-01 已經封存：測戰機規則時再加回來
+  beforeEach(withFighter);
+  afterEach(() => useContent(DEFAULT_CONTENT));
 
   it('戰機：有最低速度，不能懸停或後退，開場動能不低於最低速度', () => {
     const st = makeState([{ entry: fighter, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
@@ -870,7 +873,7 @@ describe('部位配置與戰機', () => {
   });
 
   it('檢查：沒有手不能拿手持武器、一定要有核心', () => {
-    const pack = structuredClone(DEFAULT_CONTENT);
+    const pack = fighterPack();
     pack.loadouts['CF-01'] = [[['beam_rifle', 'right']]];
     pack.chassis['X-00'].parts.torso.role = null;
     const errs = validateContent(pack);

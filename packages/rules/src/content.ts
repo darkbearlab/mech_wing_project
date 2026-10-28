@@ -32,7 +32,7 @@ export function scaleContent(pack: ContentPack): ContentPack {
   return p;
 }
 
-export const BUILTIN_VERSION = 'builtin-8';
+export const BUILTIN_VERSION = 'builtin-9';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;

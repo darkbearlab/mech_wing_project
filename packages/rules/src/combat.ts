@@ -238,8 +238,9 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     hits++;
     const crit = roll <= h.chance - 100;
     if (crit) crits++;
-    // 高打低（高出 HIGH_GROUND_DAMAGE_FROM 層以上）：每發命中傷害再加（爆擊加倍之後才加）
-    const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1) + (h.high >= C.HIGH_GROUND_DAMAGE_FROM ? C.HIGH_GROUND_DAMAGE : 0);
+    // 高打低（高出 HIGH_GROUND_DAMAGE_FROM 層以上）：每發命中傷害 +HIGH_GROUND_DAMAGE_PCT（爆擊加倍之後才算）
+    const base = (def.damage ?? C.DAMAGE_SCALE) * (crit ? C.CRIT_MULTIPLIER : 1);
+    const dmg = h.high >= C.HIGH_GROUND_DAMAGE_FROM ? Math.round(base * (1 + C.HIGH_GROUND_DAMAGE_PCT)) : base;
     const victim = pool.length > 1 ? ctx.rng.pickWeighted(pool, (u) => bodyWeight(u, u === target ? aimBonus : 0)) : target;
     if (victim !== target) strays++;
     const shield = indirect ? undefined : coveringShield(victim, attacker.pos)?.id;
