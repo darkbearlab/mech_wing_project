@@ -151,6 +151,8 @@ describe('感應武器', () => {
     let lost = 0;
     for (let k = 0; k < 120 && st.units[0].equipment.find((e) => e.id === id)!.pod; k++) {
       const [m, gunner] = st.units;
+      // 一直打到炮群全滅：彈藥不限
+      delete gunner.equipment[0].ammo;
       const r = resolveTurn(st, [{ [m.id]: hover() }, { [gunner.id]: hover() }], [{}, { [gunner.id]: { action: { type: 'shoot', weapon: gunner.equipment[0].id, target: id } } }]);
       lost += of(r.events, 'podHit').length;
       st = r.state;

@@ -14,6 +14,8 @@ export interface BattleSettings {
   goal?: boolean;
   /** 據點：每回合結束時單獨佔住的據點各得 1 分，先到這個分數獲勝；沒設定就不用 */
   control?: number;
+  /** 補給點：雙方後方各一個，停在自己的補給點上用掉動作就補滿彈藥與推進劑 */
+  supply?: boolean;
   /** 回合上限 */
   turnLimit: number;
   /** 部署：fixed 照順序排開；free 開戰前各自在部署區暗中擺好、一起公布 */
@@ -112,6 +114,9 @@ export const CONTROL_RADIUS = 1.5;
 
 /** p 方部署區裡的達陣圈（對方要攻佔的地方） */
 export const goalZone = (p: PlayerId): Vec => ({ x: C.MAP_SIZE / 2, y: p === 0 ? 2.5 : C.MAP_SIZE - 2.5 });
+/** p 方的補給點：自己部署區靠一側（雙方以地圖中心點對稱，和達陣圈錯開） */
+export const supplyPoint = (p: PlayerId): Vec => (p === 0 ? { x: C.MAP_SIZE * 0.25, y: 3 } : { x: C.MAP_SIZE * 0.75, y: C.MAP_SIZE - 3 });
+
 /** 據點：中線上三個 */
 export const controlPoints = (): Vec[] => [0.25, 0.5, 0.75].map((f) => ({ x: C.MAP_SIZE * f, y: C.MAP_SIZE / 2 }));
 

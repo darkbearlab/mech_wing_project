@@ -87,6 +87,7 @@ import {
   CONTROL_RADIUS,
   GOAL_RADIUS,
   controlPoints,
+  supplyPoint,
   goalZone,
   type Obstacle,
   type PlayerId,
@@ -1721,6 +1722,19 @@ function drawObjectives() {
       label(z.x, z.y, `${SIDE(attacker)} 方達陣點`, color(attacker, 0.9));
     }
   }
+  if (set.supply) {
+    for (const p of [0, 1] as PlayerId[]) {
+      const c = supplyPoint(p);
+      g.strokeStyle = color(p, 0.85);
+      g.fillStyle = color(p, 0.12);
+      g.lineWidth = 2;
+      ringWorld(c.x, c.y, config.SUPPLY_RADIUS, 0, 0, Math.PI * 2, 40);
+      g.fill();
+      g.stroke();
+      g.lineWidth = 1;
+      label(c.x, c.y, `${SIDE(p)} 方補給點`, color(p, 0.9));
+    }
+  }
   if (set.control) {
     for (const c of controlPoints()) {
       const sides = new Set(view!.state.units.filter((u) => u.status === 'active' && !u.hidden && Math.hypot(u.pos.x - c.x, u.pos.y - c.y) <= CONTROL_RADIUS).map((u) => u.owner));
@@ -2096,7 +2110,7 @@ function orderDone(u: UnitView): boolean {
   if (view!.phase !== 'action') return true;
   const a = actionDrafts[u.id]?.action;
   if (placed(a)) return Number.isFinite(a.at.x);
-  return !a || a.type === 'none' || a.type === 'mark' || a.type === 'deploy' || !!a.target;
+  return !a || a.type === 'none' || a.type === 'mark' || a.type === 'deploy' || a.type === 'resupply' || !!a.target;
 }
 
 function unitStatusText(u: UnitView): [string, boolean] {
@@ -2202,6 +2216,7 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'barricade') return Number.isFinite(a.at.x) ? BARRICADE_TEXT : `點地圖選路障的位置（${config.BARRICADE_RANGE} 格內；會橫擋在你往那裡的方向上）。`;
   if (a.type === 'mark') return markText(u);
   if (a.type === 'deploy') return DEPLOY_TEXT;
+  if (a.type === 'resupply') return SUPPLY_TEXT;
   if (a.type === 'lunge' && !a.target) return `${LUNGE_TEXT} 點地圖上的敵機當目標。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
   const t = unitView(a.target);
@@ -2742,7 +2757,7 @@ function pursuitControls(u: UnitView): string {
 interface EquipOption {
   key: string;
   label: string;
-  kind: 'shoot' | 'lock' | 'none' | PlacedKind | 'mark' | 'lunge' | 'deploy';
+  kind: 'shoot' | 'lock' | 'none' | PlacedKind | 'mark' | 'lunge' | 'deploy' | 'resupply';
   equip?: string;
 }
 
@@ -2767,6 +2782,9 @@ function otherOptions(u: UnitView): EquipOption[] {
     const def = EQUIPMENT[e.defId];
     if (def.deployable && equipAlive(u, e) && (e.location === 'right' || e.location === 'left')) out.push({ key: `deploy:${e.id}`, label: `${def.name}・${e.deployed ? '收起' : '展開'}`, kind: 'deploy', equip: e.id });
   }
+  // 補給：停在自己的補給點上
+  if (view!.state.settings.supply && !u.z && u.momentum === 0 && Math.hypot(u.pos.x - supplyPoint(u.owner).x, u.pos.y - supplyPoint(u.owner).y) <= config.SUPPLY_RADIUS)
+    out.push({ key: 'resupply', label: '補給點・補滿彈藥與推進劑', kind: 'resupply' });
   const blade = readyMelee(u as unknown as UnitState);
   if (blade && view!.state.stance[u.id] === 'melee') out.push({ key: 'lunge', label: `${EQUIPMENT[blade.defId].name}・突進／跳劈`, kind: 'lunge', equip: blade.id });
   if (!roleLost(u, 'sensor')) out.push({ key: 'lock', label: '感測器・鎖定', kind: 'lock' });
@@ -2784,6 +2802,7 @@ function optionOn(o: EquipOption, plan: ActionPlan, u: UnitView): boolean {
 }
 
 const DEPLOY_TEXT = `展開盾：在機體正面展開成寬 ${config.BARRIER_WIDTH} 格、高 ${config.BARRIER_LEVELS} 層的矮牆（再按一次收起）。穿過盾牆的射擊（敵我都算，自己開火不受影響）算半掩護 −${config.BUILDING_COVER_PENALTY}，命中一律打在盾上；躲在後面的隊友也受保護。比盾牆高 ${config.BARRIER_LEVELS} 層以上、或迫擊砲與垂直飛彈這種從上面來的擋不到。展開中只能用速度 ${config.DEPLOYED_MAX_SPEED} 以下的機動，選更快的機動會自動收起。用掉這回合的動作，不會暴露位置。`;
+const SUPPLY_TEXT = `補給：停在自己的補給點上（動能 0），用掉這回合的動作，所有武器的彈藥、道具與推進劑補滿。不會暴露位置。`;
 const MINE_TEXT = `埋地雷（底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上）：對手看不到，靠近 ${config.MINE_DETECT_RANGE} 格才發現。敵方地面機體走過就引爆，腳受 ${config.MINE_DAMAGE} 點傷害；樓頂上、會飛的踩不到，自己人不會觸發。`;
 const BARRICADE_TEXT = `架路障（${config.BARRICADE_RANGE} 格內）：長 ${config.BARRICADE_HALF_LENGTH * 2}、高 1 層的矮牆，橫擋在你往那裡的方向上；和建築一樣擋移動、射擊與視線。`;
 
@@ -2947,6 +2966,7 @@ function optionTip(u: UnitView, o: EquipOption): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。鎖定就不能開火。`;
   if (o.kind === 'none') return '這回合不行動（也不換武器）。';
   if (o.kind === 'mark') return markText(u, o.equip);
+  if (o.kind === 'resupply') return SUPPLY_TEXT;
   if (o.kind === 'lunge') return LUNGE_TEXT;
   if (o.kind === 'deploy') return DEPLOY_TEXT;
   if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
@@ -3187,6 +3207,7 @@ function bindControls(u: UnitView | undefined) {
       if (PLACED.includes(o.kind)) plan.action = { type: o.kind as PlacedKind, weapon: o.equip!, at: { x: NaN, y: NaN } };
       else if (o.kind === 'lock') plan.action = { type: 'lock', target: target() };
       else if (o.kind === 'mark') plan.action = { type: 'mark', weapon: o.equip! };
+      else if (o.kind === 'resupply') plan.action = { type: 'resupply' };
       else if (o.kind === 'lunge') plan.action = { type: 'lunge', target: target() };
       else if (o.kind === 'deploy') plan.action = { type: 'deploy', weapon: o.equip! };
       else {
@@ -3322,6 +3343,8 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 埋下地雷`;
     case 'mineBlast':
       return `${L(e.unit)} 踩到地雷！`;
+    case 'resupply':
+      return `${L(e.unit)} 在補給點補滿彈藥與推進劑`;
     case 'barricade':
       return `${L(e.unit)} 架起路障`;
     case 'decoyPop':

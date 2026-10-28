@@ -5,7 +5,7 @@ import { generateObstacles } from './terrain';
 import { sighting, updateSight } from './visibility';
 import { chassisParts } from './body';
 import { CHASSIS, DEFAULT_ROSTERS, EQUIPMENT, PILOTS, randomRoster, type RosterEntry } from './data';
-import { DEFAULT_SETTINGS, controlPoints, entryCost, newObjectives, type BattleSettings } from './objectives';
+import { DEFAULT_SETTINGS, controlPoints, entryCost, newObjectives, supplyPoint, type BattleSettings } from './objectives';
 import type { EquipState, GameState, PartState, PlayerId, UnitState } from './types';
 
 export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, pos: { x: number; y: number }, facing: number): UnitState {
@@ -91,7 +91,7 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
     return { turn: r.turn, unit: createUnit(r.entry, r.owner, index, { x: r.x, y: r.y }, r.facing) };
   });
   // 有據點時，大隕石與隕石群要避開據點；劇本的開場位置與增援進場點也要空出來
-  const avoid = [...(settings.control ? controlPoints() : []), ...(settings.placements ?? []), ...(settings.reinforcements ?? [])].map((p) => ({ x: p.x, y: p.y }));
+  const avoid = [...(settings.control ? controlPoints() : []), ...(settings.supply ? [supplyPoint(0), supplyPoint(1)] : []), ...(settings.placements ?? []), ...(settings.reinforcements ?? [])].map((p) => ({ x: p.x, y: p.y }));
   const obstacles = generateObstacles(new Rng((seed ^ 0x5bd1e995) >>> 0), avoid, settings.terrain ?? 'asteroid');
   // 有建築的地圖：戰機一直在 FLIGHT_LEVEL 層的高度飛（飛得過比較矮的建築）
   if (obstacles.some((o) => o.kind === 'building'))

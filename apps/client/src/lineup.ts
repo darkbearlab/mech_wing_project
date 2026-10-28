@@ -48,6 +48,8 @@ export interface LineupSettings {
   deploy: 'fixed' | 'free';
   environment: 'space' | 'gravity';
   terrain: 'asteroid' | 'forest' | 'town' | 'city';
+  /** 雙方後方各一個補給點 */
+  supply?: boolean;
   /** 開房：每方幾個小隊（各一個席位） */
   squads?: [number, number];
   /** 開房：交給電腦指揮的小隊席位 */
@@ -257,6 +259,7 @@ export function toBattleSettings(s: LineupSettings): BattleSettings {
     deploy: s.deploy,
     environment: s.environment,
     terrain: s.terrain,
+    supply: !!s.supply,
   };
 }
 
@@ -447,6 +450,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
         <span class="spacer"></span><span class="muted">部署</span>
         <button class="chip ${set.deploy === 'fixed' ? 'on' : ''}" data-deploy="fixed" ${locked ? 'disabled' : ''} title="照順序在自己那一側排一列">固定排開</button>
         <button class="chip ${set.deploy === 'free' ? 'on' : ''}" data-deploy="free" ${locked ? 'disabled' : ''} title="開戰前雙方暗中在自己的部署區擺好位置、朝向與起始動能，一起公布">自由部署</button>
+        <button class="chip ${set.supply ? 'on' : ''}" data-supply="1" ${locked ? 'disabled' : ''} title="雙方後方各一個補給點：停在自己的補給點上（動能 0）用掉動作，補滿彈藥、道具與推進劑">補給點</button>
         <span class="muted">回合上限</span><select data-f="turnLimit" ${off}>${TURN_LIMITS.map((t) => `<option value="${t}" ${t === set.turnLimit ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       ${
         online
@@ -526,6 +530,11 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
         () => window.prompt('邀請連結', url),
       );
       return;
+    }
+    if (el.dataset.supply) {
+      set.supply = !set.supply;
+      saveSettings();
+      return render();
     }
     if (el.dataset.deploy) {
       set.deploy = el.dataset.deploy as LineupSettings['deploy'];

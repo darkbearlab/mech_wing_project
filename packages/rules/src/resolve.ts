@@ -2,7 +2,7 @@ import { minSpeedOf, roleLost, roleParts } from './body';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
 import * as C from './config';
 import { inMarkCone, sensorRange } from './vision';
-import { shoot, hitChance, type TurnInfo } from './combat';
+import { shoot, hitChance, spendRounds, type TurnInfo } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, typed, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { lungeCheck, meleeClash } from './melee';
@@ -16,7 +16,7 @@ import type { ActionPlan, EquipState, GameEvent, Mine, GameState, MovePlan, Play
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { barrageActive, inBarrage, isShip } from './ship';
-import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, type WinReason } from './objectives';
+import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, supplyPoint, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
@@ -593,6 +593,21 @@ function placeBarricade(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['acti
   return false;
 }
 
+/** 補給：停在自己的補給點上（動能 0、在地面上），彈藥與推進劑補滿 */
+function resupply(ctx: Ctx, u: UnitState): boolean {
+  const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
+  if (!ctx.state.settings?.supply) return fail('這一場沒有補給點');
+  if (dist(u.pos, supplyPoint(u.owner)) > C.SUPPLY_RADIUS || u.z) return fail('不在自己的補給點上');
+  if (u.momentum !== 0) return fail('要停下來（動能 0）才能補給');
+  for (const e of u.equipment) {
+    const max = EQUIPMENT[e.defId].ammo;
+    if (max !== undefined && equipAlive(u, e)) e.ammo = max;
+  }
+  u.propellant = u.maxPropellant;
+  ctx.events.push({ type: 'resupply', unit: u.id });
+  return false;
+}
+
 /** 地雷：這一步移動中，敵方的地面機體路線碰到地雷就引爆（傷害打在腳上） */
 function triggerMines(ctx: Ctx, from: number): void {
   const { state } = ctx;
@@ -706,6 +721,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   if (action.type === 'mark') return doMark(ctx, u, action);
   if (action.type === 'lunge') return doLunge(ctx, u, action, benched);
   if (action.type === 'deploy') return doDeploy(ctx, u, action);
+  if (action.type === 'resupply') return resupply(ctx, u);
   // 打到或鎖定的是氣球：氣球破掉，這個動作就浪費了
   // 一起開火的武器：要現在能用，而且不在換武器的那隻手上
   const weapons: EquipState[] = [];
@@ -723,7 +739,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
     if (!weapons.length) return false;
   }
   if ((ctx.state.decoys ?? []).some((d) => d.id === action.target)) {
-    for (const w of weapons) if (w.ammo !== undefined) w.ammo = Math.max(0, w.ammo - 1);
+    for (const w of weapons) spendRounds(w, EQUIPMENT[w.defId].shots ?? 1);
     popDecoy(ctx, action.target, u.id, action.type === 'shoot' ? '被擊中，原來是氣球' : '鎖定後發現是氣球');
     return true;
   }

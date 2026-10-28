@@ -396,6 +396,8 @@ export type Action =
   | { type: 'lunge'; target: string }
   /** 展開盾：展開成正面的矮牆（已經展開就收起） */
   | { type: 'deploy'; weapon: string }
+  /** 補給：停在自己的補給點上（動能 0），補滿彈藥與推進劑 */
+  | { type: 'resupply' }
   /** 標定：用標定器掃描前方，隨機標定幾台敵機（weapon 是標定器；不用選目標、不用視線） */
   | { type: 'mark'; weapon: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
@@ -507,6 +509,8 @@ export type GameEvent =
   /** 埋地雷（對手看不到）；引爆 */
   | { type: 'mine'; unit: string; at: Vec }
   | { type: 'mineBlast'; unit: string; at: Vec; mine: string }
+  /** 在補給點補滿彈藥與推進劑 */
+  | { type: 'resupply'; unit: string }
   /** 架路障（obstacle 是新的建築 id） */
   | { type: 'barricade'; unit: string; obstacle: string }
   | { type: 'decoyPop'; decoy: string; by?: string; reason: string }

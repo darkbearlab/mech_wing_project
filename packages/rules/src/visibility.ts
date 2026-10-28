@@ -275,6 +275,9 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
         // 埋地雷是暗中的
         if (mine(e.unit)) out.push(e);
         break;
+      case 'resupply':
+        if (known(e.unit)) out.push(e);
+        break;
       case 'mark':
         // 被標定的一方知道自己被照到，但看不到的話不知道是誰
         out.push(known(e.unit) ? e : { ...e, unit: '' });
