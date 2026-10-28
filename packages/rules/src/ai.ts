@@ -17,7 +17,7 @@ import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
-import { JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
@@ -111,6 +111,8 @@ const hitValue = (chance: number) => (Math.min(chance, 100) / 100) * (1 + Math.m
 const LOW_SHOT = 22;
 /** 近戰機：自己射擊命中率低於這個，砍得到就改成突進 */
 const LUNGE_SHOT = 60;
+/** 拿著展開盾：自己這發命中率低於這個就改成展開盾牆 */
+const DEPLOY_SHOT = 35;
 /** 帶標定器的機體：自己這發命中率低於這個就改成標定 */
 const MARK_SHOT = 45;
 /** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
@@ -811,6 +813,9 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const holding = view.state.units.some((t) => t.mark?.by === u.id);
     const markable = view.state.units.filter((t) => t.owner !== view.you && t.status === 'active' && !t.mark && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t))).length;
     const allies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active');
+    // 隊友帶著飛彈、迫擊砲（只能打被標定的目標）：標定優先
+    const guidedAllies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active' && x.equipment.some((e) => EQUIPMENT[e.defId].fire && equipAlive(x, e) && (e.ammo === undefined || e.ammo > 0)));
+    const riot = u.equipment.find((e) => EQUIPMENT[e.defId].deployable && equipAlive(u, e) && (e.location === 'right' || e.location === 'left'));
     // 突進／跳劈：近戰姿態、手上有近戰武器，砍得到就砍（槍不太好打時）；集火目標、跳劈優先
     const inClinch = (id: string) => view.state.grapples.some((g) => g.a === id || g.b === id);
     const lunge = enemies
@@ -820,8 +825,11 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       .sort((a, b) => b.score - a.score)[0];
     if (lunge && (!shot || shot.chance < LUNGE_SHOT)) {
       plan.action = { type: 'lunge', target: lunge.t.id };
-    } else if (designator && !holding && markable && allies && (!shot || shot.chance < MARK_SHOT)) {
+    } else if (designator && !holding && markable && allies && (!shot || shot.chance < MARK_SHOT || guidedAllies)) {
       plan.action = { type: 'mark', weapon: designator.id };
+    } else if (riot && !riot.deployed && d < 12 && Math.abs(u.momentum) <= DEPLOYED_MAX_SPEED && (!shot || shot.chance < DEPLOY_SHOT)) {
+      // 展開盾：慢下來、敵人在附近、這發不好打時，把盾牆立起來
+      plan.action = { type: 'deploy', weapon: riot.id };
     } else if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
       // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS
       plan.action = { type: 'lock', target: lockTarget.id };

@@ -1,4 +1,7 @@
 import {
+  barrierBetween,
+  barrierOf,
+  indirectFire,
   lungeCheck,
   readyMelee,
   shieldArcs,
@@ -969,6 +972,17 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
       }
     }
     if (elapsed < SHOT_DELAY + 150) dotAt(fx({ x: a.x + ux * 0.6, y: a.y + uy * 0.6 }), 5, 'rgba(255,255,255,0.8)');
+    for (const b of beat.events) {
+      if (b.type !== 'blast') continue;
+      const k = (elapsed - shotLandTime(head.shots - 1)) / 700;
+      if (k < 0 || k > 1) continue;
+      g.strokeStyle = `rgba(255,150,60,${1 - k})`;
+      g.lineWidth = 3;
+      ringWorld(b.at.x, b.at.y, 0.3 + k * config.MORTAR_SPLASH_RADIUS, UNIT_Z * 0.3);
+      g.stroke();
+      g.lineWidth = 1;
+      drawFloat(b.at, '散布', '#ffb070', k, 1);
+    }
     drawDamageFloats(beat.events.slice(1), shotLandTime(head.shots - 1), elapsed, over);
   } else if (head.type === 'mark' && !posOf(head.unit, over)) {
     // 看不到是誰標定的：只在目標身上閃一下
@@ -1010,6 +1024,8 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
       if (p > 0.25) drawBanner(clashText(cl));
     }
     drawDamageFloats(beat.events.slice(1), LUNGE_DASH_MS + 250, elapsed, over);
+  } else if (head.type === 'deploy') {
+    drawFloat(posOf(head.unit, over)!, head.up ? '展開盾牆' : '收起盾牌', '#f2e27a', elapsed / 800);
   } else if (head.type === 'swap') {
     drawFloat(posOf(head.unit, over)!, `換上${equipName(unitView(head.unit), head.equip)}`, '#c8f7c5', elapsed / 800);
   } else if (head.type === 'actionFail') {
@@ -1506,6 +1522,18 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
     g.stroke();
   }
   g.setLineDash([]);
+  // 展開的盾牆
+  const wall = !out && !u.hidden ? barrierOf({ ...u, pos, facing }) : null;
+  if (wall) {
+    g.strokeStyle = '#f2e27a';
+    g.lineWidth = 5;
+    polyWorld([
+      [wall.a.x, wall.a.y, zw],
+      [wall.b.x, wall.b.y, zw],
+    ]);
+    g.stroke();
+    g.lineWidth = 1;
+  }
   // 盾弧
   if (!out && !u.hidden) {
     for (const s of shieldArcs(u, facing)) {
@@ -1997,7 +2025,7 @@ function orderDone(u: UnitView): boolean {
   if (view!.phase !== 'action') return true;
   const a = actionDrafts[u.id]?.action;
   if (a?.type === 'smoke' || a?.type === 'decoy') return Number.isFinite(a.at.x);
-  return !a || a.type === 'none' || a.type === 'mark' || !!a.target;
+  return !a || a.type === 'none' || a.type === 'mark' || a.type === 'deploy' || !!a.target;
 }
 
 function unitStatusText(u: UnitView): [string, boolean] {
@@ -2100,6 +2128,7 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'smoke') return Number.isFinite(a.at.x) ? `煙霧彈丟到選好的位置：半徑 ${config.SMOKE_RADIUS}，射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}，裡面的機體敵方認不出是什麼。` : `點地圖選煙霧彈的落點（${config.SMOKE_THROW_RANGE} 格內）。`;
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
   if (a.type === 'mark') return markText(u);
+  if (a.type === 'deploy') return DEPLOY_TEXT;
   if (a.type === 'lunge' && !a.target) return `${LUNGE_TEXT} 點地圖上的敵機當目標。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
   const t = unitView(a.target);
@@ -2640,7 +2669,7 @@ function pursuitControls(u: UnitView): string {
 interface EquipOption {
   key: string;
   label: string;
-  kind: 'shoot' | 'lock' | 'none' | 'smoke' | 'decoy' | 'mark' | 'lunge';
+  kind: 'shoot' | 'lock' | 'none' | 'smoke' | 'decoy' | 'mark' | 'lunge' | 'deploy';
   equip?: string;
 }
 
@@ -2656,6 +2685,10 @@ function otherOptions(u: UnitView): EquipOption[] {
     }
     out.push({ key: `${def.utility}:${e.id}`, label: `${def.name}・${def.utility === 'smoke' ? '丟出' : '放置'}（剩 ${e.ammo ?? '∞'}）`, kind: def.utility, equip: e.id });
   }
+  for (const e of u.equipment) {
+    const def = EQUIPMENT[e.defId];
+    if (def.deployable && equipAlive(u, e) && (e.location === 'right' || e.location === 'left')) out.push({ key: `deploy:${e.id}`, label: `${def.name}・${e.deployed ? '收起' : '展開'}`, kind: 'deploy', equip: e.id });
+  }
   const blade = readyMelee(u as unknown as UnitState);
   if (blade && view!.state.stance[u.id] === 'melee') out.push({ key: 'lunge', label: `${EQUIPMENT[blade.defId].name}・突進／跳劈`, kind: 'lunge', equip: blade.id });
   if (!roleLost(u, 'sensor')) out.push({ key: 'lock', label: '感測器・鎖定', kind: 'lock' });
@@ -2668,9 +2701,11 @@ function optionOn(o: EquipOption, plan: ActionPlan, u: UnitView): boolean {
   const a = plan.action;
   if (o.kind === 'lock') return a.type === 'lock';
   if (o.kind === 'lunge') return a.type === 'lunge';
-  if (o.kind === 'smoke' || o.kind === 'decoy' || o.kind === 'mark') return a.type === o.kind && a.weapon === o.equip;
+  if (o.kind === 'smoke' || o.kind === 'decoy' || o.kind === 'mark' || o.kind === 'deploy') return a.type === o.kind && a.weapon === o.equip;
   return a.type === 'none' && !swapOrders(plan).length;
 }
+
+const DEPLOY_TEXT = `展開盾：在機體正面展開成寬 ${config.BARRIER_WIDTH} 格、高 ${config.BARRIER_LEVELS} 層的矮牆（再按一次收起）。穿過盾牆的射擊（敵我都算，自己開火不受影響）算半掩護 −${config.BUILDING_COVER_PENALTY}，命中一律打在盾上；躲在後面的隊友也受保護。比盾牆高 ${config.BARRIER_LEVELS} 層以上、或迫擊砲與垂直飛彈這種從上面來的擋不到。展開中只能用速度 ${config.DEPLOYED_MAX_SPEED} 以下的機動，選更快的機動會自動收起。用掉這回合的動作，不會暴露位置。`;
 
 const LUNGE_TEXT = `突進：衝到正面 ±${config.LUNGE_ARC_DEG}°、底板邊緣 ${config.LUNGE_RANGE} 格內、同一個高度的敵機身邊砍一刀（照近戰對決結算，對方可以盾擋、閃避、反擊）。目標比自己低就是跳劈：距離放寬到 ${config.JUMP_SLASH_RANGE} 格，每落下 1 層傷害 +1（最多 +${config.JUMP_SLASH_MAX_BONUS}），對方不能反擊，打中的部位多半在頭、軀幹、背包，很少打到腿；落差 ${config.JUMP_SLASH_LEG_FROM} 層以上自己腿部受 1 點傷害。比自己高的要先攀升。推進劑 −${config.LUNGE_PROPELLANT}、壓力 +${config.LUNGE_STRESS}，要近戰姿態。突進就不能開火。`;
 
@@ -2769,10 +2804,14 @@ function swapControls(u: UnitView, plan: ActionPlan): string {
 /** 一件武器打這個目標的估計（null：打不到，附原因） */
 function weaponShot(u: UnitView, w: EquipState, t: UnitView): { h: NonNullable<ReturnType<typeof hitChance>> | null; why: string } {
   const def = EQUIPMENT[w.defId];
-  const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
-  if (cover === 'blocked') return { h: null, why: '射擊線被擋住' };
+  const indirect = indirectFire(def);
+  const wall = indirect ? null : barrierBetween(view!.state.units as never[] as (UnitView & { status: string })[], u.id, u.pos, u.z, t.pos);
+  const los = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
+  const cover = wall && los !== 'blocked' ? 'cover' : los;
+  if (def.fire && !t.mark) return { h: null, why: '飛彈、迫擊砲只能打被標定的目標' };
+  if (cover === 'blocked' && !indirect) return { h: null, why: '射擊線被擋住' };
   if (w.ammo !== undefined && w.ammo <= 0) return { h: null, why: '彈藥耗盡' };
-  if (def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
+  if (!indirect && def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
   if (def.pointBlank === false && rangeBand(u, t) === 0) return { h: null, why: '太近' };
   const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
   const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage });
@@ -2784,8 +2823,10 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     .map((id) => u.equipment.find((e) => e.id === id))
     .filter((e): e is EquipState => !!e);
   if (!ws.length) return '';
-  const cover = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
-  if (cover === 'blocked') return '射擊線被擋住';
+  const los = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
+  const wall = barrierBetween(view!.state.units as never[] as (UnitView & { status: string })[], u.id, u.pos, u.z, t.pos);
+  const cover = wall && los !== 'blocked' ? 'cover' : los;
+  if (cover === 'blocked' && !ws.some((w) => indirectFire(EQUIPMENT[w.defId]))) return '射擊線被擋住';
   const shots = ws.map((w) => ({ w, ...weaponShot(u, w, t) }));
   const first = shots.find((s) => s.h)?.h;
   if (!first) return shots.map((s) => `${EQUIPMENT[s.w.defId].name}：${s.why}`).join('／');
@@ -2796,7 +2837,7 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     `相對速度 ${relSpeed.toFixed(1)}`,
     cover === 'field' ? `碎石 −${config.FIELD_SHOT_PENALTY}` : '',
     cover === 'smoke' ? `煙霧 −${config.SMOKE_SHOT_PENALTY}` : '',
-    cover === 'cover' ? `半掩護 −${config.BUILDING_COVER_PENALTY}` : '',
+    cover === 'cover' ? `${wall ? '盾牆' : '半掩護'} −${config.BUILDING_COVER_PENALTY}${wall ? '（命中都打在盾上）' : ''}` : '',
     first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE}` : ''}` : '',
     t.mark ? `已標定 +${config.MARK_BONUS}` : '',
     barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
@@ -2820,6 +2861,7 @@ function optionTip(u: UnitView, o: EquipOption): string {
   if (o.kind === 'none') return '這回合不行動（也不換武器）。';
   if (o.kind === 'mark') return markText(u, o.equip);
   if (o.kind === 'lunge') return LUNGE_TEXT;
+  if (o.kind === 'deploy') return DEPLOY_TEXT;
   if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
   if (o.kind === 'decoy') return `放出欺敵氣球（${config.DECOY_PLACE_RANGE} 格內）：放在煙霧裡，敵方看起來就是一台不明機體；出了煙霧一眼就是氣球。被打中、鎖定或敵機靠近就破。`;
   const eq = u.equipment.find((e) => e.id === o.equip)!;
@@ -3057,6 +3099,7 @@ function bindControls(u: UnitView | undefined) {
       else if (o.kind === 'lock') plan.action = { type: 'lock', target: target() };
       else if (o.kind === 'mark') plan.action = { type: 'mark', weapon: o.equip! };
       else if (o.kind === 'lunge') plan.action = { type: 'lunge', target: target() };
+      else if (o.kind === 'deploy') plan.action = { type: 'deploy', weapon: o.equip! };
       else {
         plan.action = { type: 'none' };
         plan.swap = undefined;
@@ -3222,6 +3265,10 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} ${e.hand === 'right' ? '右手' : '左手'}換成 ${equipName(unitView(e.unit), e.equip)}`;
     case 'lock':
       return `${L(e.unit)} 鎖定 ${L(e.target)}`;
+    case 'blast':
+      return `${L(e.by)} 的迫擊砲沒打中，砲彈落地爆炸${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
+    case 'deploy':
+      return `${L(e.unit)} ${e.up ? '展開' : '收起'}${equipName(unitView(e.unit), e.equip)}`;
     case 'lunge':
       return `${L(e.unit)} ${e.jump ? `從 ${e.jump} 層高跳劈` : '突進'} ${L(e.target)}`;
     case 'mark':

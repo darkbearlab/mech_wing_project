@@ -92,6 +92,21 @@
         "mount",
         "head"
       ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "missile_pod",
+        "mount",
+        "torso"
+      ]
     ]
   ],
   "X-01": [
@@ -236,6 +251,35 @@
         "mount",
         "legs"
       ]
+    ],
+    [
+      [
+        "machine_gun",
+        "right"
+      ],
+      [
+        "riot_shield",
+        "left"
+      ],
+      [
+        "heat_axe",
+        "stowed"
+      ]
+    ],
+    [
+      [
+        "bazooka",
+        "right"
+      ],
+      [
+        "riot_shield",
+        "left"
+      ],
+      [
+        "vls",
+        "mount",
+        "pack"
+      ]
     ]
   ],
   "X-04": [
@@ -297,6 +341,38 @@
       [
         "shield",
         "left"
+      ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "mortar",
+        "mount",
+        "torso"
+      ],
+      [
+        "mortar",
+        "mount",
+        "torso"
+      ]
+    ],
+    [
+      [
+        "machine_gun",
+        "right"
+      ],
+      [
+        "vls",
+        "mount",
+        "pack"
+      ],
+      [
+        "missile_pod",
+        "mount",
+        "torso"
       ]
     ]
   ],

@@ -19,7 +19,7 @@ import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreOb
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
-import { readyMelee } from './unit';
+import { moveSpeed, readyMelee } from './unit';
 import { alwaysReady, busyHands, defaultAction, defaultMove, equipAlive, handUsable, heldItem, pilotOf, planCost, rackSide, readyRanged, shotWeapons, swapOrders } from './unit';
 import { settleHeights } from './movement';
 
@@ -128,6 +128,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
     }
     if (plan.purge) purgeArmor(ctx, u);
     if (frozen.has(u.id)) continue;
+    stowIfFast(ctx, u, plan);
     payForMove(ctx, u, plan);
   }
 
@@ -504,7 +505,10 @@ function doSwap(ctx: Ctx, u: UnitState, hand: 'right' | 'left', equipId: string 
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '武器架在另一側，這隻手拿不到' });
     return;
   }
-  if (current) current.location = current.home ?? 'stowed';
+  if (current) {
+    current.location = current.home ?? 'stowed';
+    current.deployed = false;
+  }
   if (next) {
     next.location = hand;
     next.revealed = true;
@@ -538,6 +542,29 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
   (state.decoys ??= []).push({ id, owner: u.owner, pos: { ...action.at }, facing: u.facing, chassisId: u.chassisId, parts: structuredClone(u.parts), equipment: structuredClone(u.equipment) });
   ctx.events.push({ type: 'decoy', unit: u.id, decoy: id });
   return false;
+}
+
+/** 展開盾：拿在手上的展開盾展開成正面的矮牆；已經展開就收起 */
+function doDeploy(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'deploy' }>): boolean {
+  const e = u.equipment.find((x) => x.id === action.weapon);
+  if (!e || !EQUIPMENT[e.defId].deployable || !equipAlive(u, e) || (e.location !== 'right' && e.location !== 'left')) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: '手上沒有能展開的盾' });
+    return false;
+  }
+  e.deployed = !e.deployed;
+  ctx.events.push({ type: 'deploy', unit: u.id, equip: e.id, up: e.deployed });
+  return false;
+}
+
+/** 展開盾：這回合的機動太快（或盾不在手上了）就自動收起 */
+function stowIfFast(ctx: Ctx, u: UnitState, plan: MovePlan): void {
+  for (const e of u.equipment) {
+    if (!e.deployed) continue;
+    if (moveSpeed(plan) > C.DEPLOYED_MAX_SPEED || (e.location !== 'right' && e.location !== 'left')) {
+      e.deployed = false;
+      ctx.events.push({ type: 'deploy', unit: u.id, equip: e.id, up: false });
+    }
+  }
 }
 
 /** 突進／跳劈：衝到目標身邊砍一刀（會暴露位置） */
@@ -603,6 +630,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
   if (action.type === 'mark') return doMark(ctx, u, action);
   if (action.type === 'lunge') return doLunge(ctx, u, action, benched);
+  if (action.type === 'deploy') return doDeploy(ctx, u, action);
   // 打到或鎖定的是氣球：氣球破掉，這個動作就浪費了
   // 一起開火的武器：要現在能用，而且不在換武器的那隻手上
   const weapons: EquipState[] = [];
@@ -666,7 +694,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   for (const w of weapons) {
     if (target.status !== 'active') break;
     if (shoot(ctx, turn, u, w, target)) fired = true;
-    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
+    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${EQUIPMENT[w.defId].fire && !target.mark ? '飛彈、迫擊砲只能打被標定的目標' : lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
   }
   return fired;
 }

@@ -1,5 +1,5 @@
 import * as C from './config';
-import { bodyWeight, damageUnit, shotBy, type Ctx } from './damage';
+import { bodyWeight, damageUnit, dealtBy, shotBy, type Ctx } from './damage';
 import { grapplePool } from './grapple';
 import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
@@ -66,7 +66,41 @@ export interface HitInput {
   barrage?: number;
 }
 
+/** 曲射、越頂的武器：不用射擊線、不吃掩護與高低差、沒有射界，打中照頂部攻擊表，盾擋不到 */
+export const indirectFire = (d: EquipDef): boolean => d.fire === 'mortar' || d.fire === 'vls';
+/** 有導引的飛彈：相對速度的命中懲罰不算 */
+export const guidedFire = (d: EquipDef): boolean => d.fire === 'vls' || d.fire === 'missile';
+
+/** 展開中的盾牆：機體正面、寬 BARRIER_WIDTH 的線段 */
+export function barrierOf(u: Positioned & { status?: string }): { a: Vec; b: Vec; equip: EquipState } | null {
+  const e = (u.equipment ?? []).find((x) => x.deployed && (x.location === 'right' || x.location === 'left') && !u.parts[x.id]?.destroyed);
+  if (!e || (u.status && u.status !== 'active')) return null;
+  const off = radiusOf(u) + 0.15;
+  const c = { x: u.pos.x + Math.cos(u.facing) * off, y: u.pos.y + Math.sin(u.facing) * off };
+  const px = (-Math.sin(u.facing) * C.BARRIER_WIDTH) / 2;
+  const py = (Math.cos(u.facing) * C.BARRIER_WIDTH) / 2;
+  return { a: { x: c.x + px, y: c.y + py }, b: { x: c.x - px, y: c.y - py }, equip: e };
+}
+
+const cross = (o: Vec, a: Vec, b: Vec) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+const segmentsCross = (p: Vec, q: Vec, a: Vec, b: Vec) => cross(p, q, a) * cross(p, q, b) < 0 && cross(a, b, p) * cross(a, b, q) < 0;
+
+/** 從 from（高度 fromZ）打到 to 的射擊線穿過誰的盾牆（射手自己的除外；比盾牆高 1 層以上就從上面打過去） */
+export function barrierBetween<T extends Positioned & { status?: string }>(units: T[], shooter: string, from: Vec, fromZ: number | undefined, to: Vec): { unit: T; equip: EquipState } | null {
+  for (const u of units) {
+    if (u.id === shooter) continue;
+    const w = barrierOf(u);
+    if (!w || (fromZ ?? 0) > (u.z ?? 0) + C.BARRIER_LEVELS) continue;
+    if (segmentsCross(from, to, w.a, w.b)) return { unit: u, equip: w.equip };
+  }
+  return null;
+}
+
 export function hitChance(h: HitInput): { band: RangeBand; chance: number; high: number } | null {
+  // 導引武器只能打被標定的目標（有視線也一樣）
+  if (h.weapon.fire && !h.target.mark) return null;
+  const indirect = indirectFire(h.weapon);
+  const machine = !!h.weapon.fire;
   const band = rangeBand(h.attacker, h.target);
   if (band === null) return null;
   if (band === 0 && h.weapon.pointBlank === false) return null;
@@ -74,31 +108,34 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   const rel = relativeAngle(h.attacker, h.target.pos);
   // 固定射界：中心可以偏離正面（戰艦的舷側、艦尾砲塔）
   const arcRel = h.weapon.arcOffset ? Math.abs(angleDiff(angleOf(sub(h.target.pos, h.attacker.pos)), h.attacker.facing + h.weapon.arcOffset * DEG)) : rel;
-  if (h.weapon.arc !== undefined && arcRel > h.weapon.arc * DEG) return null;
+  if (!indirect && h.weapon.arc !== undefined && arcRel > h.weapon.arc * DEG) return null;
   const rangeMod = band === 0 ? C.ZERO_RANGE_BONUS : h.weapon.ranges?.[band];
   if (rangeMod === undefined) return null;
   const atk = chassisOf(h.attacker);
   const evasion = h.targetEvasion ?? chassisOf(h.target).evasion;
   // 穿著外裝甲：迴避下降
-  let chance = C.HIT_BASE + atk.aim + h.attackerSkill * C.HIT_PER_SKILL + rangeMod - evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
+  // 導引武器只看機器：射手駕駛的技能不算
+  let chance = C.HIT_BASE + atk.aim + (machine ? 0 : h.attackerSkill * C.HIT_PER_SKILL) + rangeMod - evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
   if (h.targetSkill !== null) {
     chance -= h.targetSkill * C.EVADE_PER_SKILL;
     // 技能差距太大：只有身手相當的人才打得到
-    const gap = h.targetSkill - h.attackerSkill - C.SKILL_GAP_FREE;
+    const gap = machine ? 0 : h.targetSkill - h.attackerSkill - C.SKILL_GAP_FREE;
     if (gap > 0) chance -= gap * C.SKILL_GAP_PENALTY;
   }
-  if (h.relSpeed !== null) chance += relativeSpeedMod(h.relSpeed);
+  if (h.relSpeed !== null) chance += guidedFire(h.weapon) ? Math.max(0, relativeSpeedMod(h.relSpeed)) : relativeSpeedMod(h.relSpeed);
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
   if (h.dazzled) chance -= C.DAZZLE_PENALTY;
-  if (h.cover === 'blocked') return null;
-  if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
-  if (h.cover === 'smoke') chance -= C.SMOKE_SHOT_PENALTY;
-  if (h.cover === 'cover') chance -= C.BUILDING_COVER_PENALTY;
-  const high = heightAdvantage(h.attacker, h.target);
+  if (!indirect) {
+    if (h.cover === 'blocked') return null;
+    if (h.cover === 'field') chance -= C.FIELD_SHOT_PENALTY;
+    if (h.cover === 'smoke') chance -= C.SMOKE_SHOT_PENALTY;
+    if (h.cover === 'cover') chance -= C.BUILDING_COVER_PENALTY;
+  }
+  const high = indirect ? 0 : heightAdvantage(h.attacker, h.target);
   chance += high * C.HIGH_GROUND_HIT;
-  if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
-  if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
-  if (h.target.mark) chance += C.MARK_BONUS;
+  if (!indirect && h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
+  if (!indirect && h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
+  if (!machine && h.target.mark) chance += C.MARK_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
   if (h.barrage) chance -= h.barrage;
@@ -144,6 +181,10 @@ export interface TurnInfo {
  */
 export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: EquipState, target: UnitState, opts: { pursuit?: boolean; later?: (() => void)[]; shots?: number; pod?: string; from?: Vec } = {}): boolean {
   const def = equipDef(weapon);
+  const indirect = indirectFire(def);
+  // 射擊線穿過展開的盾牆：算半掩護，命中一律打在盾上（曲射的從上面打過去）
+  const wall = indirect ? null : barrierBetween(ctx.state.units, attacker.id, opts.from ?? attacker.pos, attacker.z, target.pos);
+  const los = lineOfFire(ctx.state.obstacles, attacker.pos, target.pos, attacker.z, target.z);
   const h = hitChance({
     attacker,
     attackerSkill: pilotOf(attacker).skill,
@@ -152,7 +193,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     targetSkill: pilotOf(target).skill,
     relSpeed: relativeSpeed(turn.velocity, attacker.id, target.id),
     shooterMelee: turn.stance[attacker.id] === 'melee',
-    cover: lineOfFire(ctx.state.obstacles, attacker.pos, target.pos, attacker.z, target.z),
+    cover: wall && los !== 'blocked' ? 'cover' : los,
     dazzled: turn.dazzled?.has(attacker.id),
     // 戰艦自己的射擊不受彈幕影響
     barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
@@ -170,10 +211,29 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   // 目標在纏鬥中：每發命中照部位權重從纏在一起的機體裡抽打到誰（可能誤擊友軍）
   const pool = grapplePool(ctx.state, target);
   const aimBonus = pilotOf(attacker).abilities.includes('called_shot') ? C.CALLED_SHOT_CORE_BONUS : 0;
+  // 曲射、越頂：從上方打下來，部位照頂部攻擊表
+  const top = (fn: () => void) => () => {
+    const prev = ctx.topAttack;
+    ctx.topAttack = indirect;
+    try {
+      fn();
+    } finally {
+      ctx.topAttack = prev;
+    }
+  };
   for (let i = 0; i < shots; i++) {
     // 同一顆骰子：≤ 命中率就命中，≤ 命中率 − 100 就是爆擊（傷害加倍）
     const roll = ctx.rng.d100();
-    if (roll > h.chance) continue;
+    if (roll > h.chance) {
+      // 迫擊砲沒打中：砲彈散布，炸到落點附近（敵我不分）
+      if (def.fire === 'mortar') {
+        const ang = ctx.rng.next() * Math.PI * 2;
+        const off = C.MORTAR_SCATTER_MIN + ctx.rng.next() * (C.MORTAR_SCATTER_MAX - C.MORTAR_SCATTER_MIN);
+        const at = { x: target.pos.x + Math.cos(ang) * off, y: target.pos.y + Math.sin(ang) * off };
+        pending.push(top(() => mortarBlast(ctx, attacker, at)));
+      }
+      continue;
+    }
     hits++;
     const crit = roll <= h.chance - 100;
     if (crit) crits++;
@@ -181,12 +241,17 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     const dmg = (def.damage ?? 1) * (crit ? C.CRIT_MULTIPLIER : 1) + (h.high >= C.HIGH_GROUND_DAMAGE_FROM ? C.HIGH_GROUND_DAMAGE : 0);
     const victim = pool.length > 1 ? ctx.rng.pickWeighted(pool, (u) => bodyWeight(u, u === target ? aimBonus : 0)) : target;
     if (victim !== target) strays++;
-    const shield = coveringShield(victim, attacker.pos)?.id;
-    if (shield && ctx.rng.d100() <= blockChance(victim)) {
+    const shield = indirect ? undefined : coveringShield(victim, attacker.pos)?.id;
+    if (wall) {
+      // 盾牆擋在中間：一律打在盾上
+      blocked++;
+      const holder = wall.unit;
+      pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, holder, dmg, 'focused', wall.equip.id, overflow)));
+    } else if (shield && ctx.rng.d100() <= blockChance(victim)) {
       blocked++;
       pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow)));
     } else {
-      pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', undefined, overflow)));
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', undefined, overflow))));
     }
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}), ...(opts.pod ? { pod: opts.pod, from: { ...opts.from! } } : {}) });
@@ -200,6 +265,13 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;
   if (!opts.pod && h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', selfPart);
   return true;
+}
+
+/** 迫擊砲的砲彈落在 at：落點附近的機體都受破片傷害 */
+function mortarBlast(ctx: Ctx, attacker: UnitState, at: Vec): void {
+  const hit = ctx.state.units.filter((u) => u.status === 'active' && dist(u.pos, at) - radiusOf(u) <= C.MORTAR_SPLASH_RADIUS);
+  ctx.events.push({ type: 'blast', by: attacker.id, at: { ...at }, units: hit.map((u) => u.id) });
+  for (const u of hit) dealtBy(ctx, attacker, () => damageUnit(ctx, u, C.MORTAR_SPLASH_DAMAGE, 'focused'));
 }
 
 export type AngleClass = 'front' | 'side' | 'back';
