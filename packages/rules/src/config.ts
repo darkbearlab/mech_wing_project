@@ -169,8 +169,11 @@ export const BUILDING_LEVEL_HP = 200;
 export const BARRICADE_HP = 100;
 /** 打建築：不會閃，命中 +這麼多 */
 export const BUILDING_TARGET_BONUS = 30;
-/** 樓塌下來：站在上面的機體每掉一層，腳受這麼多傷害 */
+/** 樓塌下來：站在上面的機體每掉一層受這麼多傷害，其中 COLLAPSE_LEGS_SHARE 打在腳上、其餘照一般部位表 */
 export const COLLAPSE_DAMAGE = 20;
+export const COLLAPSE_LEGS_SHARE = 0.75;
+/** 塌掉一層時，下面那層跟著塌的機率（可以一路塌下去） */
+export const COLLAPSE_CHAIN = 0.5;
 
 // ---- 補給點（暫定值） ----
 /** 補給點的半徑：機體中心在這個距離內、動能 0 才能補給 */

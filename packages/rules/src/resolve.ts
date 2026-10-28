@@ -612,11 +612,19 @@ function shootBuilding(ctx: Ctx, turn: TurnInfo, u: UnitState, weapons: EquipSta
     let hits = 0;
     for (let i = 0; i < shots; i++) if (ctx.rng.d100() <= h.chance) hits++;
     const before = new Map(state.units.map((x) => [x.id, x.z ?? 0]));
-    const r = hits ? damageBuilding(state.obstacles, o, hits * (def.damage ?? C.DAMAGE_SCALE), def.damageType ?? 'kinetic') : { amount: 0, lost: 0, collapsed: false };
-    ctx.events.push({ type: 'buildingShot', attacker: u.id, obstacle: o.id, weapon: def.id, shots, hits, chance: h.chance, amount: r.amount, levels: o.levels ?? 0, collapsed: r.collapsed });
+    const r = hits ? damageBuilding(state.obstacles, o, hits * (def.damage ?? C.DAMAGE_SCALE), def.damageType ?? 'kinetic', () => ctx.rng.next()) : { amount: 0, lost: 0, chain: 0, collapsed: false };
+    ctx.events.push({ type: 'buildingShot', attacker: u.id, obstacle: o.id, weapon: def.id, shots, hits, chance: h.chance, amount: r.amount, levels: o.levels ?? 0, collapsed: r.collapsed, ...(r.chain ? { chain: r.chain } : {}) });
     if (!r.lost) continue;
     settleHeights(state, ctx.events);
-    for (const v of collapseVictims(state.units, before)) dealtBy(ctx, u, () => damageUnit(ctx, v.unit, C.COLLAPSE_DAMAGE * v.fell, 'focused', v.legs));
+    // 跟著樓塌下來：傷害大多打在腳上，其餘照一般部位表
+    for (const v of collapseVictims(state.units, before)) {
+      const total = C.COLLAPSE_DAMAGE * v.fell;
+      const legs = Math.round(total * C.COLLAPSE_LEGS_SHARE);
+      dealtBy(ctx, u, () => {
+        damageUnit(ctx, v.unit, legs, 'focused', v.legs);
+        damageUnit(ctx, v.unit, total - legs, 'focused');
+      });
+    }
   }
   return fired;
 }

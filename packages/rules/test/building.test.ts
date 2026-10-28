@@ -4,6 +4,7 @@ import { EQUIPMENT, type RosterEntry } from '../src/data';
 import { BUILDING_TYPE_MULT, buildingHitChance, damageBuilding } from '../src/demolition';
 import { resolveTurn } from '../src/resolve';
 import type { GameEvent, GameState, Obstacle } from '../src/types';
+import { availableManeuvers, validateMove } from '../src/unit';
 import { makeState, plan, rifleX00 } from './helpers';
 
 const bld = (id: string, x: number, y: number, hx: number, hy: number, levels: number): Obstacle => ({ id, kind: 'building', x, y, hx, hy, levels, r: Math.hypot(hx, hy) });
@@ -64,5 +65,40 @@ describe('破壞建築', () => {
     expect(st.units[1].z ?? 0).toBe(0);
     expect(st.units[1].parts.legs.damage).toBeGreaterThan(roofLegs);
     expect(st.units[0].equipment[0].ammo).toBeLessThan(EQUIPMENT.bazooka.ammo!);
+  });
+
+  it('塌一層時下面那層可能跟著塌，可以一路塌到底', () => {
+    const obs = [bld('b2', 10, 10, 1, 1, 4)];
+    const o = obs[0];
+    // 擲骰都低於 COLLAPSE_CHAIN：一路塌到底
+    const r = damageBuilding(obs, o, C.BUILDING_LEVEL_HP, 'kinetic', () => 0);
+    expect(r).toMatchObject({ lost: 4, chain: 3, collapsed: true });
+    const obs2 = [bld('b3', 10, 10, 1, 1, 4)];
+    expect(damageBuilding(obs2, obs2[0], C.BUILDING_LEVEL_HP, 'kinetic', () => 0.99)).toMatchObject({ lost: 1, chain: 0 });
+    expect(obs2[0].levels).toBe(3);
+  });
+});
+
+describe('重力圈裡腳斷了', () => {
+  const broken = (grounded: boolean) => {
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
+    const u = st.units[0];
+    if (grounded) u.grounded = true;
+    u.momentum = 2;
+    u.parts.legs.destroyed = true;
+    return u;
+  };
+
+  it('不能移動也不能轉向，只能原地懸停（動能直接歸零）', () => {
+    const u = broken(true);
+    expect(availableManeuvers(u).map((m) => m.id)).toEqual(['hover-S-0']);
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0' }), false)).toEqual([]);
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', facingOffset: 90 }), false).some((e) => e.includes('不能轉向'))).toBe(true);
+    expect(validateMove(u, plan({ maneuver: 'straight-S-2' }), false).length).toBeGreaterThan(0);
+  });
+
+  it('宇宙裡腳斷了還飄得動', () => {
+    const u = broken(false);
+    expect(availableManeuvers(u).length).toBeGreaterThan(1);
   });
 });

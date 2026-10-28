@@ -152,7 +152,7 @@
       "secondary"
     ],
     "damageType": "kinetic",
-    "ammo": 30
+    "ammo": 500
   },
   "shoulder_cannon": {
     "id": "shoulder_cannon",

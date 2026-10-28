@@ -129,6 +129,8 @@ export function shieldHand(u: UnitState): Hand | null {
 
 export interface ManeuverLimits {
   chassisId: string;
+  /** 在重力圈：腳斷了就不能移動也不能轉向 */
+  grounded?: boolean;
   /** 外裝甲會降低最大加減速 */
   equipment?: EquipState[];
   /** 不適合目前環境：機動盤最高速度減掉這麼多 */
@@ -178,8 +180,16 @@ function turnCost(m: ManeuverSpec): { propellant: number; stress: number } {
   }
 }
 
+/** 重力圈裡腳部全壞（地面滑行、會飛的機體不算）：不能移動也不能轉向，只能原地懸停 */
+export function immobile(u: Pick<ManeuverLimits, 'chassisId' | 'grounded' | 'parts'>): boolean {
+  const ch = CHASSIS[u.chassisId];
+  return !!u.grounded && !ch.hover && !(ch.minSpeed ?? 0) && roleLost(u, 'legs');
+}
+
 /** 推進劑付的是速度變化：超過基本推力的部分每 1 點花 1；壓力來自超過 G_FREE_DV 的加減速與高速轉向 */
 export function maneuverCost(u: ManeuverLimits, m: ManeuverSpec, limiter = false): ManeuverCost {
+  // 腳斷了倒在地上：只能原地不動（動能直接歸零，不花推進劑）
+  if (immobile(u)) return { dv: Math.abs(u.momentum), propellant: 0, stress: 0, blocked: m.kind === 'hover' && m.speed === 0 ? null : '重力圈裡腳部損壞，不能移動也不能轉向' };
   const lim = thrustLimits(u);
   // 急停反轉：先加減速到這個速度跑完，再煞到 0 並轉身
   const dv = m.kind === 'kturn' ? Math.abs(m.speed - u.momentum) + m.speed : Math.abs(m.endMomentum - u.momentum);
@@ -258,6 +268,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
       if (blocked) errors.push(`${u.label}：${blocked}`);
     }
   }
+  if (plan.facingOffset && immobile(u)) errors.push(`${u.label}：重力圈裡腳部損壞，不能轉向`);
   if (plan.purge && !armorOf(u)) errors.push(`${u.label}：沒有可以拋棄的外裝甲`);
   if (plan.climb) {
     const why = climbBlocked(u, plan);

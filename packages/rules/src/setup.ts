@@ -99,9 +99,11 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
   const free = settings.deploy === 'free';
   // 不適合這個環境的機體：機動盤最高速度 −1
   const env = settings.environment ?? 'space';
-  for (const u of units) {
+  for (const u of [...units, ...reserves.map((r) => r.unit)]) {
     const envs = CHASSIS[u.chassisId].envs ?? ['space', 'gravity'];
-    if (!envs.includes(env)) u.speedCut = UNSUITED_SPEED_CUT;
+    if (!envs.includes(env) && units.includes(u)) u.speedCut = UNSUITED_SPEED_CUT;
+    // 宇宙裡腳斷了還飄得動；重力圈、水中就站不起來了
+    if (env !== 'space') u.grounded = true;
   }
   const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null, settings: structuredClone(settings), objectives: newObjectives(), decoys, reserves };
   // 事先布置的煙霧

@@ -29,7 +29,7 @@ import { lungeCheck } from './melee';
 import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone, supplyPoint } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { armorOf, availableManeuvers, climbBlocked, climbLimits, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
+import { immobile, armorOf, availableManeuvers, climbBlocked, climbLimits, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
@@ -697,8 +697,8 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     if (shouldPurge(u, enemies)) plan.purge = true;
     const target = nearest(u.pos, enemies);
     const d = target ? edge(u.pos, target.pos) : Infinity;
-    // 懸停時轉身面向最近的敵人
-    if (best.m.kind === 'hover' && target) {
+    // 懸停時轉身面向最近的敵人（重力圈裡腳斷了轉不了）
+    if (best.m.kind === 'hover' && target && !immobile(u)) {
       const want = angleOf(sub(target.pos, u.pos));
       plan.facingOffset = [...FACING_OFFSETS].filter((f) => !isShip(u) || Math.abs(f) <= SHIP_TURN_MAX_DEG).sort((a, b) => Math.abs(angleDiff(want, u.facing + a * DEG)) - Math.abs(angleDiff(want, u.facing + b * DEG)))[0];
     }
