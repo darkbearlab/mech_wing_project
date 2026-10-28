@@ -358,6 +358,8 @@ export type Action =
   /** 射擊：weapon 加上 also 裡的武器一起打同一個目標 */
   | { type: 'shoot'; weapon: string; target: string; also?: string[] }
   | { type: 'lock'; target: string }
+  /** 突進：衝到 1.5 格內的敵機身邊砍一刀；目標比自己低就是跳劈（要近戰姿態、手上有近戰武器） */
+  | { type: 'lunge'; target: string }
   /** 標定：用標定器掃描前方，隨機標定幾台敵機（weapon 是標定器；不用選目標、不用視線） */
   | { type: 'mark'; weapon: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
@@ -469,6 +471,8 @@ export type GameEvent =
   | { type: 'reposition'; unit: string; to: Vec }
   | { type: 'swap'; unit: string; hand: Hand; equip: string | null }
   | { type: 'lock'; unit: string; target: string }
+  /** 突進／跳劈：from 是出發位置；jump 是跳劈的落差（層），一般突進是 0 */
+  | { type: 'lunge'; unit: string; target: string; from: Vec; to: Vec; jump: number }
   /** 標定；被標定的一方看不到標定的機體時 unit 是空字串 */
   | { type: 'mark'; unit: string; target: string }
   | { type: 'dazzle'; unit: string; by: string }

@@ -92,6 +92,18 @@ export const MELEE_SIDE_PENALTY = 1;
 export const MELEE_SLUGGISH_PENALTY = 2;
 export const MELEE_SUCCESS_ON = 5;
 export const MELEE_TIE_STRESS = 1;
+/** 突進：底板邊緣這麼近、正面 ±LUNGE_ARC_DEG 內、同一個高度才能衝過去砍 */
+export const LUNGE_RANGE = 1.5;
+export const LUNGE_ARC_DEG = 60;
+export const LUNGE_PROPELLANT = 1;
+export const LUNGE_STRESS = 1;
+/** 跳劈：目標比自己低時的突進；距離放寬，每落下 1 層傷害 +1（最多 +JUMP_SLASH_MAX_BONUS），對方不能反擊 */
+export const JUMP_SLASH_RANGE = 2;
+export const JUMP_SLASH_MAX_BONUS = 2;
+/** 跳劈落差這麼多層以上，落地時自己的腿部受 1 點傷害 */
+export const JUMP_SLASH_LEG_FROM = 3;
+/** 頂部攻擊（從上方打下來：跳劈、之後的曲射武器）：部位權重倍率，沒寫的是 1 */
+export const TOP_ATTACK_WEIGHT: Partial<Record<'core' | 'rightHand' | 'leftHand' | 'propulsion' | 'legs' | 'sensor', number>> = { legs: 0.2, core: 1.5, sensor: 1.5, propulsion: 1.5 };
 export const BACKSTAB_STRESS = 2;
 export const FRONT_ARC_DEG = 60;
 export const BACK_ARC_DEG = 120;

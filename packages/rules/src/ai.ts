@@ -17,11 +17,12 @@ import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
-import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
 import { inMarkCone } from './vision';
+import { lungeCheck } from './melee';
 import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
@@ -108,6 +109,8 @@ function aimShare(view: PlayerView, t: UnitView): number {
 const hitValue = (chance: number) => (Math.min(chance, 100) / 100) * (1 + Math.max(0, Math.min(100, chance - 100)) / 100);
 /** 命中率低於這個就先鎖定，不浪費這回合 */
 const LOW_SHOT = 22;
+/** 近戰機：自己射擊命中率低於這個，砍得到就改成突進 */
+const LUNGE_SHOT = 60;
 /** 帶標定器的機體：自己這發命中率低於這個就改成標定 */
 const MARK_SHOT = 45;
 /** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
@@ -329,6 +332,12 @@ function scoreManeuver(u0: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng, 
     score -= Math.abs(d - want) * (pref.melee ? 2 : 1) * (team.engaged ? 1 : 0.4);
     const ang = Math.abs(angleDiff(angleOf(sub(tp, pos)), facing));
     if (pref.melee) score += ang < 60 * DEG ? 2 : 0;
+    // 近戰機：停在突進得到的位置；站得比目標高、跳劈得到更好
+    if (pref.melee && ang < LUNGE_ARC_DEG * DEG) {
+      const dz = z - (target.z ?? 0);
+      if (dz === 0 && d <= LUNGE_RANGE) score += 3;
+      else if (dz > 0 && d <= JUMP_SLASH_RANGE) score += 3 + Math.min(dz, JUMP_SLASH_MAX_BONUS);
+    }
     else score += ang < 45 * DEG ? 2 : -ang;
   }
   // 火力：從終點能打到誰、打多痛（集火目標加權）
@@ -802,7 +811,16 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const holding = view.state.units.some((t) => t.mark?.by === u.id);
     const markable = view.state.units.filter((t) => t.owner !== view.you && t.status === 'active' && !t.mark && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t))).length;
     const allies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active');
-    if (designator && !holding && markable && allies && (!shot || shot.chance < MARK_SHOT)) {
+    // 突進／跳劈：近戰姿態、手上有近戰武器，砍得到就砍（槍不太好打時）；集火目標、跳劈優先
+    const inClinch = (id: string) => view.state.grapples.some((g) => g.a === id || g.b === id);
+    const lunge = enemies
+      .filter((t) => !inClinch(t.id))
+      .map((t) => ({ t, r: lungeCheck(view.state.obstacles, u as unknown as UnitState, t as unknown as UnitState, view.state.stance[u.id]) }))
+      .flatMap((x) => (typeof x.r === 'string' ? [] : [{ t: x.t, score: (x.t === focus ? 2 : 1) + x.r.jump + hurtOf(x.t) }]))
+      .sort((a, b) => b.score - a.score)[0];
+    if (lunge && (!shot || shot.chance < LUNGE_SHOT)) {
+      plan.action = { type: 'lunge', target: lunge.t.id };
+    } else if (designator && !holding && markable && allies && (!shot || shot.chance < MARK_SHOT)) {
       plan.action = { type: 'mark', weapon: designator.id };
     } else if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
       // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS

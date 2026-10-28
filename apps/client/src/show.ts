@@ -1,7 +1,7 @@
 // 把一次結算的事件切成一拍一拍的演出：纏鬥、移動（接觸時暫停）、每台機體的動作各一拍。
 import type { GameEvent } from '@mech/rules';
 
-export type BeatKind = 'note' | 'phase' | 'grapple' | 'move' | 'shot' | 'lock' | 'mark' | 'swap' | 'actionFail';
+export type BeatKind = 'note' | 'phase' | 'grapple' | 'move' | 'shot' | 'lock' | 'mark' | 'lunge' | 'swap' | 'actionFail';
 
 export interface Beat {
   kind: BeatKind;
@@ -18,7 +18,7 @@ export const SHOT_GAP = 200;
 export const SHOT_FLIGHT = 380;
 const FLOAT_MS = 1000;
 
-const HEADS = new Set<GameEvent['type']>(['phase', 'grapple', 'shot', 'lock', 'mark', 'swap', 'actionFail']);
+const HEADS = new Set<GameEvent['type']>(['phase', 'grapple', 'shot', 'lock', 'mark', 'lunge', 'swap', 'actionFail']);
 
 export function buildBeats(events: GameEvent[]): Beat[] {
   const beats: Beat[] = [];
@@ -53,6 +53,8 @@ function beatDuration(b: Beat): number {
       return MOVE_MS + PAUSE_MS * b.pauses.length;
     case 'grapple':
       return 1700;
+    case 'lunge':
+      return 2000;
     case 'shot': {
       const e = b.events[0];
       const shots = e.type === 'shot' ? e.shots : 1;
