@@ -7,6 +7,7 @@ import { equipAlive } from './unit';
 import { canSee, sensorRange } from './vision';
 import { podSeen } from './psycommu';
 import { EQUIPMENT } from './data';
+import { jammed, knownMines } from './ecm';
 
 /** 看得到的敵方炮群 */
 export interface EnemyPod {
@@ -74,6 +75,8 @@ export interface StateView {
   deferred: string[];
   /** 看得出是氣球的欺敵氣球（自己的全部看得到） */
   balloons: { id: string; owner: PlayerId; pos: Vec }[];
+  /** 知道的地雷：自己埋的，加上我方機體附近的敵方地雷 */
+  mines: { id: string; owner: PlayerId; x: number; y: number }[];
   /** 看得到的敵方炮群（和母機看不看得到無關；母機藏著也可能看到它放出來的手臂或感應炮） */
   enemyPods: EnemyPod[];
   /** 自己還沒進場的增援 */
@@ -148,6 +151,8 @@ export function checkMarks(state: GameState): void {
       by.status === 'active' &&
       !roleLost(by, 'sensor') &&
       by.equipment.some((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(by, e)) &&
+      // 進入自己這一方的電子干擾範圍，標定就失效
+      !jammed(state.units, t) &&
       dist(by.pos, t.pos) - radiusOf(by) - radiusOf(t) <= sensorRange(by);
     if (!ok) delete t.mark;
   }
@@ -216,7 +221,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, balloons, enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */
@@ -265,6 +270,10 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
         break;
       case 'podHit':
         if (mine(e.unit) || mine(e.by)) out.push(e);
+        break;
+      case 'mine':
+        // 埋地雷是暗中的
+        if (mine(e.unit)) out.push(e);
         break;
       case 'mark':
         // 被標定的一方知道自己被照到，但看不到的話不知道是誰

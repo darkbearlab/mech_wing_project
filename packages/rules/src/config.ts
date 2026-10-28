@@ -163,6 +163,25 @@ export const MARK_ARC_DEG = 60;
 /** 標定器沒寫 markCount 時一次標定幾台 */
 export const MARK_COUNT = 2;
 
+// ---- 電子干擾、反輻射飛彈、工兵（暫定值） ----
+/** 電子干擾的範圍（干擾機中心到機體中心的距離） */
+export const ECM_RADIUS = 4;
+/** 反輻射飛彈：打開著干擾器的機體，命中 +這麼多 */
+export const ARM_HIT_BONUS = 40;
+/** 埋地雷的最遠距離（底板邊緣距離） */
+export const MINE_LAY_RANGE = 2;
+/** 地雷的觸發半徑：機體底板碰到這個範圍就引爆 */
+export const MINE_RADIUS = 0.5;
+/** 地雷的傷害（化學能，打在腳上） */
+export const MINE_DAMAGE = 40;
+/** 敵方的地雷在我方機體這個距離以內才看得到 */
+export const MINE_DETECT_RANGE = 2;
+/** 架路障的最遠距離 */
+export const BARRICADE_RANGE = 2.5;
+/** 路障：長、厚的一半；高 1 層 */
+export const BARRICADE_HALF_LENGTH = 1.2;
+export const BARRICADE_HALF_THICK = 0.25;
+
 // ---- 側移與環境 ----
 /** 側移只能在動能 ±這個值以內使用 */
 export const SLIDE_MAX_MOMENTUM = 1;

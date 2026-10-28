@@ -1,8 +1,9 @@
-import { minSpeedOf, roleLost } from './body';
+import { minSpeedOf, roleLost, roleParts } from './body';
+import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
 import * as C from './config';
 import { inMarkCone, sensorRange } from './vision';
 import { shoot, hitChance, type TurnInfo } from './combat';
-import { addStress, damageUnit, dealtBy, spendPropellant, unitById, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, spendPropellant, typed, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { lungeCheck, meleeClash } from './melee';
 import { parseManeuver } from './maneuvers';
@@ -11,7 +12,7 @@ import { CHASSIS, EQUIPMENT } from './data';
 import { lineOfFire, wallPenetration } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
-import type { ActionPlan, EquipState, GameEvent, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
+import type { ActionPlan, EquipState, GameEvent, Mine, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { barrageActive, inBarrage, isShip } from './ship';
@@ -133,7 +134,9 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   }
 
   // 同時移動（纏鬥中的機體不動；纏鬥在動作步驟最後才結算）
+  const moveFrom = ctx.events.length;
   const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, new Set([...frozen, ...deferred]));
+  triggerMines(ctx, moveFrom);
   const movers = new Set(Object.keys(plans).filter((id) => !deferred.has(id)));
   settleMomentum(ctx, plans, movers, frozen, stopped);
   // 炮群跟著母機的新位置放出、移動或收回（擱置的王牌在王牌移動步驟才動）
@@ -174,6 +177,7 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   }
   const frozen = new Set(state.units.filter((u) => u.status === 'active' && !aces.has(u.id)).map((u) => u.id));
   const result = simulateMovement(ctx, plans, stance, frozen);
+  triggerMines(ctx, 0);
   settleMomentum(ctx, plans, aces, new Set(), result.stopped);
   movePods(ctx, plans, aces, (id) => inGrapple(state, id));
   const velocity = { ...info.velocity };
@@ -544,6 +548,73 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
   return false;
 }
 
+/** 拿出這件道具（還能用、還有數量）；沒有就記一筆失敗 */
+function utilityItem(ctx: Ctx, u: UnitState, weapon: string, kind: 'mine' | 'barricade'): EquipState | null {
+  const item = u.equipment.find((e) => e.id === weapon && equipAlive(u, e) && EQUIPMENT[e.defId].utility === kind);
+  if (!item || (item.ammo !== undefined && item.ammo <= 0)) {
+    ctx.events.push({ type: 'actionFail', unit: u.id, reason: kind === 'mine' ? '沒有地雷了' : '沒有路障了' });
+    return null;
+  }
+  return item;
+}
+
+/** 埋地雷：在身邊 MINE_LAY_RANGE 以內的地上（在樓頂上埋不了） */
+function layMine(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'mine' }>): boolean {
+  const { state } = ctx;
+  const item = utilityItem(ctx, u, action.weapon, 'mine');
+  if (!item) return false;
+  const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
+  const reach = dist(u.pos, action.at) - radiusOf(u);
+  if (!(reach <= C.MINE_LAY_RANGE)) return fail('太遠了');
+  if (u.z) return fail('在高處，埋不了地雷');
+  if (!mineSpotOk(state.obstacles, action.at)) return fail('那裡埋不了地雷');
+  if (item.ammo !== undefined) item.ammo--;
+  const mines = (state.mines ??= []);
+  mines.push({ id: `mine${state.turn}-${u.id}-${mines.length}`, owner: u.owner, x: action.at.x, y: action.at.y });
+  ctx.events.push({ type: 'mine', unit: u.id, at: { ...action.at } });
+  return false;
+}
+
+/** 架路障：高 1 層的矮牆，橫擋在自己往 at 的方向上（沿地圖的 x 或 y 軸擺） */
+function placeBarricade(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'barricade' }>): boolean {
+  const { state } = ctx;
+  const item = utilityItem(ctx, u, action.weapon, 'barricade');
+  if (!item) return false;
+  const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
+  const reach = dist(u.pos, action.at) - radiusOf(u);
+  if (!(reach <= C.BARRICADE_RANGE)) return fail('太遠了');
+  if (u.z) return fail('在高處，架不了路障');
+  const wall = barricadeWall(u.pos, action.at, `bar${state.turn}-${u.id}`);
+  const bad = barricadeSpotOk(state.obstacles, state.units, wall);
+  if (bad) return fail(bad);
+  if (item.ammo !== undefined) item.ammo--;
+  state.obstacles.push(wall);
+  ctx.events.push({ type: 'barricade', unit: u.id, obstacle: wall.id });
+  return false;
+}
+
+/** 地雷：這一步移動中，敵方的地面機體路線碰到地雷就引爆（傷害打在腳上） */
+function triggerMines(ctx: Ctx, from: number): void {
+  const { state } = ctx;
+  if (!state.mines?.length) return;
+  for (const e of ctx.events.slice(from)) {
+    if (e.type !== 'move') continue;
+    const u = unitById(ctx, e.unit);
+    // 在樓頂上、會飛的機體不會踩到
+    if (u.status !== 'active' || u.z || minSpeedOf(u) > 0) continue;
+    for (const s of e.samples) {
+      if (!s) continue;
+      const m: Mine | undefined = state.mines.find((x) => x.owner !== u.owner && Math.hypot(x.x - s[0], x.y - s[1]) <= radiusOf(u) + C.MINE_RADIUS);
+      if (!m) continue;
+      state.mines = state.mines.filter((x) => x !== m);
+      ctx.events.push({ type: 'mineBlast', unit: u.id, at: { x: m.x, y: m.y }, mine: m.id });
+      const legs = roleParts(u, 'legs').find((p) => !p.destroyed)?.id;
+      typed(ctx, 'chemical', () => damageUnit(ctx, u, C.MINE_DAMAGE, 'focused', legs));
+      if (u.status !== 'active') break;
+    }
+  }
+}
+
 /** 展開盾：拿在手上的展開盾展開成正面的矮牆；已經展開就收起 */
 function doDeploy(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'deploy' }>): boolean {
   const e = u.equipment.find((x) => x.id === action.weapon);
@@ -610,9 +681,11 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
   const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
   if (!u.equipment.some((e) => e.id === action.weapon && equipAlive(u, e) && EQUIPMENT[e.defId].utility === 'mark')) return fail('標定器已損壞');
   if (roleLost(u, 'sensor')) return fail('感測部位損壞，無法標定');
+  if (jammed(state.units, u)) return fail('在我方的電子干擾範圍內，標定不了');
   const def = EQUIPMENT[u.equipment.find((e) => e.id === action.weapon)!.defId];
   for (const x of state.units) if (x.mark?.by === u.id) delete x.mark;
-  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
+  // 在對方電子干擾範圍內的敵機標定不到
+  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !jammed(state.units, t) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
   if (!pool.length) return fail(`正面 ±${C.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內沒有可以標定的敵機`);
   for (let n = def.markCount ?? C.MARK_COUNT; n > 0 && pool.length; n--) {
     const t = pool.splice(Math.floor(ctx.rng.next() * pool.length), 1)[0];
@@ -628,6 +701,8 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   const action = plan.action;
   if (action.type === 'none') return false;
   if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
+  if (action.type === 'mine') return layMine(ctx, u, action);
+  if (action.type === 'barricade') return placeBarricade(ctx, u, action);
   if (action.type === 'mark') return doMark(ctx, u, action);
   if (action.type === 'lunge') return doLunge(ctx, u, action, benched);
   if (action.type === 'deploy') return doDeploy(ctx, u, action);

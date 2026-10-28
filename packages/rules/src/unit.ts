@@ -292,7 +292,7 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   }
   if (a.type === 'deploy' && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].deployable && (e.location === 'right' || e.location === 'left'))) errors.push(`${u.label}：手上沒有能展開的盾`);
   if (a.type === 'lunge' && !readyMelee(u)) errors.push(`${u.label}：手上沒有近戰武器，不能突進`);
-  if ((a.type === 'smoke' || a.type === 'decoy' || a.type === 'mark') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
+  if ((a.type === 'smoke' || a.type === 'decoy' || a.type === 'mark' || a.type === 'mine' || a.type === 'barricade') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
   for (const [hand, target] of swapOrders(plan)) {
     const e = target === null ? null : u.equipment.find((x) => x.id === target && !alwaysReady(x));
     if (target !== null && !e) errors.push(`${u.label}：沒有這件裝備`);

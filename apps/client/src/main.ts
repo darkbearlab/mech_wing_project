@@ -3,6 +3,8 @@ import {
   DAMAGE_TYPE_NAMES,
   matchupText,
   barrierBetween,
+  barricadeWall,
+  ecmOf,
   barrierOf,
   indirectFire,
   lungeCheck,
@@ -609,6 +611,11 @@ resizeCanvas();
 
 const pr = (x: number, y: number, z = 0) => cam.project(x, y, z);
 
+/** 要在地圖上點位置的道具：煙霧彈、氣球、地雷、路障 */
+type PlacedKind = 'smoke' | 'decoy' | 'mine' | 'barricade';
+const PLACED: string[] = ['smoke', 'decoy', 'mine', 'barricade'];
+const placed = (a: ActionPlan['action'] | undefined): a is Extract<ActionPlan['action'], { type: PlacedKind }> => !!a && PLACED.includes(a.type);
+
 /** 依世界座標畫折線（看不到的點會斷開） */
 function polyWorld(points: ([number, number, number] | null)[]) {
   g.beginPath();
@@ -707,8 +714,8 @@ attachCameraControls(canvas, cam, {
       }
       return;
     }
-    // 煙霧彈、氣球：點地圖（或點機體）選落點
-    if (view && !show && view.phase === 'action' && sel && commands(sel) && plan && (plan.action.type === 'smoke' || plan.action.type === 'decoy') && !view.submitted[view.you]) {
+    // 煙霧彈、氣球、地雷、路障：點地圖（或點機體）選位置
+    if (view && !show && view.phase === 'action' && sel && commands(sel) && plan && placed(plan.action) && !view.submitted[view.you]) {
       const w = hit ? hit.pos : cam.unproject(sx, sy);
       if (w) {
         plan.action.at = { x: Math.round(w.x * 10) / 10, y: Math.round(w.y * 10) / 10 };
@@ -1134,6 +1141,42 @@ function drawGround() {
     .forEach(({ o }) => drawRock(o));
   for (const o of view?.state.obstacles ?? []) if (o.kind === 'smoke') drawSmoke(o);
   drawBalloons();
+  drawMines();
+  drawJamming();
+}
+
+/** 知道的地雷：自己埋的，加上我方機體附近發現的敵方地雷 */
+function drawMines() {
+  for (const m of view?.state.mines ?? []) {
+    const c = pr(m.x, m.y, 0);
+    if (!c.visible) continue;
+    g.strokeStyle = color(m.owner, 0.9);
+    g.lineWidth = 2;
+    const k = 5;
+    g.beginPath();
+    g.moveTo(c.x - k, c.y - k);
+    g.lineTo(c.x + k, c.y + k);
+    g.moveTo(c.x + k, c.y - k);
+    g.lineTo(c.x - k, c.y + k);
+    g.stroke();
+    g.lineWidth = 1;
+    g.fillStyle = color(m.owner, 0.9);
+    g.font = '11px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(m.owner === view!.you ? '我方地雷' : '地雷', c.x, c.y - 8);
+  }
+}
+
+/** 開著電子干擾的機體：畫出干擾範圍 */
+function drawJamming() {
+  for (const u of view?.state.units ?? []) {
+    if (u.hidden || !ecmOf(u as never)) continue;
+    g.strokeStyle = color(u.owner, 0.35);
+    g.setLineDash([2, 4]);
+    ringWorld(u.pos.x, u.pos.y, config.ECM_RADIUS, 0, 0, Math.PI * 2, 72);
+    g.stroke();
+    g.setLineDash([]);
+  }
 }
 
 /** 凸包（Andrew 演算法），畫隕石的側面輪廓用 */
@@ -1192,9 +1235,9 @@ function drawBalloons() {
   }
 }
 
-/** 煙霧彈、氣球的預覽：可丟的範圍與落點 */
-function drawUtilityPreview(u: UnitView, kind: 'smoke' | 'decoy', at: Vec) {
-  const reach = (kind === 'smoke' ? config.SMOKE_THROW_RANGE : config.DECOY_PLACE_RANGE) + radiusOf(u);
+/** 煙霧彈、氣球、地雷、路障的預覽：可放的範圍與位置 */
+function drawUtilityPreview(u: UnitView, kind: PlacedKind, at: Vec) {
+  const reach = { smoke: config.SMOKE_THROW_RANGE, decoy: config.DECOY_PLACE_RANGE, mine: config.MINE_LAY_RANGE, barricade: config.BARRICADE_RANGE }[kind] + radiusOf(u);
   g.strokeStyle = 'rgba(255,207,74,0.45)';
   g.setLineDash([3, 5]);
   ringWorld(u.pos.x, u.pos.y, reach, 0, 0, Math.PI * 2, 64);
@@ -1203,7 +1246,17 @@ function drawUtilityPreview(u: UnitView, kind: 'smoke' | 'decoy', at: Vec) {
   if (!Number.isFinite(at.x)) return;
   g.strokeStyle = 'rgba(255,207,74,0.95)';
   g.lineWidth = 2;
-  ringWorld(at.x, at.y, kind === 'smoke' ? config.SMOKE_RADIUS : 0.5, 0, 0, Math.PI * 2, 40);
+  if (kind === 'barricade') {
+    // 路障：長方形的矮牆
+    const w = barricadeWall(u.pos, at, '');
+    polyWorld([
+      [w.x - w.hx, w.y - w.hy, 0],
+      [w.x + w.hx, w.y - w.hy, 0],
+      [w.x + w.hx, w.y + w.hy, 0],
+      [w.x - w.hx, w.y + w.hy, 0],
+      [w.x - w.hx, w.y - w.hy, 0],
+    ]);
+  } else ringWorld(at.x, at.y, kind === 'smoke' ? config.SMOKE_RADIUS : kind === 'mine' ? config.MINE_RADIUS : 0.5, 0, 0, Math.PI * 2, 40);
   g.stroke();
   g.lineWidth = 1;
 }
@@ -1762,7 +1815,7 @@ function drawPreviews() {
     // 已選的射擊／鎖定目標
     for (const [id, plan] of Object.entries(actionDrafts)) {
       const a = unitView(id);
-      if (a && (plan.action.type === 'smoke' || plan.action.type === 'decoy')) {
+      if (a && placed(plan.action)) {
         drawUtilityPreview(a, plan.action.type, plan.action.at);
         continue;
       }
@@ -2042,7 +2095,7 @@ function orderDone(u: UnitView): boolean {
   if (!touched.has(u.id)) return false;
   if (view!.phase !== 'action') return true;
   const a = actionDrafts[u.id]?.action;
-  if (a?.type === 'smoke' || a?.type === 'decoy') return Number.isFinite(a.at.x);
+  if (placed(a)) return Number.isFinite(a.at.x);
   return !a || a.type === 'none' || a.type === 'mark' || a.type === 'deploy' || !!a.target;
 }
 
@@ -2145,6 +2198,8 @@ function defaultTipFor(u: UnitView): string {
   if (!a || a.type === 'none') return plan && swapOrders(plan).length ? '換武器（那一側這回合不能開火）。' : '勾選要開火的武器（可以多選），再點地圖上的敵機當目標。';
   if (a.type === 'smoke') return Number.isFinite(a.at.x) ? `煙霧彈丟到選好的位置：半徑 ${config.SMOKE_RADIUS}，射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}，裡面的機體敵方認不出是什麼。` : `點地圖選煙霧彈的落點（${config.SMOKE_THROW_RANGE} 格內）。`;
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
+  if (a.type === 'mine') return Number.isFinite(a.at.x) ? MINE_TEXT : `點地圖選埋雷的位置（${config.MINE_LAY_RANGE} 格內的地上）。`;
+  if (a.type === 'barricade') return Number.isFinite(a.at.x) ? BARRICADE_TEXT : `點地圖選路障的位置（${config.BARRICADE_RANGE} 格內；會橫擋在你往那裡的方向上）。`;
   if (a.type === 'mark') return markText(u);
   if (a.type === 'deploy') return DEPLOY_TEXT;
   if (a.type === 'lunge' && !a.target) return `${LUNGE_TEXT} 點地圖上的敵機當目標。`;
@@ -2687,7 +2742,7 @@ function pursuitControls(u: UnitView): string {
 interface EquipOption {
   key: string;
   label: string;
-  kind: 'shoot' | 'lock' | 'none' | 'smoke' | 'decoy' | 'mark' | 'lunge' | 'deploy';
+  kind: 'shoot' | 'lock' | 'none' | PlacedKind | 'mark' | 'lunge' | 'deploy';
   equip?: string;
 }
 
@@ -2701,7 +2756,12 @@ function otherOptions(u: UnitView): EquipOption[] {
       if (!roleLost(u, 'sensor')) out.push({ key: `mark:${e.id}`, label: `${def.name}・標定`, kind: 'mark', equip: e.id });
       continue;
     }
-    out.push({ key: `${def.utility}:${e.id}`, label: `${def.name}・${def.utility === 'smoke' ? '丟出' : '放置'}（剩 ${e.ammo ?? '∞'}）`, kind: def.utility, equip: e.id });
+    // 電子干擾器一直開著，不用下指令
+    if (def.utility === 'ecm') continue;
+    // 地雷、路障在樓頂上放不了
+    if ((def.utility === 'mine' || def.utility === 'barricade') && u.z) continue;
+    const verb = { smoke: '丟出', decoy: '放置', mine: '埋設', barricade: '架設' }[def.utility];
+    out.push({ key: `${def.utility}:${e.id}`, label: `${def.name}・${verb}（剩 ${e.ammo ?? '∞'}）`, kind: def.utility, equip: e.id });
   }
   for (const e of u.equipment) {
     const def = EQUIPMENT[e.defId];
@@ -2719,11 +2779,13 @@ function optionOn(o: EquipOption, plan: ActionPlan, u: UnitView): boolean {
   const a = plan.action;
   if (o.kind === 'lock') return a.type === 'lock';
   if (o.kind === 'lunge') return a.type === 'lunge';
-  if (o.kind === 'smoke' || o.kind === 'decoy' || o.kind === 'mark' || o.kind === 'deploy') return a.type === o.kind && a.weapon === o.equip;
+  if (PLACED.includes(o.kind) || o.kind === 'mark' || o.kind === 'deploy') return a.type === o.kind && (a as { weapon?: string }).weapon === o.equip;
   return a.type === 'none' && !swapOrders(plan).length;
 }
 
 const DEPLOY_TEXT = `展開盾：在機體正面展開成寬 ${config.BARRIER_WIDTH} 格、高 ${config.BARRIER_LEVELS} 層的矮牆（再按一次收起）。穿過盾牆的射擊（敵我都算，自己開火不受影響）算半掩護 −${config.BUILDING_COVER_PENALTY}，命中一律打在盾上；躲在後面的隊友也受保護。比盾牆高 ${config.BARRIER_LEVELS} 層以上、或迫擊砲與垂直飛彈這種從上面來的擋不到。展開中只能用速度 ${config.DEPLOYED_MAX_SPEED} 以下的機動，選更快的機動會自動收起。用掉這回合的動作，不會暴露位置。`;
+const MINE_TEXT = `埋地雷（底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上）：對手看不到，靠近 ${config.MINE_DETECT_RANGE} 格才發現。敵方地面機體走過就引爆，腳受 ${config.MINE_DAMAGE} 點傷害；樓頂上、會飛的踩不到，自己人不會觸發。`;
+const BARRICADE_TEXT = `架路障（${config.BARRICADE_RANGE} 格內）：長 ${config.BARRICADE_HALF_LENGTH * 2}、高 1 層的矮牆，橫擋在你往那裡的方向上；和建築一樣擋移動、射擊與視線。`;
 
 const LUNGE_TEXT = `突進：衝到正面 ±${config.LUNGE_ARC_DEG}°、底板邊緣 ${config.LUNGE_RANGE} 格內、同一個高度的敵機身邊砍一刀（照近戰對決結算，對方可以盾擋、閃避、反擊）。目標比自己低就是跳劈：距離放寬到 ${config.JUMP_SLASH_RANGE} 格，每落下 1 層傷害 +1（最多 +${config.JUMP_SLASH_MAX_BONUS}），對方不能反擊，打中的部位多半在頭、軀幹、背包，很少打到腿；落差 ${config.JUMP_SLASH_LEG_FROM} 層以上自己腿部受 1 點傷害。比自己高的要先攀升。推進劑 −${config.LUNGE_PROPELLANT}、壓力 +${config.LUNGE_STRESS}，要近戰姿態。突進就不能開火。`;
 
@@ -2826,7 +2888,9 @@ function weaponShot(u: UnitView, w: EquipState, t: UnitView): { h: NonNullable<R
   const wall = indirect ? null : barrierBetween(view!.state.units as never[] as (UnitView & { status: string })[], u.id, u.pos, u.z, t.pos);
   const los = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
   const cover = wall && los !== 'blocked' ? 'cover' : los;
-  if (def.fire && !t.mark) return { h: null, why: '飛彈、迫擊砲只能打被標定的目標' };
+  if (def.fire === 'antiRadiation') {
+    if (!ecmOf(t as never)) return { h: null, why: '反輻射飛彈只能打開著電子干擾的機體' };
+  } else if (def.fire && !t.mark) return { h: null, why: '飛彈、迫擊砲只能打被標定的目標' };
   if (cover === 'blocked' && !indirect) return { h: null, why: '射擊線被擋住' };
   if (w.ammo !== undefined && w.ammo <= 0) return { h: null, why: '彈藥耗盡' };
   if (!indirect && def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
@@ -2886,6 +2950,8 @@ function optionTip(u: UnitView, o: EquipOption): string {
   if (o.kind === 'lunge') return LUNGE_TEXT;
   if (o.kind === 'deploy') return DEPLOY_TEXT;
   if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
+  if (o.kind === 'mine') return MINE_TEXT;
+  if (o.kind === 'barricade') return BARRICADE_TEXT;
   if (o.kind === 'decoy') return `放出欺敵氣球（${config.DECOY_PLACE_RANGE} 格內）：放在煙霧裡，敵方看起來就是一台不明機體；出了煙霧一眼就是氣球。被打中、鎖定或敵機靠近就破。`;
   const eq = u.equipment.find((e) => e.id === o.equip)!;
   const def = EQUIPMENT[eq.defId];
@@ -3118,7 +3184,7 @@ function bindControls(u: UnitView | undefined) {
     b.onclick = () => {
       const o = otherOptions(u).find((x) => x.key === b.dataset.opt)!;
       if (o.kind !== 'none') dropWireless();
-      if (o.kind === 'smoke' || o.kind === 'decoy') plan.action = { type: o.kind, weapon: o.equip!, at: { x: NaN, y: NaN } };
+      if (PLACED.includes(o.kind)) plan.action = { type: o.kind as PlacedKind, weapon: o.equip!, at: { x: NaN, y: NaN } };
       else if (o.kind === 'lock') plan.action = { type: 'lock', target: target() };
       else if (o.kind === 'mark') plan.action = { type: 'mark', weapon: o.equip! };
       else if (o.kind === 'lunge') plan.action = { type: 'lunge', target: target() };
@@ -3208,7 +3274,7 @@ function submitOrders() {
   if (view!.phase === 'deploy') return sendMsg({ t: 'deploy', deploy: deployDrafts });
   // 沒選目標的射擊／鎖定視為不行動
   const actions: Record<string, ActionPlan> = {};
-  for (const [id, p] of Object.entries(actionDrafts)) actions[id] = (aimsAt(p.action)) && !p.action.target ? { ...p, action: { type: 'none' } } : (p.action.type === 'smoke' || p.action.type === 'decoy') && !Number.isFinite(p.action.at.x) ? { ...p, action: { type: 'none' } } : p;
+  for (const [id, p] of Object.entries(actionDrafts)) actions[id] = (aimsAt(p.action)) && !p.action.target ? { ...p, action: { type: 'none' } } : placed(p.action) && !Number.isFinite(p.action.at.x) ? { ...p, action: { type: 'none' } } : p;
   sendMsg({ t: 'actions', actions });
 }
 
@@ -3252,6 +3318,12 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 丟出煙霧彈`;
     case 'decoy':
       return `${L(e.unit)} 放出欺敵氣球`;
+    case 'mine':
+      return `${L(e.unit)} 埋下地雷`;
+    case 'mineBlast':
+      return `${L(e.unit)} 踩到地雷！`;
+    case 'barricade':
+      return `${L(e.unit)} 架起路障`;
     case 'decoyPop':
       return `欺敵氣球破了（${e.reason}）`;
     case 'arrive':

@@ -17,7 +17,8 @@ import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
 import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
-import { DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
+import { BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
@@ -117,6 +118,9 @@ const LUNGE_SHOT = 60;
 const DEPLOY_SHOT = 35;
 /** 帶標定器的機體：自己這發命中率低於這個就改成標定 */
 const MARK_SHOT = 45;
+/** 工兵：自己這發命中率低於這個值、敵人在 ENGINEER_NEAR 格內時，往敵人的方向埋雷或架路障 */
+const ENGINEER_SHOT = 35;
+const ENGINEER_NEAR = 10;
 /** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
 const LOCK_PROBE: EquipDef = { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } };
 
@@ -821,13 +825,34 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const lockTarget = [focus, near].find(lockable) ?? null;
     // 標定：帶標定器、自己這發不好打（或沒槍）時，掃描前方標定敵機讓隊友打；不會暴露位置。
     // 已經標著敵機就不重來（標定會一直持續到超出距離）；看不到的敵機用殘影估計在不在前方
-    const designator = roleLost(u, 'sensor') ? undefined : u.equipment.find((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(u, e));
+    // 在我方電子干擾範圍內標定不了；在對方干擾範圍內的敵機標定不到
+    const designator = roleLost(u, 'sensor') || jammed(view.state.units, u) ? undefined : u.equipment.find((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(u, e));
     const holding = view.state.units.some((t) => t.mark?.by === u.id);
-    const markable = view.state.units.filter((t) => t.owner !== view.you && t.status === 'active' && !t.mark && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t))).length;
+    const markable = view.state.units.filter((t) => t.owner !== view.you && t.status === 'active' && !t.mark && !jammed(view.state.units, t) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t))).length;
     const allies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active');
     // 隊友帶著飛彈、迫擊砲（只能打被標定的目標）：標定優先
     const guidedAllies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active' && x.equipment.some((e) => EQUIPMENT[e.defId].fire && equipAlive(x, e) && (e.ammo === undefined || e.ammo > 0)));
     const riot = u.equipment.find((e) => EQUIPMENT[e.defId].deployable && equipAlive(u, e) && (e.location === 'right' || e.location === 'left'));
+    // 工兵道具：還有數量、自己在地面上
+    const kit = (kind: 'mine' | 'barricade') => (u.z ? undefined : u.equipment.find((e) => EQUIPMENT[e.defId].utility === kind && equipAlive(u, e) && (e.ammo === undefined || e.ammo > 0)));
+    /** 往最近的敵人方向找一個放得下的點（正前方放不下就往兩邊偏） */
+    const toward = (reach: number, ok: (at: Vec) => boolean): Vec | null => {
+      if (!near) return null;
+      const base = angleOf(sub(near.pos, u.pos));
+      const r = radiusOf(u) + reach;
+      for (const off of [0, 30, -30, 60, -60]) {
+        const a = base + off * DEG;
+        const at = { x: u.pos.x + Math.cos(a) * r, y: u.pos.y + Math.sin(a) * r };
+        if (ok(at)) return at;
+      }
+      return null;
+    };
+    const units = view.state.units as unknown as UnitState[];
+    const mineKit = kit('mine');
+    const wallKit = kit('barricade');
+    const mineAt = mineKit ? toward(MINE_LAY_RANGE * 0.8, (at) => mineSpotOk(view.state.obstacles, at)) : null;
+    const wallAt = wallKit ? toward(BARRICADE_RANGE * 0.6, (at) => !barricadeSpotOk(view.state.obstacles, units, barricadeWall(u.pos, at, ''))) : null;
+    const engineer = d < ENGINEER_NEAR && (!shot || shot.chance < ENGINEER_SHOT);
     // 突進／跳劈：近戰姿態、手上有近戰武器，砍得到就砍（槍不太好打時）；集火目標、跳劈優先
     const inClinch = (id: string) => view.state.grapples.some((g) => g.a === id || g.b === id);
     const lunge = enemies
@@ -842,6 +867,12 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     } else if (riot && !riot.deployed && d < 12 && Math.abs(u.momentum) <= DEPLOYED_MAX_SPEED && (!shot || shot.chance < DEPLOY_SHOT)) {
       // 展開盾：慢下來、敵人在附近、這發不好打時，把盾牆立起來
       plan.action = { type: 'deploy', weapon: riot.id };
+    } else if (engineer && wallKit && wallAt && d > 4) {
+      // 路障：敵人還有點距離時，在自己和敵人之間立一道矮牆當掩護
+      plan.action = { type: 'barricade', weapon: wallKit.id, at: wallAt };
+    } else if (engineer && mineKit && mineAt) {
+      // 地雷：埋在敵人過來的路上
+      plan.action = { type: 'mine', weapon: mineKit.id, at: mineAt };
     } else if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
       // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS
       plan.action = { type: 'lock', target: lockTarget.id };
