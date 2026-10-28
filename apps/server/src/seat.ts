@@ -496,11 +496,26 @@ function writeCatalog() {
 writeCatalog();
 
 let ws: WebSocket;
+/** 最近送出、還沒收到伺服器任何回應的指令：斷線重連後，伺服器那邊還沒收到就重送 */
+let unanswered: string | null = null;
+let reconnected = false;
 function connect() {
   ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${seatName}`);
   ws.on('open', () => console.log(`CONNECTED room=${room} seat=${seatName} 資料 ${contentVersion()} 資料夾 ${dir}`));
   ws.on('message', (data) => {
     const msg = JSON.parse(String(data)) as ServerMessage;
+    // 重連後的第一份畫面：還在等這份指令（大廳沒加入、或這一步還沒送出）就重送
+    if (reconnected && unanswered && (msg.t === 'lobby' || msg.t === 'state')) {
+      const t = (JSON.parse(unanswered) as { t: string }).t;
+      const waiting = msg.t === 'lobby' ? t === 'join' && !(msg.seats ? msg.seats.find((s) => s.key === seatName)?.joined : msg.joined[seat]) : t !== 'join' && needsOrders(msg.view);
+      reconnected = false;
+      if (waiting) {
+        ws.send(unanswered);
+        console.log(`RESENT ${t}（斷線前送出的指令伺服器沒收到）`);
+        return;
+      }
+    }
+    unanswered = null;
     if (msg.t === 'lobby') {
       view = null;
       writeFileSync(resolve(dir, 'view.txt'), renderLobby(msg));
@@ -536,6 +551,7 @@ function connect() {
       process.exit(0);
     }
     console.log('DISCONNECTED，1 秒後重連');
+    reconnected = true;
     setTimeout(connect, 1000);
   });
   ws.on('error', () => {});
@@ -559,7 +575,8 @@ setInterval(() => {
       return;
     }
     delete msg.force;
-    ws.send(JSON.stringify(msg));
+    unanswered = JSON.stringify(msg);
+    ws.send(unanswered);
     renameSync(file, resolve(dir, `sent-${Date.now()}.json`));
     console.log(`SENT ${msg.t}`);
     badSince = 0;
