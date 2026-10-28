@@ -103,8 +103,10 @@ import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTi
 // ---------- 連線 ----------
 
 const params = new URLSearchParams(location.search);
-// server：連本機 WebSocket 伺服器，兩個視窗各坐一席；local：同一台裝置輪流（GitHub Pages 用這個）
-const mode = params.get('mode') ?? (import.meta.env.PROD ? 'local' : 'server');
+// server：連對戰伺服器，兩個視窗各坐一席；local：同一台裝置輪流（GitHub Pages 沒指定房間時用這個）
+const mode = params.get('mode') ?? (import.meta.env.PROD && !params.has('room') ? 'local' : 'server');
+/** 對戰伺服器：開發時是 Vite 轉給本機伺服器；線上是 Cloudflare 的房間；?server= 可以指定 */
+const SERVER = params.get('server') ?? (import.meta.env.PROD ? (import.meta.env.VITE_ROOM_SERVER ?? 'wss://mech-wing-api.darkbearlab.workers.dev') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
 const room = params.get('room') || 'test';
 let seat: PlayerId = params.get('seat') === '1' ? 1 : 0;
 /** 觀戰（?seat=watch）：雙方都看得到，不能下指令 */
@@ -118,8 +120,7 @@ let deadline: number | null = null;
 let errors: string[] = [];
 
 function connect() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}&seat=${watching ? 'watch' : seat}`);
+  ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${watching ? 'watch' : seat}`);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMessage);
   ws.onclose = (e) => {
     connected = [false, false];

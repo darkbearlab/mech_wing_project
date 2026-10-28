@@ -10,6 +10,9 @@
     { "binding": "DB", "database_name": "mech-wing-content", "database_id": "f9a5d048-fefe-45c9-884f-73861b5db9cf", "migrations_dir": "migrations" }
   ],
   "kv_namespaces": [{ "binding": "PACKS", "id": "74f8c0ba8f67431bbd921d8e4f870b65" }],
+  // 對戰房間：一個房間一個 Durable Object
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "MatchRoom" }] },
+  "migrations": [{ "tag": "rooms-v1", "new_sqlite_classes": ["MatchRoom"] }],
   "vars": {
     // 管理金鑰的 SHA-256；金鑰本身在 apps/api/.admin-token（不進 git）
     "ADMIN_TOKEN_SHA256": "b30f8960dd0183d609bd1f45bbfac3358c126087d126bac5981a9f4da84f4e47"

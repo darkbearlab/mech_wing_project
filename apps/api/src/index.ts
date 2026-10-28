@@ -11,15 +11,41 @@
 //   POST   /battles            上傳一場對戰紀錄（不用金鑰；只留最近 MAX_BATTLES 場）
 //   GET    /battles            對戰紀錄列表（需管理金鑰）；?limit=
 //   GET    /battles/:id        一場對戰的完整紀錄（需管理金鑰）
+//   GET    /ws?room=&seat=     對戰房間（WebSocket；一個房間一個 Durable Object，seat 是 0、1 或 watch）
 // 版本號是「大.小.修」（例如 0.1.4）；最早的 v1…v5 已改名為 0.1.0…0.1.4
-import { MAX_RECORD_BYTES, checkRecord, validateContent, type BattleRecord, type ContentPack } from '@mech/rules';
+import { DurableObject } from 'cloudflare:workers';
+import { MAX_RECORD_BYTES, Room, checkRecord, validateContent, type BattleRecord, type ContentPack } from '@mech/rules';
 
 export interface Env {
   DB: D1Database;
   PACKS: KVNamespace;
   /** 管理金鑰的 SHA-256（十六進位）；金鑰本身只存在管理者手上 */
   ADMIN_TOKEN_SHA256: string;
+  ROOMS: DurableObjectNamespace<MatchRoom>;
 }
+
+/**
+ * 對戰房間：和本機伺服器共用 @mech/rules 的 Room。對戰只放在記憶體裡（還有人連著就不會被收掉）；
+ * 所有人都斷線一段時間後房間會被回收，進行中的對戰就沒了
+ */
+export class MatchRoom extends DurableObject<Env> {
+  private room = new Room(0);
+
+  async fetch(req: Request): Promise<Response> {
+    const seatParam = new URL(req.url).searchParams.get('seat');
+    const seat = seatParam === 'watch' ? 'watch' : Number(seatParam) === 1 ? 1 : 0;
+    const { 0: client, 1: server } = new WebSocketPair();
+    server.accept();
+    const conn = this.room.connect({ send: (d) => server.send(d), close: (c, r) => server.close(c, r) }, seat);
+    server.addEventListener('message', (e) => conn.message(typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data)));
+    server.addEventListener('close', () => conn.close());
+    server.addEventListener('error', () => conn.close());
+    return new Response(null, { status: 101, webSocket: client });
+  }
+}
+
+/** 房間名稱：英數、底線、連字號，最多 40 字 */
+const ROOM_NAME = /^[\w-]{1,40}$/;
 
 const KINDS = ['equipment', 'chassis', 'pilots', 'loadouts', 'rosters'] as const;
 type Kind = (typeof KINDS)[number];
@@ -245,6 +271,13 @@ async function handle(req: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    if (url.pathname === '/ws') {
+      if (req.headers.get('Upgrade') !== 'websocket') return fail(426, '要用 WebSocket 連線');
+      const room = url.searchParams.get('room') || 'test';
+      if (!ROOM_NAME.test(room)) return fail(400, '房間名稱只能用英數、底線、連字號（最多 40 字）');
+      return env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(req);
+    }
     try {
       return await handle(req, env);
     } catch (e) {
