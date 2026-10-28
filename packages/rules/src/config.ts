@@ -103,8 +103,8 @@ export const JUMP_SLASH_MAX_BONUS = 2;
 /** 跳劈落差這麼多層以上，落地時自己的腿部受 1 點傷害 */
 export const JUMP_SLASH_LEG_FROM = 3;
 /** 迫擊砲沒打中：落點偏離目標 MIN～MAX 格（方向隨機），落點這麼近（底板邊緣）的機體都受破片傷害（頂部攻擊） */
-export const MORTAR_SCATTER_MIN = 1;
-export const MORTAR_SCATTER_MAX = 2;
+export const MORTAR_SCATTER_MIN = 1.5;
+export const MORTAR_SCATTER_MAX = 3;
 export const MORTAR_SPLASH_RADIUS = 1;
 export const MORTAR_SPLASH_DAMAGE = 1;
 /** 展開盾：機體正面寬這麼多格、高 1 層的矮牆；穿過它的射擊算半掩護，命中一律打在盾上。展開中只能用這個速度以下的機動，快了就自動收起 */
@@ -141,6 +141,8 @@ export const RELATIVE_SPEED_HIT: [number, number][] = [
 ];
 /** 近戰姿態下射擊的命中懲罰 */
 export const MELEE_STANCE_SHOT_PENALTY = 20;
+/** 駕駛黑視中開火：命中下降（導引武器只看機器，不受影響） */
+export const BLACKOUT_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;

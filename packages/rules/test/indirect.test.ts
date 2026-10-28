@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as C from '../src/config';
 import { barrierBetween, hitChance } from '../src/combat';
 import { EQUIPMENT, type RosterEntry } from '../src/data';
 import { Match } from '../src/match';
@@ -121,5 +122,16 @@ describe('展開盾', () => {
     m.submitMoves(0, { [st.units[0].id]: plan({ maneuver: 'hover-S-0' }) });
     m.submitMoves(1, { [st.units[1].id]: plan({ maneuver: 'straight-S-2' }) });
     expect(m.state.units[1].equipment.find((e) => e.id === shield.id)!.deployed).toBe(false);
+  });
+});
+
+describe('黑視中開火', () => {
+  it('一般武器命中 −BLACKOUT_SHOT_PENALTY；導引武器只看機器，不受影響', () => {
+    const st = setup();
+    st.units[2].mark = { by: st.units[1].id };
+    const at = (weapon: string, blackout: boolean) =>
+      hitChance({ attacker: { ...st.units[0], blackout }, attackerSkill: 3, weapon: EQUIPMENT[weapon], target: st.units[2], targetSkill: null, relSpeed: 3, shooterMelee: false })!.chance;
+    expect(at('beam_rifle', false) - at('beam_rifle', true)).toBe(C.BLACKOUT_SHOT_PENALTY);
+    expect(at('vls', true)).toBe(at('vls', false));
   });
 });
