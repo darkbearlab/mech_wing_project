@@ -82,6 +82,7 @@ canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 .equip { font-size: 12.5px; line-height: 1.5; }
 .equip > span { white-space: nowrap; margin-right: 8px; display: inline-block; }
 .hurt { color: var(--accent); }
+.bare { color: #ff7a3d; }
 .dead { color: var(--b); }
 .sec { font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
 .optList { display: flex; flex-direction: column; gap: 3px; }

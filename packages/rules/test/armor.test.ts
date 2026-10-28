@@ -18,6 +18,24 @@ describe('傷害屬性與裝甲', () => {
     expect(typeMultiplier(undefined, 'energy')).toBe(1);
   });
 
+  it('機械外露：耐久剩三分之一以下的機體部位，抵抗的屬性也算弱點；武器不算', () => {
+    // X-00 軀幹 100、複合裝甲擋動能
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
+    const u = st.units[0];
+    const ctx: Ctx = { state: st, rng: new Rng(1), events: [] };
+    u.parts.torso.damage = 66;
+    typed(ctx, 'kinetic', () => damageUnit(ctx, u, 10, 'focused', 'torso'));
+    expect(u.parts.torso.damage).toBe(66 + 8);
+    u.parts.torso.damage = 67;
+    typed(ctx, 'kinetic', () => damageUnit(ctx, u, 10, 'focused', 'torso'));
+    expect(u.parts.torso.damage).toBe(67 + 13);
+    const rifle = u.equipment.find((e) => e.defId === 'beam_rifle')!;
+    u.parts[rifle.id].damage = u.parts[rifle.id].durability - 5;
+    typed(ctx, 'kinetic', () => damageUnit(ctx, u, 3, 'focused', rifle.id));
+    const dmg = ctx.events.filter((e) => e.type === 'damage');
+    expect(dmg.map((e) => (e.type === 'damage' ? !!e.exposed : null))).toEqual([false, true, false]);
+  });
+
   it('每個機型都有一種裝甲；武器都有屬性', () => {
     for (const c of Object.values(CHASSIS)) expect(c.armorType, c.id).toBeDefined();
     for (const e of Object.values(EQUIPMENT)) if (e.kind === 'ranged' || e.kind === 'melee') expect(e.damageType, e.id).toBeDefined();

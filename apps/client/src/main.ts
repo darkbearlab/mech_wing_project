@@ -81,6 +81,7 @@ import {
   availableManeuvers,
   immobile,
   forecastMoves,
+  exposed,
   flightFire,
   needsMark,
   screenBlocked,
@@ -892,7 +893,7 @@ function drawFloat(at: Vec, text: string, colour: string, p: number, line = 0) {
 function damageText(e: Extract<GameEvent, { type: 'damage' }>): [string, string] {
   const part = partName(e.unit, e.part);
   if (!e.amount) return [`${part} 失效`, '#ff8080'];
-  const tag = e.typed === 'weak' ? ' 弱點！' : e.typed === 'resist' ? ' 抵抗' : '';
+  const tag = e.exposed ? ' 外露！' : e.typed === 'weak' ? ' 弱點！' : e.typed === 'resist' ? ' 抵抗' : '';
   return [`-${e.amount} ${part}${tag}${e.destroyed ? ' 破壞！' : ''}`, e.destroyed ? '#ff5d5d' : e.typed === 'weak' ? '#ff7a3d' : e.typed === 'resist' ? '#a8c8e8' : '#ffb347'];
 }
 
@@ -2617,7 +2618,7 @@ function gearCell(u: UnitView, e: EquipState): string {
 function partCell(u: UnitView, id: string): string {
   const p = u.parts[id];
   if (!p) return '<span></span>';
-  const cls = p.destroyed ? 'dead' : p.damage ? 'hurt' : '';
+  const cls = p.destroyed ? 'dead' : exposed(p) ? 'bare' : p.damage ? 'hurt' : '';
   return `<span class="${cls}">${esc(p.name)}(${p.durability - p.damage}/${p.durability})</span>`;
 }
 
@@ -3562,7 +3563,7 @@ function describe(e: GameEvent): string | null {
       if (e.pod) return `${L(e.attacker)} 指揮${(() => { const f = podById(e.pod, true); return f ? podName(f.u, f.e) : '炮群'; })()}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
       return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}${e.strays ? `，誤擊 ${e.strays}` : ''}`;
     case 'damage':
-      return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.typed === 'weak' ? '（打在弱點上）' : e.typed === 'resist' ? '（被裝甲抵抗）' : ''}${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
+      return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.exposed ? '（機械外露）' : e.typed === 'weak' ? '（打在弱點上）' : e.typed === 'resist' ? '（被裝甲抵抗）' : ''}${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
     case 'knockback':
       return `${L(e.unit)} 被撞開，姿勢失控`;
     case 'stress':
