@@ -292,8 +292,10 @@ describe('同時移動與接觸', () => {
       const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0', stance }), st);
       return of(r.events, 'damage').filter((e) => e.unit === st.units[1].id).reduce((t, e) => t + e.amount, 0);
     };
-    expect(mk('shoot')).toBe(30);
-    expect(mk('melee')).toBe(10);
+    // 迎面撞上：正面傷害打折
+    const front = (n: number) => Math.max(1, Math.round(n * C.FRONT_DAMAGE_MULT));
+    expect(mk('shoot')).toBe(front(30));
+    expect(mk('melee')).toBe(front(10));
   });
 
   it('突進但手上沒有近戰武器 → 撞擊，被撞的一方傷得比較重', () => {
@@ -304,8 +306,9 @@ describe('同時移動與接觸', () => {
     const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('ram');
     const dmg = (id: string) => of(r.events, 'damage').filter((e) => e.unit === id).reduce((t, e) => t + e.amount, 0);
-    expect(dmg(st.units[1].id)).toBe(30);
-    expect(dmg(st.units[0].id)).toBe(10);
+    const front = (n: number) => Math.max(1, Math.round(n * C.FRONT_DAMAGE_MULT));
+    expect(dmg(st.units[1].id)).toBe(front(30));
+    expect(dmg(st.units[0].id)).toBe(front(10));
   });
 
   it('沒拿刃類武器的突進慢速接觸 → 纏鬥', () => {

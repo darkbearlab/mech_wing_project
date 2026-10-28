@@ -123,6 +123,8 @@ export const HIT_DIRECTION_WEIGHT: Record<'front' | 'side' | 'back', Partial<Rec
   side: { propulsion: 0.8, near: 1.5, far: 0.5 },
   back: { sensor: 0.7, propulsion: 2 },
 };
+/** 從正面打過來的傷害倍率（正面裝甲最厚）；從上方打下來、沒有方向的不算 */
+export const FRONT_DAMAGE_MULT = 0.9;
 export const BACKSTAB_STRESS = 2;
 export const FRONT_ARC_DEG = 60;
 export const BACK_ARC_DEG = 120;

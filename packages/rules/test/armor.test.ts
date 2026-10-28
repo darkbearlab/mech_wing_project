@@ -71,4 +71,16 @@ describe('攻擊方向的部位權重', () => {
     const rifle = u.equipment.find((e) => e.location === 'right')!;
     expect(weightOf(u, { x: 10, y: 15 }, rifle.id)).toBe(C.HIT_DIRECTION_WEIGHT.side.near);
   });
+
+  it('從正面打過來的傷害打折；背後、從上方打下來的不打折', () => {
+    const hit = (from: { x: number; y: number }, top = false) => {
+      const u = unit();
+      const ctx: Ctx = { state: { units: [u] } as never, rng: new Rng(1), events: [], from, topAttack: top };
+      damageUnit(ctx, u, 30, 'focused', 'torso');
+      return u.parts.torso.damage;
+    };
+    expect(hit({ x: 15, y: 10 })).toBe(Math.round(30 * C.FRONT_DAMAGE_MULT));
+    expect(hit({ x: 5, y: 10 })).toBe(30);
+    expect(hit({ x: 15, y: 10 }, true)).toBe(30);
+  });
 });

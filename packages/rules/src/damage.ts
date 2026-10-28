@@ -83,12 +83,17 @@ function partRole(u: UnitState, p: UnitState['parts'][string]): string | null {
   return host?.role ?? null;
 }
 
+/** 從 from 打過來是目標的正面、側面還是背後 */
+export function attackSide(u: Pick<UnitState, 'pos' | 'facing'>, from: Vec): 'front' | 'side' | 'back' {
+  const abs = Math.abs(angleDiff(angleOf(sub(from, u.pos)), u.facing));
+  return abs <= C.FRONT_ARC_DEG * DEG ? 'front' : abs >= C.BACK_ARC_DEG * DEG ? 'back' : 'side';
+}
+
 /** 從 from 打過來時各部位的權重倍率（HIT_DIRECTION_WEIGHT） */
 export function directionWeight(u: UnitState, from: Vec): (p: UnitState['parts'][string]) => number {
   // 正值 = 順時針 = 目標的右手邊
   const rel = angleDiff(angleOf(sub(from, u.pos)), u.facing);
-  const abs = Math.abs(rel);
-  const side = abs <= C.FRONT_ARC_DEG * DEG ? 'front' : abs >= C.BACK_ARC_DEG * DEG ? 'back' : 'side';
+  const side = attackSide(u, from);
   const w = C.HIT_DIRECTION_WEIGHT[side];
   const near = rel > 0 ? 'rightHand' : 'leftHand';
   return (p) => {
@@ -148,7 +153,11 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
     // 從哪個方向打過來：射擊照射擊位置，近戰、撞擊照造成傷害的機體位置（墜落、地雷、自傷等沒有方向）
     const by = ctx.by ? ctx.state.units.find((x) => x.id === ctx.by) : undefined;
     const from = ctx.from ?? (by && by.id !== u.id ? by.pos : undefined);
-    if (from && !ctx.undirected) mult = directionWeight(u, from);
+    if (from && !ctx.undirected) {
+      mult = directionWeight(u, from);
+      // 正面裝甲最厚：從正面打過來的傷害打折
+      if (attackSide(u, from) === 'front') amount = Math.max(1, Math.round(amount * C.FRONT_DAMAGE_MULT));
+    }
   }
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {
