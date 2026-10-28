@@ -77,6 +77,21 @@
         "stowed",
         "larm"
       ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "designator",
+        "mount",
+        "head"
+      ]
     ]
   ],
   "X-01": [
@@ -311,6 +326,35 @@
         "shoulder_cannon",
         "mount",
         "torso"
+      ]
+    ]
+  ],
+  "X-07": [
+    [
+      [
+        "machine_gun",
+        "right"
+      ],
+      [
+        "designator",
+        "mount",
+        "head"
+      ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "designator",
+        "mount",
+        "head"
+      ],
+      [
+        "grapnel",
+        "mount",
+        "legs"
       ]
     ]
   ]

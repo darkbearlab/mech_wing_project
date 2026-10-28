@@ -114,7 +114,7 @@ function unitLine(u: UnitView): string {
   const ch = CHASSIS[u.chassisId];
   const p = u.pilotId ? PILOTS[u.pilotId] : undefined;
   const status = u.status !== 'active' ? ` 【${u.status}】` : u.hidden ? ` 【看不到，最後目擊 T${u.seenTurn}】` : u.unknown ? ' 【煙霧中不明】' : '';
-  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ` 高度${u.z}層（樓頂）` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
+  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ` 高度${u.z}層（樓頂）` : ''}${u.mark ? ` 被標定（到第${u.mark.until}回合）` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
   if (p) s += `\n  駕駛 ${p.name} 技能${p.skill}${p.abilities.length ? ` [${p.abilities.join(',')}]` : ''} 壓力 ${u.stress}/${u.maxStress}${u.blackout ? ' 黑視' : ''} 推進劑 ${u.propellant}/${u.maxPropellant}${u.lockOn ? ` 鎖定 ${u.lockOn}` : ''}`;
   else if (u.vague) s += `  （${u.vague}）`;
   s += `\n  部位 ${partsText(u)}\n  裝備 ${gearText(u)}`;
@@ -152,7 +152,8 @@ function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: numbe
   if (cover === 'smoke') tags.push(`穿過煙霧 −${config.SMOKE_SHOT_PENALTY}`);
   if (cover === 'cover') tags.push(`建築半掩護 −${config.BUILDING_COVER_PENALTY}`);
   const high = from === u.pos ? heightAdvantage(u, t) : 0;
-  if (high) tags.push(`高打低 +${high * config.HIGH_GROUND_HIT}、每發傷害 +${config.HIGH_GROUND_DAMAGE}`);
+  if (high) tags.push(`高打低 +${high * config.HIGH_GROUND_HIT}${high >= config.HIGH_GROUND_DAMAGE_FROM ? `、每發傷害 +${config.HIGH_GROUND_DAMAGE}` : ''}`);
+  if (t.mark) tags.push(`已標定 +${config.MARK_BONUS}`);
   if (arc === undefined && relativeAngle({ pos: from, facing: u.facing }, t.pos) > (config.OFF_FRONT_DEG * Math.PI) / 180) tags.push(`我方正面射界外 −${config.OFF_FRONT_PENALTY}`);
   return tags.length ? `（${tags.join('・')}）` : '';
 }
@@ -241,7 +242,7 @@ function render(v: PlayerView): string {
       move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 0/±45/±90/180，正的是右轉）,"limiter"?:false,"climb"?:true（攀升：速度 ${config.CLIMB_MAX_SPEED} 以下，撞到 ${config.CLIMB_LEVELS} 層以內的牆就爬上樓頂）,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
       ace: `{"t":"moves","moves":{"<王牌 id>":{...同上}}}  要下指令的：${(v.aceUnits ?? []).join(', ')}`,
       pursuit: `{"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}`,
-      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
+      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"mark","weapon":"標定器id","target":".."}（自己看得到的敵機；這回合和下回合我方都看得到它、命中 +10，不暴露位置）|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
       over: '對戰結束',
     }[v.phase as string] ?? '',
   );
@@ -262,6 +263,8 @@ function eventText(e: GameEvent): string {
       return '';
     case 'actionFail':
       return `${L(e.unit)} 落空：${e.reason}`;
+    case 'mark':
+      return `${e.unit ? L(e.unit) : '看不到的敵機'} 標定 ${L(e.target)}（到下回合結束前標定方看得到它、命中 +${config.MARK_BONUS}）`;
     case 'contact':
       return `接觸 ${L(e.a)}×${L(e.b)} ${e.result} 相對速度 ${e.vc}`;
     case 'grapple':

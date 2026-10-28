@@ -290,7 +290,7 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
     else if (!Array.isArray(targets) || targets.length > 2) errors.push(`${u.label}：炮群最多分給兩個目標`);
     else if (!ps.wired && targets.length && a.type !== 'none') errors.push(`${u.label}：指揮無線炮群會用掉這回合的動作`);
   }
-  if ((a.type === 'smoke' || a.type === 'decoy') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
+  if ((a.type === 'smoke' || a.type === 'decoy' || a.type === 'mark') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
   for (const [hand, target] of swapOrders(plan)) {
     const e = target === null ? null : u.equipment.find((x) => x.id === target && !alwaysReady(x));
     if (target !== null && !e) errors.push(`${u.label}：沒有這件裝備`);

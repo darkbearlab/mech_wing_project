@@ -21,6 +21,7 @@ import { DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
+import { canSee, sensorRange } from './vision';
 import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
@@ -107,6 +108,8 @@ function aimShare(view: PlayerView, t: UnitView): number {
 const hitValue = (chance: number) => (Math.min(chance, 100) / 100) * (1 + Math.max(0, Math.min(100, chance - 100)) / 100);
 /** 命中率低於這個就先鎖定，不浪費這回合 */
 const LOW_SHOT = 22;
+/** 帶標定器的機體：自己這發命中率低於這個就改成標定 */
+const MARK_SHOT = 45;
 /** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
 const LOCK_PROBE: EquipDef = { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } };
 
@@ -793,8 +796,16 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const lockable = (t: UnitView | null) =>
       !!t && !roleLost(u, 'sensor') && u.lockOn !== t.id && !!hitChance({ attacker: u, attackerSkill: 0, weapon: LOCK_PROBE, target: t, targetSkill: null, relSpeed: null, shooterMelee: false });
     const lockTarget = [focus, near].find(lockable) ?? null;
-    // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS
-    if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
+    // 標定：帶標定器、自己這發不好打（或沒槍）時，照射集火目標讓隊友打；不會暴露位置
+    const designator = u.equipment.find((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(u, e));
+    const markable = (t: UnitView | null) =>
+      !!t && !t.mark && !t.hidden && !roleLost(u, 'sensor') && canSee(view.state.obstacles, u.pos, sensorRange(u), t.pos, radiusOf(u) + radiusOf(t), u.z, t.z);
+    const markTarget = designator ? ([focus, near, ...enemies].find(markable) ?? null) : null;
+    const allies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active');
+    if (markTarget && allies && (!shot || shot.chance < MARK_SHOT)) {
+      plan.action = { type: 'mark', weapon: designator!.id, target: markTarget.id };
+    } else if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
+      // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS
       plan.action = { type: 'lock', target: lockTarget.id };
     } else if (shot && shot.chance >= 12) {
       plan.action = { type: 'shoot', weapon: shot.weapon.id, target: shot.target.id };
