@@ -245,8 +245,8 @@ export interface UnitState {
   blackout: boolean;
   /** 高度（層）：站在幾層樓高的樓頂；沒寫是地面 0 */
   z?: number;
-  /** 被敵方標定：到 until 這個回合結束前，敵方一直看得到它（不用視線），射擊命中 +MARK_BONUS */
-  mark?: { until: number };
+  /** 被敵方標定：by 是標定的機體。敵方射擊命中 +MARK_BONUS；標定機超出感測距離或失去視線就解除 */
+  mark?: { by: string };
 }
 
 /** rock：大隕石；field：隕石群（碎石區）；building：建築（長方形、有高度） */

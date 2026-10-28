@@ -366,8 +366,6 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
 
   state.phase = 'move';
   state.turnInfo = null;
-  // 回合結束：標定到期
-  for (const u of state.units) if (u.mark && u.mark.until <= state.turn) delete u.mark;
   updateSight(state, revealed);
   // 回合結束：煙霧散掉（散了以後氣球就藏不住了）
   state.obstacles = state.obstacles.filter((o) => o.kind !== 'smoke' || (o.until ?? 0) > state.turn);
@@ -541,7 +539,8 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
 }
 
 /**
- * 標定：用標定器照射自己看得到的敵機。到下回合結束前友軍不用視線也看得到它、射擊命中 +MARK_BONUS。
+ * 標定：用標定器照射自己看得到的敵機，我方射擊命中 +MARK_BONUS。持續到標定機看不到它為止（回合、攻擊都不會消耗）。
+ * 不疊加：已經被標定的目標不能再標定；一台標定機同時只照一個目標，改照別的，原本的就解除。
  * 雷射照射是被動資料鏈，不會暴露自己的位置
  */
 function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'mark' }>): boolean {
@@ -556,7 +555,9 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
   const target = state.units.find((x) => x.id === action.target);
   if (!target || target.status !== 'active') return fail('目標已失去戰鬥能力');
   if (!canSee(state.obstacles, u.pos, sensorRange(u), target.pos, radiusOf(u) + radiusOf(target), u.z, target.z)) return fail('標定要自己看得到目標（感測距離內、視線沒被擋住）');
-  target.mark = { until: state.turn + C.MARK_TURNS - 1 };
+  if (target.mark) return fail(target.mark.by === u.id ? '已經在標定這台了' : '目標已經被標定了（不疊加）');
+  for (const x of state.units) if (x.mark?.by === u.id) delete x.mark;
+  target.mark = { by: u.id };
   ctx.events.push({ type: 'mark', unit: u.id, target: target.id });
   return false;
 }

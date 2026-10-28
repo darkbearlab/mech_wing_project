@@ -18,7 +18,7 @@ export interface Positioned {
   parts: Record<string, PartState>;
   equipment?: EquipState[];
   /** 被敵方標定（敵方射擊命中 +MARK_BONUS） */
-  mark?: { until: number };
+  mark?: { by?: string };
 }
 
 /** 高打低：射擊方比目標高幾層（只算往下打，最多 HIGH_GROUND_MAX_LEVELS） */

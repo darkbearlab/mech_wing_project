@@ -2074,7 +2074,7 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
   const t = unitView(a.target);
-  if (a.type === 'mark') return `標定 ${labelOf(a.target)}：這回合和下回合友軍都看得到它，射擊命中 +${config.MARK_BONUS}%。`;
+  if (a.type === 'mark') return `標定 ${labelOf(a.target)}：我方射擊命中 +${config.MARK_BONUS}%，持續到這台看不到它為止。`;
   return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL}）看不到，所以沒算。`;
 }
 
@@ -2321,7 +2321,7 @@ function infoHtml(u: UnitView): string {
     const p = PILOTS[u.pilotId];
     const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('called_shot') ? '瞄準要害' : '', p.abilities.includes('brawler') ? '擅長肉搏' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
     html += `<div class="small">${esc(p.name)}（技能 ${p.skill}${tags.map((t) => `・${t}`).join('')}）　壓力 <b>${u.stress}</b>/${u.maxStress}　推進劑 <b>${u.propellant}</b>/${u.maxPropellant}</div>`;
-    const flags = [u.blackout ? '<span class="warn">黑視中</span>' : '', u.mark ? `<span class="warn">被標定（到第 ${u.mark.until} 回合結束）</span>` : '', u.lockOn ? `鎖定 ${esc(labelOf(u.lockOn))}` : '', inGrapple(u.id) ? '<span class="warn">纏鬥中</span>' : ''].filter(Boolean);
+    const flags = [u.blackout ? '<span class="warn">黑視中</span>' : '', u.mark ? '<span class="warn">被標定</span>' : '', u.lockOn ? `鎖定 ${esc(labelOf(u.lockOn))}` : '', inGrapple(u.id) ? '<span class="warn">纏鬥中</span>' : ''].filter(Boolean);
     if (flags.length) html += `<div class="small">${flags.join('　')}</div>`;
   } else {
     html += `<div class="small muted">駕駛：不明${u.vague === 'sluggish' ? '　<span class="warn">動作遲鈍</span>' : ''}</div>`;
@@ -2769,7 +2769,7 @@ const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離', 4: '超遠�
 function optionTip(u: UnitView, o: EquipOption): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。鎖定就不能開火。`;
   if (o.kind === 'none') return '這回合不行動（也不換武器）。';
-  if (o.kind === 'mark') return `用標定器照射一台自己看得到的敵機（感測距離 ${sensorRange(u)} 格內、視線沒被擋住）：這回合和下回合，友軍不用視線也看得到它，對它射擊命中 +${config.MARK_BONUS}%（自己也算）。照射不會暴露自己的位置，但對方知道自己被標定了。頭部被破壞就不能標定。標定就不能開火。`;
+  if (o.kind === 'mark') return `用標定器照射一台自己看得到的敵機（感測距離 ${sensorRange(u)} 格內、視線沒被擋住）：我方對它射擊命中 +${config.MARK_BONUS}%（自己也算）。標定會一直持續，直到這台超出感測距離、視線被擋住、頭部或標定器被破壞為止，回合和攻擊都不會消耗。不疊加；同時只能照一個目標，改照別的，原本的就解除。照射不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。`;
   if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
   if (o.kind === 'decoy') return `放出欺敵氣球（${config.DECOY_PLACE_RANGE} 格內）：放在煙霧裡，敵方看起來就是一台不明機體；出了煙霧一眼就是氣球。被打中、鎖定或敵機靠近就破。`;
   const eq = u.equipment.find((e) => e.id === o.equip)!;
@@ -3172,7 +3172,7 @@ function describe(e: GameEvent): string | null {
     case 'lock':
       return `${L(e.unit)} 鎖定 ${L(e.target)}`;
     case 'mark':
-      return `${e.unit ? L(e.unit) : '看不到的敵機'} 標定 ${L(e.target)}：到下回合結束前，${e.unit && view && unitView(e.unit)?.owner === view.you ? '我方' : '敵方'}看得到它、射擊命中 +${config.MARK_BONUS}%`;
+      return `${e.unit ? L(e.unit) : '看不到的敵機'} 標定 ${L(e.target)}：命中 +${config.MARK_BONUS}%，持續到標定的機體看不到它為止`;
     case 'dazzle':
       return `${L(e.unit)} 被 ${L(e.by)} 的眩光照到，本回合射擊命中 −${config.DAZZLE_PENALTY}`;
     case 'actionFail':
