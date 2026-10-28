@@ -13,6 +13,7 @@ import {
   LOADOUTS,
   PILOTS,
   SCALES,
+  gearSlots,
   entryCost,
   ecmOf,
   jammed,
@@ -390,6 +391,12 @@ function renderLobby(msg: Extract<ServerMessage, { t: 'lobby' }>): string {
     out.push(`${c.id} ${c.name} ${c.cost ?? 0} [${(c.envs ?? ['space', 'gravity']).join(',')}]`);
     sets.forEach((g, i) => out.push(`    配裝${i}：${JSON.stringify(g)}（${g.map(([d, loc]) => `${EQUIPMENT[d]?.name ?? d}@${loc}`).join('・') || '只有標準裝備'}；配裝費 +${g.reduce((n, [d]) => n + (EQUIPMENT[d]?.cost ?? 0), 0)}）`));
   }
+  out.push('', '== 自由組裝：每個機型的掛點（每個掛點一件）==');
+  out.push('位置寫法：手 ["id","right"|"left"]；武器架 ["id","stowed","手臂部位"]（背架省略部位）；外掛 ["id","mount","部位"]；手臂內建 ["id","builtin","手臂部位"]；內藏 ["id","housed","手臂部位"]。手和武器架放「手持」的裝備（盾不能放武器架），外掛放「外掛」的，內建放「內建」的，內藏放「內藏」的。');
+  for (const c of Object.values(CHASSIS)) out.push(`${c.id}：${gearSlots(c.id).map((s) => `${s.name}${s.host ? `(${s.host})` : ''}`).join('、')}`);
+  out.push('', '== 裝備（id 名稱 費用 裝在哪；細節看 catalog.txt）==');
+  const MOUNT_TEXT: Record<string, string> = { hand: '手持', mounted: '外掛', integrated: '內建', housed: '內藏' };
+  for (const e of Object.values(EQUIPMENT)) if (!e.blocksHand) out.push(`${e.id} ${e.name} ${e.cost ?? 0} ${MOUNT_TEXT[e.mount ?? 'hand']}${e.kind === 'shield' ? '（盾）' : ''}`);
   out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
   out.push('', `一台的費用 = 機型 + 駕駛 + 配裝（例：${(() => { const c = Object.values(CHASSIS)[0]; const e = { chassis: c.id, pilot: 'veteran', equipment: (LOADOUTS[c.id] ?? [[]])[0] ?? [] }; return `${c.id}+veteran+配裝0 = ${entryCost(e)}`; })()}）`);
