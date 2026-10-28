@@ -15,6 +15,7 @@ import {
   SCALES,
   entryCost,
   ecmOf,
+  jammed,
   bandName,
   bitsLeft,
   buildPath,
@@ -256,13 +257,14 @@ function render(v: PlayerView): string {
   if (s.balloons.length) out.push(`氣球 ${s.balloons.map((b) => `${side(b.owner)}${pt(b.pos)}`).join(' ')}`);
   if (s.mines.length) out.push(`地雷（我方的，加上我方機體 ${config.MINE_DETECT_RANGE} 格內發現的敵方地雷）${s.mines.map((m) => `${side(m.owner)}${pt(m)}`).join(' ')}`);
   const jammers = s.units.filter((u) => ecmOf(u as never) && !u.hidden);
-  if (jammers.length) out.push(`電子干擾中（半徑 ${config.ECM_RADIUS} 格，範圍內同一方的機體標定不到、也標定不了別人）${jammers.map((u) => `${u.id}${pt(u.pos)}`).join(' ')}`);
+  if (jammers.length) out.push(`電子干擾中（中心距離 ${config.ECM_RADIUS} 格以內，同一方的機體標定不到、也標定不了別人）${jammers.map((u) => `${u.id}${pt(u.pos)}`).join(' ')}`);
   if (s.grapples.length) out.push(`纏鬥中 ${s.grapples.map((g) => `${g.a}↔${g.b}${g.advantage ? ` 優勢${g.advantage}` : ''}`).join(' ')}`);
   if (s.reserves.length) out.push(`我方增援 ${s.reserves.map((r) => `${r.label}@T${r.turn}`).join(' ')}`);
   out.push('\n== 我方 ==');
   for (const u of mine) {
     out.push(unitLine(u));
     if (u.status !== 'active') continue;
+    if (u.equipment.some((e) => EQUIPMENT[e.defId].utility === 'mark') && jammed(s.units as never, u as never)) out.push(`  ⚠在我方電子干擾範圍內，標定器現在標定不了（要離開干擾機中心 ${config.ECM_RADIUS} 格以外）`);
     out.push(threatLine(u, foes));
     if (isShip(u)) out.push(`  防禦彈幕：強度 ${barrageStrength(u as never)}${barrageActive(s.units as never, u as never) ? '（生效中）' : ''}；砲塔用 salvo 各自選目標`);
     const grappled = s.grapples.some((g) => g.a === u.id || g.b === u.id);
@@ -414,16 +416,17 @@ function writeCatalog() {
     `零距離開火（底板邊緣 ${config.RANGE_LIMITS.r0} 格內）：有 ${config.ZERO_RANGE_SELF_DAMAGE}% 機率傷到自己這件武器 ${config.DAMAGE_SCALE} 點（內建武器傷到所在部位）。`,
     `斬首：旗艦是隊上費用最高的那一台（同分取先排的），被擊墜就輸；配陣容時注意別讓又慢又脆的機體變成旗艦。`,
     `視野：感測距離內、視線沒被建築擋住就看得到（全隊共用）；看得到是雙向的。`,
-    `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下。`,
+    `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下（自己走下來不受傷；樓被打塌、跟著掉下來才會受傷）。`,
     `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,
-    `電子干擾器：一直開著（干擾器被打壞或機體退場才停）；半徑 ${config.ECM_RADIUS} 格內同一方的機體（含自己）標定不到，也標定不了別人；已被標定的機體走進範圍，標定就失效。反輻射飛彈只打開著干擾器的機體：要射擊線、看得到，不用標定，命中只看機器、另外 +${config.ARM_HIT_BONUS}，打中就打在干擾器上。`,
+    `行動步驟的結算順序：標定最先（這回合標定、隊友這回合就能用導引武器打），再來是用眩光武器射擊的，其餘照駕駛技能高的先，同分抽籤。順序在前的先打，打倒或打壞了，後面的人可能就打不到了。`,
+    `電子干擾器：一直開著（干擾器被打壞或機體退場才停）；干擾機中心到機體中心 ${config.ECM_RADIUS} 格以內（剛好 ${config.ECM_RADIUS} 格也算）同一方的機體（含自己）標定不到，也標定不了別人——所以標定機要離開自己的干擾機 ${config.ECM_RADIUS} 格以外才能標定；已被標定的機體走進範圍，標定就失效。反輻射飛彈只打開著干擾器的機體：要射擊線、看得到，不用標定，命中只看機器、另外 +${config.ARM_HIT_BONUS}，打中就打在干擾器上。`,
     `拆樓：射擊的目標可以填建築 id（明確選它才會打到，流彈不會）。建築不會閃，命中只看射手 +${config.BUILDING_TARGET_BONUS}；導引武器打不了建築，要射擊線。每層耐久 ${config.BUILDING_LEVEL_HP}（路障 ${config.BARRICADE_HP}），傷害倍率化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，而且下面那層有 ${config.COLLAPSE_CHAIN * 100}% 機率跟著塌（可以一路塌下去）；樓頂上的機體跟著掉下來，每掉一層受 ${config.COLLAPSE_DAMAGE} 點（${config.COLLAPSE_LEGS_SHARE * 100}% 打在腳上）；整棟打平變成瓦礫區（像隕石群：穿過射擊命中下降）。`,
     `重力圈（與水中）裡腳部全壞的機體（地面滑行、會飛的除外）：不能移動也不能轉向，只能原地懸停（hover-S-0、facingOffset 0），動能直接歸零。宇宙裡腳斷了照樣飄得動（只是不能急轉急停）。`,
     `彈藥：射擊武器的彈數以「發」計，每次射擊扣掉真正打出去的發數，剩的不夠一輪就只打剩下的（目錄的「彈N」）。開房勾選補給點時，雙方後方各一個補給點，停在自己的補給點上（動能 0、地面）用掉動作就補滿彈藥、道具與推進劑。`,
     `地雷：佈雷器在底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上埋雷，對手看不到（對方機體 ${config.MINE_DETECT_RANGE} 格內才看得到）；敵方的地面機體移動經過就引爆，${config.MINE_DAMAGE} 點化學能傷害打在腳上（樓頂上、會飛的不會踩到；自己這一方不會觸發）。路障：${config.BARRICADE_RANGE} 格內架一道長 ${config.BARRICADE_HALF_LENGTH * 2}、高 1 層的矮牆，和建築一樣擋移動、射擊與視線。`,
     `導引武器（迫擊砲、垂直飛彈、飛彈莢艙）：只能打被標定的目標（沒被標定的，看得到也不能打）；命中只看機器：不算射手技能、沒有技能差懲罰、沒有標定加成、黑視不影響；目標駕駛的閃避照算。迫擊砲與垂直飛彈越過建築、不吃掩護與高低差、沒有射界、盾擋不到，打中照頂部攻擊表（腿 ×0.2，頭、軀幹、背包 ×1.5）。迫擊砲沒打中會偏離 ${config.MORTAR_SCATTER_MIN}～${config.MORTAR_SCATTER_MAX} 格落地，落點 ${config.MORTAR_SPLASH_RADIUS} 格內（底板邊緣）的機體不分敵我受 ${config.MORTAR_SPLASH_DAMAGE} 點。垂直飛彈與飛彈莢艙不吃相對速度的命中懲罰；飛彈莢艙要射擊線。`,
     `突進（行動 {"type":"lunge","target":".."}）：近戰姿態、手上有近戰武器；目標在正面 ±${config.LUNGE_ARC_DEG}°、底板邊緣 ${config.LUNGE_RANGE} 格內、同一個高度，中間沒被建築擋住。衝到目標身邊照近戰對決結算（對方可盾擋、閃避、反擊），推進劑 −${config.LUNGE_PROPELLANT}、壓力 +${config.LUNGE_STRESS}。`,
-    `跳劈：突進的目標比自己低時；${config.JUMP_SLASH_RANGE} 格內，每落下 1 層傷害 +1（最多 +${config.JUMP_SLASH_MAX_BONUS}），對方不能反擊，打中照頂部攻擊表；落差 ${config.JUMP_SLASH_LEG_FROM} 層以上自己腿部受 1 點。比自己高的目標要先攀升。`,
+    `跳劈：突進的目標比自己低時；${config.JUMP_SLASH_RANGE} 格內，每落下 1 層傷害 +${config.DAMAGE_SCALE}（最多 +${config.JUMP_SLASH_MAX_BONUS * config.DAMAGE_SCALE}），對方不能反擊，打中照頂部攻擊表；落差 ${config.JUMP_SLASH_LEG_FROM} 層以上自己腿部受 ${config.DAMAGE_SCALE} 點。比自己高的目標要先攀升。`,
     `展開盾（行動 {"type":"deploy","weapon":"展開盾id"}，再一次收起）：正面寬 ${config.BARRIER_WIDTH} 格、高 ${config.BARRIER_LEVELS} 層的盾牆。穿過盾牆的射擊算半掩護 −${config.BUILDING_COVER_PENALTY}，命中一律打在盾上（後面的隊友也受保護）；比盾牆高 ${config.BARRIER_LEVELS} 層以上或曲射越頂的擋不到。展開中只能用速度 ${config.DEPLOYED_MAX_SPEED} 以下的機動，選更快的會自動收起。`,
     `擦撞：移動路線碰到別的機體（包括隊友）就停下，雙方這回合都不能行動。`,
   );

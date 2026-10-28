@@ -11,6 +11,7 @@ import {
   inFootprint,
   barricadeWall,
   ecmOf,
+  jammed,
   barrierOf,
   indirectFire,
   lungeCheck,
@@ -2815,7 +2816,7 @@ function otherOptions(u: UnitView): EquipOption[] {
     const def = EQUIPMENT[e.defId];
     if (def.kind !== 'utility' || !def.utility || !equipAlive(u, e) || (e.ammo !== undefined && e.ammo <= 0)) continue;
     if (def.utility === 'mark') {
-      if (!roleLost(u, 'sensor')) out.push({ key: `mark:${e.id}`, label: `${def.name}・標定`, kind: 'mark', equip: e.id });
+      if (!roleLost(u, 'sensor')) out.push({ key: `mark:${e.id}`, label: `${def.name}・標定${jammed(view!.state.units, u) ? '（我方干擾中，標定不了）' : ''}`, kind: 'mark', equip: e.id });
       continue;
     }
     // 電子干擾器一直開著，不用下指令
@@ -2867,7 +2868,8 @@ function markText(u: UnitView, equip?: string): string {
   const id = equip ?? (u.equipment.find((e) => EQUIPMENT[e.defId].utility === 'mark')?.id ?? '');
   const def = EQUIPMENT[u.equipment.find((e) => e.id === id)?.defId ?? ''];
   const n = def?.markCount ?? config.MARK_COUNT;
-  return `掃描正面 ±${config.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內的敵機（不用視線，建築擋不住），隨機標定 ${n} 台：我方一直看得到它們，射擊命中 +${config.MARK_BONUS}%（自己也算）。持續到超出這台的感測距離、或這台的頭部或標定器被破壞為止，回合和攻擊都不會消耗。已經被標定的不會重複；再標定一次，原本標的會全部解除重挑。不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。`;
+  const jam = jammed(view!.state.units, u) ? '【注意：這台在我方電子干擾範圍內，現在標定不了；要離開干擾機中心 ' + config.ECM_RADIUS + ' 格以外】' : '';
+  return `${jam}掃描正面 ±${config.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內的敵機（不用視線，建築擋不住；在對方電子干擾範圍內的標定不到），隨機標定 ${n} 台：我方一直看得到它們，射擊命中 +${config.MARK_BONUS}%（自己也算）。持續到超出這台的感測距離、或這台的頭部或標定器被破壞為止，回合和攻擊都不會消耗。已經被標定的不會重複；再標定一次，原本標的會全部解除重挑。不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。標定在行動步驟最先結算，隊友這回合就能用導引武器打。`;
 }
 
 /** 有目標的動作：射擊、鎖定 */

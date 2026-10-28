@@ -225,9 +225,10 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   // 開火或鎖定會暴露位置
   const revealed = new Set<string>();
 
-  // 用眩光武器射擊的最先結算，其餘技能高者先
+  // 標定最先結算（這回合標定、這回合就能打），再來是用眩光武器射擊的，其餘技能高者先、同分抽籤
   const dazzles = (u: UnitState) => {
     const a = actionsByPlayer[u.owner][u.id]?.action;
+    if (a?.type === 'mark') return 2;
     const ws = a?.type === 'shoot' ? shotWeapons(a).map((id) => u.equipment.find((e) => e.id === id)) : [];
     return ws.some((w) => w && EQUIPMENT[w.defId].tags?.includes('dazzle')) ? 1 : 0;
   };
