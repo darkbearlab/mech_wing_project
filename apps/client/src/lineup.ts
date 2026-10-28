@@ -14,6 +14,7 @@ import {
   gearSlots,
   gearToSlots,
   lineupProblems,
+  squadShare,
   slotFits,
   slotsToGear,
   type GearSlot,
@@ -22,6 +23,7 @@ import {
   type BattleSettings,
   type RosterEntry,
   type Scale,
+  type SeatInfo,
 } from '@mech/rules';
 import type { Opponent } from './local';
 import { setUploadEnabled, uploadEnabled } from './record';
@@ -46,8 +48,20 @@ export interface LineupSettings {
   deploy: 'fixed' | 'free';
   environment: 'space' | 'gravity';
   terrain: 'asteroid' | 'forest' | 'town' | 'city';
+  /** 開房：每方幾個小隊（各一個席位） */
+  squads?: [number, number];
+  /** 開房：交給電腦指揮的小隊席位 */
+  aiSeats?: string[];
 }
 const DEFAULTS: LineupSettings = { scale: 'standard', killScore: true, decapitation: true, goal: false, control: false, turnLimit: 12, deploy: 'fixed', environment: 'space', terrain: 'asteroid' };
+const MAX_SQUADS = 4;
+
+/** 席位名稱（0、0-1…）的一方與小隊 */
+const seatSide = (key: string): 0 | 1 => (key.startsWith('1') ? 1 : 0);
+const seatSquad = (key: string): number => Number(key.split('-')[1] ?? 0);
+const seatKeyOf = (side: 0 | 1, squad: number) => (squad ? `${side}-${squad}` : `${side}`);
+/** 畫面上的席位名稱：A・0、B・1… */
+export const seatLabel = (key: string) => `${SIDES[seatSide(key)]}・${seatSquad(key)}`;
 
 const VICTORY_TIPS: Record<'killScore' | 'decapitation' | 'goal' | 'control', string> = {
   killScore: '擊墜敵機的費用加總到門檻就獲勝（飛出地圖也算）',
@@ -246,12 +260,27 @@ export function toBattleSettings(s: LineupSettings): BattleSettings {
   };
 }
 
-/** 開房模式：只選自己這一方的隊伍加入房間 */
+/** 開房模式：只選自己這一方（自己這個小隊）的隊伍加入房間 */
 export interface OnlineLineup {
   side: 0 | 1;
+  /** 席位名稱：0 是房主，分小隊時還有 0-1、1-2 這類 */
+  seat: string;
   /** 客人：房主已經選好的條件（照這個選隊，不能改）；還沒有就先照自己的選，開打前會再檢查 */
   hostPrefs?: LineupSettings | null;
-  onJoin(roster: RosterEntry[], settings: BattleSettings, scale: Scale, prefs: LineupSettings): void;
+  /** 房間連結（邀請小隊席位用，後面接 &seat=） */
+  roomUrl: string;
+  /** ai：房主替電腦小隊選的隊伍（席位名稱 → 隊伍） */
+  onJoin(roster: RosterEntry[], settings: BattleSettings, scale: Scale, prefs: LineupSettings, ai: Record<string, RosterEntry[]>): void;
+}
+
+/** 大廳的最新狀況（席位、同一方隊友的隊伍）；選隊畫面開著時會跟著更新 */
+let lobbySeats: SeatInfo[] = [];
+let lobbyMates: Record<string, RosterEntry[]> = {};
+let rerender: (() => void) | null = null;
+export function lobbyUpdate(seats: SeatInfo[], mates: Record<string, RosterEntry[]>): void {
+  lobbySeats = seats;
+  lobbyMates = mates;
+  rerender?.();
 }
 
 /** 顯示出擊準備畫面；按下開始戰鬥時回呼（開房模式按加入房間時呼叫 online.onJoin） */
@@ -265,26 +294,107 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
   const locked = !!online?.hostPrefs;
   const off = locked ? 'disabled title="房主決定"' : '';
 
+  /** 房主：決定小隊數與哪些小隊交給電腦，並替電腦小隊選隊 */
+  const host = online?.seat === '0';
+  // 客人在房主定好條件前：小隊數還不知道，先當一方一隊
+  if (online && !host && !locked) delete set.squads;
+  if (host) {
+    set.squads ??= [1, 1];
+    set.aiSeats ??= [];
+  }
+  /** 電腦小隊的隊伍（席位名稱 → 隊伍），只有房主有 */
+  const aiRosters: Record<string, RosterEntry[]> = {};
+  const squadsOf = (side: 0 | 1): number => (online ? (set.squads?.[side] ?? 1) : 1);
+  /** 一個小隊的預算與台數：一方分成幾隊就平均分 */
+  const limitOf = (side: 0 | 1) => (squadsOf(side) > 1 ? squadShare(set.scale, squadsOf(side)) : SCALES[set.scale]);
+  /** 房主這邊所有的席位 */
+  const hostSeats = () => ([0, 1] as const).flatMap((side) => Array.from({ length: squadsOf(side) }, (_, q) => seatKeyOf(side, q)));
+  const aiKeys = () => (host ? hostSeats().filter((k) => k !== '0' && set.aiSeats!.includes(k)) : []);
+  const aiRoster = (k: string) => (aiRosters[k] ??= randomEntries(Math.min(3, limitOf(seatSide(k)).maxUnits), limitOf(seatSide(k)).budget));
+
+  /** 畫面上的一組隊伍：本機是 A、B 兩方；開房是自己這一隊，房主再加上各個電腦小隊 */
+  interface Block {
+    key: string;
+    side: 0 | 1;
+    list: RosterEntry[];
+    title: string;
+    role: string;
+  }
+  const blocks = (): Block[] =>
+    online
+      ? [
+          { key: online.seat, side: online.side, list: rosters[online.side], title: squadsOf(online.side) > 1 ? seatLabel(online.seat) : `${SIDES[online.side]} 方`, role: '你' },
+          ...aiKeys().map((k) => ({ key: k, side: seatSide(k), list: aiRoster(k), title: seatLabel(k), role: '電腦小隊' })),
+        ]
+      : ([0, 1] as const).map((s) => ({ key: `${s}`, side: s, list: rosters[s], title: `${SIDES[s]} 方`, role: SIDE_ROLE[opp][s] }));
+  const setList = (b: Block, list: RosterEntry[]) => {
+    if (online && b.key !== online.seat) aiRosters[b.key] = list;
+    else rosters[b.side] = list;
+  };
+
   // 舊版資料沒有費用：不檢查預算與旗艦門檻
   const priced = Object.values(CHASSIS).some((c) => c.cost);
-  const problemsOf = (s: 0 | 1) => lineupProblems(rosters[s], set.scale, set).filter((p) => priced || !/預算|旗艦/.test(p));
+  const problemsOf = (b: Block) =>
+    lineupProblems(b.list, set.scale, set, squadsOf(b.side) > 1 ? limitOf(b.side) : undefined).filter((p) => priced || !/預算|旗艦/.test(p));
 
-  /** 正在編輯武裝的機體與選中的掛點 */
-  let editing: { s: 0 | 1; i: number; slot: string } | null = null;
+  /** 正在編輯武裝的機體與選中的掛點（s 是第幾組隊伍） */
+  let editing: { s: number; i: number; slot: string } | null = null;
+
+  /** 開房：席位表（房主可以改小隊數、指定電腦小隊、複製邀請連結） */
+  const seatsHtml = () => {
+    if (!online) return '';
+    const keys = host
+      ? hostSeats()
+      : [...new Set([...lobbySeats.map((s) => s.key), online.seat])].sort((a, b) => seatSide(a) - seatSide(b) || seatSquad(a) - seatSquad(b));
+    if (!host && keys.length <= 2) return '';
+    const info = (k: string) => lobbySeats.find((s) => s.key === k);
+    const rows = keys
+      .map((k) => {
+        const side = seatSide(k);
+        const lim = limitOf(side);
+        const ai = host ? set.aiSeats!.includes(k) : !!info(k)?.ai;
+        const who =
+          k === online.seat
+            ? `<span class="tag me">你${host ? '（房主）' : ''}</span>`
+            : host
+              ? `<select data-ctrl="${k}"><option value="human" ${ai ? '' : 'selected'}>玩家</option><option value="ai" ${ai ? 'selected' : ''}>電腦</option></select>`
+              : `<span class="muted">${ai ? '電腦' : k === '0' ? '房主' : '玩家'}</span>`;
+        const mine = side === online.side;
+        const state =
+          k === online.seat
+            ? '選隊中'
+            : ai
+              ? `<span class="tag ai">電腦</span>${host ? ' <span class="muted small">隊伍在下面</span>' : ''}`
+              : info(k)?.joined
+                ? `<span class="tag ok">已加入</span>${mine && lobbyMates[k] ? ` <span class="muted small">${lobbyMates[k].map((e) => esc(e.chassis)).join('・')}</span>` : ''}`
+                : `<span class="tag wait">${info(k)?.connected ? '選隊中' : '等人加入'}</span>${host ? ` <button data-invite="${k}" title="複製這個席位的連結，傳給要坐這一隊的人">複製邀請連結</button>` : ''}`;
+        return `<div class="luSeat"><b class="luSeat${side}">${seatLabel(k)}</b>${who}<span>${state}</span><span class="muted">${squadsOf(side) > 1 ? `${lim.budget} 分・${lim.maxUnits} 台` : `${lim.budget} 分`}</span></div>`;
+      })
+      .join('');
+    const counts = host
+      ? ([0, 1] as const)
+          .map((side) => `<span class="muted">${SIDES[side]} 方</span><select data-squads="${side}">${Array.from({ length: MAX_SQUADS }, (_, i) => `<option value="${i + 1}" ${i + 1 === squadsOf(side) ? 'selected' : ''}>${i + 1} 隊</option>`).join('')}</select>`)
+          .join('')
+      : '';
+    return `<div class="luSeats"><div class="luHead"><b>小隊</b><span class="muted small">每隊一個席位，只指揮自己的機體；一方的預算與台數平均分給各隊</span><span class="spacer"></span>${counts}</div>${rows}</div>`;
+  };
 
   const render = () => {
     const scale = SCALES[set.scale];
     if (editing) {
-      const u = rosters[editing.s][editing.i];
-      box.innerHTML = editorHtml(u, `${SIDES[editing.s]}${editing.i + 1}`, editing.slot, rosterCost(rosters[editing.s]), scale.budget);
+      const b = blocks()[editing.s];
+      const u = b.list[editing.i];
+      box.innerHTML = editorHtml(u, `${b.title} ${editing.i + 1}`, editing.slot, rosterCost(b.list), limitOf(b.side).budget);
       return;
     }
-    const sideHtml = (s: 0 | 1) => {
-      const costs = rosters[s].map(entryCost);
-      const flag = set.decapitation ? costs.indexOf(Math.max(...costs)) : -1;
-      const total = rosterCost(rosters[s]);
-      const over = total > scale.budget;
-      const units = rosters[s]
+    const sideHtml = (s: number) => {
+      const b = blocks()[s];
+      const lim = limitOf(b.side);
+      const costs = b.list.map(entryCost);
+      const flag = set.decapitation && squadsOf(b.side) === 1 ? costs.indexOf(Math.max(...costs)) : -1;
+      const total = rosterCost(b.list);
+      const over = total > lim.budget;
+      const units = b.list
         .map((u, i) => {
           const sets = loadoutsOf(u.chassis);
           const mine = mineOf(u.chassis);
@@ -295,30 +405,30 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
             mine.map((g, j) => `<option value="m${j}" ${j === curMine ? 'selected' : ''}>我的：${esc(gearLabel(g))}</option>`).join('') +
             (cur < 0 && curMine < 0 ? `<option value="cur" selected>${esc(gearLabel(u.equipment))}</option>` : '');
           return `<div class="luSlot">
-            <b ${i === flag ? 'class="crown" title="旗艦：被擊墜就輸（斬首）"' : ''}>${i === flag ? '♛' : `${SIDES[s]}${i + 1}`}</b>
+            <b ${i === flag ? 'class="crown" title="旗艦：被擊墜就輸（斬首）"' : ''}>${i === flag ? '♛' : `${SIDES[b.side]}${i + 1}`}</b>
             <select data-s="${s}" data-i="${i}" data-f="chassis">${Object.values(CHASSIS).map((c) => `<option value="${esc(c.id)}" ${c.id === u.chassis ? 'selected' : ''}>${esc(c.name)}（${c.cost ?? 0}${c.armorType ? `・${ARMOR_NAMES[c.armorType].replace('裝甲', '')}` : ''}）${(c.envs ?? ['space', 'gravity']).includes(set.environment) ? '' : '・不適合'}</option>`).join('')}</select>
             <select data-s="${s}" data-i="${i}" data-f="pilot">${Object.values(PILOTS).map((p) => `<option value="${esc(p.id)}" ${p.id === u.pilot ? 'selected' : ''}>${esc(p.name)}（技能 ${p.skill}・${p.cost ?? 0}）</option>`).join('')}</select>
             <span class="cost" title="機型＋駕駛＋裝備">${costs[i]}</span>
-            <button class="x" data-s="${s}" data-i="${i}" data-act="remove" title="移除這台" ${rosters[s].length <= 1 ? 'disabled' : ''}>×</button>
+            <button class="x" data-s="${s}" data-i="${i}" data-act="remove" title="移除這台" ${b.list.length <= 1 ? 'disabled' : ''}>×</button>
             <span></span>
             <select class="load" data-s="${s}" data-i="${i}" data-f="load" title="配裝">${loadOpts}</select>
             <button class="edit" data-s="${s}" data-i="${i}" data-act="edit" title="逐個掛點編輯武裝">編輯武裝</button>
           </div>`;
         })
         .join('');
-      const problems = problemsOf(s);
-      return `<div class="luSide luSide${s}">
-        <div class="luHead"><span class="tag">${SIDES[s]} 方</span><span class="muted">${SIDE_ROLE[opp][s]}</span><span class="spacer"></span>
-          <span class="${over ? 'err' : ''}">${total} / ${scale.budget}</span><button data-s="${s}" data-act="random">隨機</button></div>
-        <div class="luBudget"><i style="width:${Math.min(100, (total / scale.budget) * 100)}%" class="${over ? 'over' : ''}"></i></div>
+      const problems = problemsOf(b);
+      return `<div class="luSide luSide${b.side}">
+        <div class="luHead"><span class="tag">${esc(b.title)}</span><span class="muted">${b.role}</span><span class="spacer"></span>
+          <span class="${over ? 'err' : ''}">${total} / ${lim.budget}${squadsOf(b.side) > 1 ? `・${b.list.length} / ${lim.maxUnits} 台` : ''}</span><button data-s="${s}" data-act="random">隨機</button></div>
+        <div class="luBudget"><i style="width:${Math.min(100, (total / lim.budget) * 100)}%" class="${over ? 'over' : ''}"></i></div>
         ${units}
-        <div class="luAdd"><button data-s="${s}" data-act="add" ${rosters[s].length >= scale.maxUnits ? 'disabled' : ''}>＋ 加一台</button></div>
+        <div class="luAdd"><button data-s="${s}" data-act="add" ${b.list.length >= lim.maxUnits ? 'disabled' : ''}>＋ 加一台</button></div>
         ${problems.length ? `<div class="err small">${problems.map(esc).join('<br>')}</div>` : ''}
       </div>`;
     };
     const chip = (key: keyof typeof VICTORY_TIPS, label: string) =>
       `<button class="chip ${set[key] ? 'on' : ''}" data-v="${key}" title="${esc(VICTORY_TIPS[key])}" ${locked ? 'disabled' : ''}>${label}</button>`;
-    const ok = online ? !problemsOf(online.side).length : !problemsOf(0).length && !problemsOf(1).length;
+    const ok = blocks().every((b) => !problemsOf(b).length);
     box.innerHTML = `<div class="luBox">
       <div class="luBar"><b>出擊準備</b><span class="muted">${esc(document.getElementById('contentTag')?.textContent ?? '')}</span><span class="spacer"></span>
         <span class="muted">環境</span><select data-f="environment" ${off} title="重力圈：每回合結束時動能往 0 回正 1（地面滑行的機體例外）；不適合這個環境的機體機動盤最高速度 −1">
@@ -327,7 +437,10 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
           ${(['asteroid', 'forest', 'town', 'city'] as const).map((t) => `<option value="${t}" ${set.terrain === t ? 'selected' : ''}>${{ asteroid: '隕石帶', forest: '森林', town: '城鎮', city: '城市' }[t]}</option>`).join('')}</select>
         <span class="muted">規模</span><select data-f="scale" ${off}>${(Object.keys(SCALES) as Scale[]).map((k) => `<option value="${k}" ${k === set.scale ? 'selected' : ''}>${SCALES[k].name}（${SCALES[k].budget} 分、最多 ${SCALES[k].maxUnits} 台）</option>`).join('')}</select>
         <button data-act="default">載入預設陣容</button><button data-act="last" ${saved ? '' : 'disabled'}>上次的陣容</button></div>
-      <div class="luCols">${online ? sideHtml(online.side) : `${sideHtml(0)}${sideHtml(1)}`}</div>
+      ${seatsHtml()}
+      <div class="luCols">${blocks()
+        .map((_, i) => sideHtml(i))
+        .join('')}</div>
       <div class="luFoot luWrap"><span class="muted">勝利條件</span>
         ${chip('killScore', `擊墜分 ${SCALES[set.scale].killScore}`)}${chip('decapitation', '斬首')}${chip('goal', '達陣')}${chip('control', `據點 ${CONTROL_TARGET}`)}
         <span class="muted small" title="一方全滅一定算輸；回合上限到了比分數">可複選，先達成者勝</span>
@@ -337,7 +450,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
         <span class="muted">回合上限</span><select data-f="turnLimit" ${off}>${TURN_LIMITS.map((t) => `<option value="${t}" ${t === set.turnLimit ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       ${
         online
-          ? `<div class="luFoot"><span class="muted">${online.side === 0 ? '你是房主（A 方）：對戰條件由你決定。對手看不到你的隊伍，雙方都加入就開打。' : locked ? '照房主的條件選隊。對手看不到你的隊伍，雙方都加入就開打。' : '房主還沒選好條件，先照這些選；開打前會照房主的條件再檢查一次。'}</span>
+          ? `<div class="luFoot"><span class="muted">${host ? '你是房主（A 方）：對戰條件由你決定。對手看不到你的隊伍，所有席位都加入就開打。' : squadsOf(online.side) > 1 ? `照房主的條件選隊。你是 ${seatLabel(online.seat)}，${set.decapitation ? '斬首時全方最貴的那台是旗艦（可能不在你這隊）；' : ''}所有席位都加入就開打。` : locked ? '照房主的條件選隊。對手看不到你的隊伍，雙方都加入就開打。' : '房主還沒選好條件，先照這些選；開打前會照房主的條件再檢查一次。'}</span>
         <span class="spacer"></span><button class="primary big" data-act="start" ${ok ? '' : 'disabled title="陣容有問題，先修正再出擊"'}>加入房間</button></div>`
           : `<div class="luFoot"><span class="muted">對手</span><select data-f="opponent">${OPPONENTS.map(([v, t]) => `<option value="${v}" ${v === opp ? 'selected' : ''}>${t}</option>`).join('')}</select>
         <span class="spacer"></span>
@@ -356,8 +469,21 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
   box.onchange = (ev) => {
     const el = ev.target as HTMLSelectElement;
     if (editing && el.dataset.ed === 'apply' && el.value) {
-      const u = rosters[editing.s][editing.i];
+      const u = blocks()[editing.s].list[editing.i];
       u.equipment = clone(el.value.startsWith('m') ? mineOf(u.chassis)[Number(el.value.slice(1))] : loadoutsOf(u.chassis)[Number(el.value.slice(1))]);
+      return render();
+    }
+    if (host && el.dataset.squads) {
+      set.squads![Number(el.dataset.squads)] = Number(el.value);
+      // 小隊數變了：電腦小隊照新的額度重選
+      for (const k of Object.keys(aiRosters)) delete aiRosters[k];
+      saveSettings();
+      return render();
+    }
+    if (host && el.dataset.ctrl) {
+      const k = el.dataset.ctrl;
+      set.aiSeats = el.value === 'ai' ? [...set.aiSeats!.filter((x) => x !== k), k] : set.aiSeats!.filter((x) => x !== k);
+      saveSettings();
       return render();
     }
     const f = el.dataset.f;
@@ -365,6 +491,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     if (f === 'opponent') opp = el.value as Opponent;
     else if (f === 'scale') {
       set.scale = el.value as Scale;
+      for (const k of Object.keys(aiRosters)) delete aiRosters[k];
       saveSettings();
     } else if (f === 'terrain') {
       set.terrain = el.value as LineupSettings['terrain'];
@@ -378,7 +505,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       set.turnLimit = Number(el.value);
       saveSettings();
     } else if (f) {
-      const u = rosters[Number(el.dataset.s) as 0 | 1][Number(el.dataset.i)];
+      const u = blocks()[Number(el.dataset.s)].list[Number(el.dataset.i)];
       if (f === 'chassis') {
         u.chassis = el.value;
         u.equipment = clone(loadoutsOf(el.value)[0]);
@@ -392,6 +519,14 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     const el = (ev.target as HTMLElement).closest('button');
     if (!el || el.disabled) return;
     if (editing) return editorClick(el);
+    if (online && el.dataset.invite) {
+      const url = `${online.roomUrl}&seat=${el.dataset.invite}`;
+      navigator.clipboard?.writeText(url).then(
+        () => (el.textContent = '已複製'),
+        () => window.prompt('邀請連結', url),
+      );
+      return;
+    }
     if (el.dataset.deploy) {
       set.deploy = el.dataset.deploy as LineupSettings['deploy'];
       saveSettings();
@@ -405,12 +540,13 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     }
     const act = el.dataset.act;
     if (!act) return;
-    const s = Number(el.dataset.s) as 0 | 1;
-    const budget = SCALES[set.scale].budget;
-    if (act === 'edit') editing = { s, i: Number(el.dataset.i), slot: gearSlots(rosters[s][Number(el.dataset.i)].chassis)[0]?.key ?? '' };
-    else if (act === 'remove') rosters[s].splice(Number(el.dataset.i), 1);
-    else if (act === 'add') rosters[s].push(randomEntries(1, budget, rosters[s])[0]);
-    else if (act === 'random') rosters[s] = randomEntries(rosters[s].length, budget);
+    const s = Number(el.dataset.s);
+    const b = blocks()[s];
+    const budget = b ? limitOf(b.side).budget : SCALES[set.scale].budget;
+    if (act === 'edit') editing = { s, i: Number(el.dataset.i), slot: gearSlots(b.list[Number(el.dataset.i)].chassis)[0]?.key ?? '' };
+    else if (act === 'remove') b.list.splice(Number(el.dataset.i), 1);
+    else if (act === 'add') b.list.push(randomEntries(1, budget, b.list)[0]);
+    else if (act === 'random') setList(b, randomEntries(Math.min(b.list.length, limitOf(b.side).maxUnits), budget));
     else if (act === 'default') rosters = clone(DEFAULT_ROSTERS);
     else if (act === 'last' && saved) rosters = clone(saved);
     else if (act === 'start') {
@@ -419,7 +555,8 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
       } catch {}
       if (!locked) saveSettings();
       box.hidden = true;
-      if (online) online.onJoin(clone(rosters[online.side]), toBattleSettings(set), set.scale, { ...set });
+      rerender = null;
+      if (online) online.onJoin(clone(rosters[online.side]), toBattleSettings(set), set.scale, { ...set }, Object.fromEntries(aiKeys().map((k) => [k, clone(aiRoster(k))])));
       else onStart(clone(rosters), opp, toBattleSettings(set));
       return;
     }
@@ -428,7 +565,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
   /** 武裝編輯器裡的按鈕：選掛點、換裝備、存成我的配裝、完成 */
   function editorClick(el: HTMLButtonElement) {
     const ed = editing!;
-    const u = rosters[ed.s][ed.i];
+    const u = blocks()[ed.s].list[ed.i];
     const { filled, extra } = gearToSlots(u.chassis, u.equipment);
     if (el.dataset.slot) ed.slot = el.dataset.slot;
     else if (el.dataset.pick !== undefined) {
@@ -450,6 +587,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
     render();
   }
 
+  rerender = online ? () => !editing && !box.hidden && render() : null;
   render();
   box.hidden = false;
 }

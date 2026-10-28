@@ -65,19 +65,30 @@ export type Scale = keyof typeof SCALES;
 /** 斬首的旗艦至少要這麼貴，避免全隊都是便宜貨 */
 export const FLAGSHIP_MIN_COST = 15;
 
-/** 陣容的問題（超出預算、台數、重複的具名駕駛、旗艦太便宜）；空陣列代表可以出擊 */
-export function lineupProblems(r: RosterEntry[], scale: Scale, settings: Pick<BattleSettings, 'decapitation'>): string[] {
+/** 一方分成 squads 個小隊時，每隊分到的預算與台數：平均分、無條件捨去（至少 1 台） */
+export function squadShare(scale: Scale, squads: number): { budget: number; maxUnits: number } {
   const s = SCALES[scale];
+  const n = Math.max(1, squads);
+  return { budget: Math.floor(s.budget / n), maxUnits: Math.max(1, Math.floor(s.maxUnits / n)) };
+}
+
+/**
+ * 陣容的問題（超出預算、台數、重複的具名駕駛、旗艦太便宜）；空陣列代表可以出擊。
+ * share：一個小隊的陣容，預算與台數照分到的份檢查（旗艦整方合起來才看，所以小隊不查）
+ */
+export function lineupProblems(r: RosterEntry[], scale: Scale, settings: Pick<BattleSettings, 'decapitation'>, share?: { budget: number; maxUnits: number }): string[] {
+  const s = SCALES[scale];
+  const limit = share ?? s;
   const out: string[] = [];
   const cost = rosterCost(r);
-  if (cost > s.budget) out.push(`費用 ${cost} 超出預算 ${s.budget}`);
-  if (r.length > s.maxUnits) out.push(`${s.name}最多 ${s.maxUnits} 台`);
+  if (cost > limit.budget) out.push(`費用 ${cost} 超出${share ? '這一隊分到的' : ''}預算 ${limit.budget}`);
+  if (r.length > limit.maxUnits) out.push(share ? `這一隊最多 ${limit.maxUnits} 台` : `${s.name}最多 ${s.maxUnits} 台`);
   const seen = new Set<string>();
   for (const e of r) {
     if (PILOTS[e.pilot]?.unique && seen.has(e.pilot)) out.push(`${PILOTS[e.pilot].name} 只能出擊一次`);
     seen.add(e.pilot);
   }
-  if (settings.decapitation && r.length && Math.max(...r.map(entryCost)) < FLAGSHIP_MIN_COST) out.push(`斬首：旗艦（最貴的機體）至少要 ${FLAGSHIP_MIN_COST} 分`);
+  if (!share && settings.decapitation && r.length && Math.max(...r.map(entryCost)) < FLAGSHIP_MIN_COST) out.push(`斬首：旗艦（最貴的機體）至少要 ${FLAGSHIP_MIN_COST} 分`);
   return out;
 }
 

@@ -97,7 +97,7 @@ import {
 } from '@mech/rules';
 import { Camera, attachCameraControls, type CameraView, type Projected } from './camera';
 import { loadContent } from './content';
-import { openLineup, type LineupSettings } from './lineup';
+import { lobbyUpdate, openLineup, seatLabel, type LineupSettings } from './lineup';
 import { openMenu, type Side } from './menu';
 import { LocalGame, type Opponent } from './local';
 import { mechSilhouette } from './silhouette';
@@ -268,9 +268,13 @@ function showLobby() {
     cover.hidden = false;
     return;
   }
+  lobbyUpdate(lobby.seats ?? [], lobby.mates ?? {});
   if (lobbyJoined()) {
     $('lineup').hidden = true;
-    cover.innerHTML = `<div><p>已加入房間 <b>${esc(room)}</b>，你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b></p><p class="muted">等待對手選好隊伍加入${lobby.connected[seat === 0 ? 1 : 0] ? '' : '（對手還沒連線）'}…</p></div>`;
+    const many = (lobby.seats?.length ?? 0) > 2;
+    // 分小隊：列出還沒加入的席位
+    const waiting = many ? (lobby.seats ?? []).filter((s) => !s.joined).map((s) => seatLabel(s.key)) : [];
+    cover.innerHTML = `<div><p>已加入房間 <b>${esc(room)}</b>，你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>${many ? `（${seatLabel(seatName)}）` : ''}</p><p class="muted">${many ? `等待其他席位加入：${waiting.join('、') || '—'}` : `等待對手選好隊伍加入${lobby.connected[seat === 0 ? 1 : 0] ? '' : '（對手還沒連線）'}`}…</p></div>`;
     cover.hidden = false;
     return;
   }
@@ -284,8 +288,11 @@ function showLobby() {
     () => {},
     {
       side: seat,
-      hostPrefs: seat === 1 ? ((lobby.terms?.prefs as LineupSettings | undefined) ?? null) : null,
-      onJoin: (roster, settings, scale, prefs) => sendMsg({ t: 'join', roster, ...(seatName === '0' ? { terms: { settings, scale, prefs } } : {}) }),
+      seat: seatName,
+      roomUrl: `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`,
+      hostPrefs: seatName !== '0' ? ((lobby.terms?.prefs as LineupSettings | undefined) ?? null) : null,
+      onJoin: (roster, settings, scale, prefs, ai) =>
+        sendMsg({ t: 'join', roster, ...(seatName === '0' ? { terms: { settings, scale, prefs, squads: prefs.squads ?? [1, 1], ai } } : {}) }),
     },
   );
 }
