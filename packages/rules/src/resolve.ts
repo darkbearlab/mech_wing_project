@@ -160,7 +160,9 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   const hit = new Set([...bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.a, e.b] : []))]);
   for (const id of deferred) if (hit.has(id) && unitById(ctx, id).status === 'active') ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
   const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !hit.has(id) && !inGrapple(state, id));
-  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting };
+  const speed: Record<string, number> = {};
+  for (const id of movers) if (!frozen.has(id) && plans[id]) speed[id] = moveSpeed(plans[id]);
+  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting, speed };
   updateSight(state);
   checkWinner(ctx, false);
   if (state.winner === null && waiting.length) {
@@ -202,7 +204,9 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   const later = (info.deferred ?? []).filter((id) => !aces.has(id) && unitById(ctx, id).status === 'active');
   for (const id of later) if (hit.has(id)) ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
   const next = later.filter((id) => !hit.has(id) && !inGrapple(state, id));
-  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next };
+  const speed = { ...(info.speed ?? {}) };
+  for (const id of aces) speed[id] = moveSpeed(plans[id]);
+  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next, speed };
   updateSight(state);
   checkWinner(ctx, false);
   if (state.winner === null && next.length) ctx.events.push({ type: 'phase', phase: 'ace' });
@@ -233,7 +237,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [] };
   const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
-  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set() };
+  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set(), speed: info.speed };
   const bumped = new Set(info.bumped);
   // 開火或鎖定會暴露位置
   const revealed = new Set<string>();

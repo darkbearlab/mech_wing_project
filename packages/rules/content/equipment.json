@@ -454,7 +454,7 @@
     "fire": "atgm",
     "weight": 2,
     "durability": 10,
-    "damage": 50,
+    "damage": 100,
     "shots": 1,
     "mode": "focused",
     "ammo": 2,
@@ -467,7 +467,7 @@
     "tags": [
       "volatile"
     ],
-    "cost": 3,
+    "cost": 4,
     "damageType": "chemical"
   },
   "smoke_discharger": {

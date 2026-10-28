@@ -89,6 +89,27 @@ describe('飛行時間', () => {
     const ev2 = turn(m2);
     expect(ev2.find((e) => e.type === 'inboundLost')).toMatchObject({ reason: expect.stringContaining('擋住') });
   });
+
+  it('反戰車飛彈：命中那回合發射端開太快、或目標跑出正面射界就落空', () => {
+    // 跑得比較快的 X-00 帶反戰車飛彈
+    const st = setup();
+    st.units[0] = makeState([{ entry: { chassis: 'X-00', pilot: 'veteran', equipment: [['atgm', 'mount', 'torso']] }, owner: 0, x: 5, y: 10, facingDeg: 0 }]).units[0];
+    st.units[0].momentum = 3;
+    const m = new Match(5, st);
+    const [g, , t] = m.state.units;
+    // 發射那回合維持速度 3 往前走，下回合才加得上去
+    const cruise = dialOf(g).find((x) => x.startsWith('straight') && moveSpeed({ maneuver: x }) === 3)!;
+    turn(m, { [g.id]: { action: { type: 'shoot', weapon: eq(m.state, 0, 'atgm'), target: t.id } } }, { [g.id]: { maneuver: cruise } });
+    const fast = dialOf(m.state.units[0]).find((x) => moveSpeed({ maneuver: x }) > C.ATGM_GUIDE_MAX_SPEED && !validateMove(m.state.units[0], plan({ maneuver: x }), false).length)!;
+    const ev = turn(m, {}, { [g.id]: { maneuver: fast } });
+    expect(ev.find((e) => e.type === 'inboundLost')).toMatchObject({ reason: expect.stringContaining('速度') });
+
+    const m2 = new Match(5, setup());
+    const g2 = m2.state.units[0];
+    turn(m2, { [g2.id]: { action: { type: 'shoot', weapon: eq(m2.state, 0, 'atgm'), target: t.id } } });
+    const ev2 = turn(m2, {}, { [g2.id]: { facingOffset: 180 } });
+    expect(ev2.find((e) => e.type === 'inboundLost')).toMatchObject({ reason: expect.stringContaining('射界') });
+  });
 });
 
 describe('煙幕彈發射器', () => {

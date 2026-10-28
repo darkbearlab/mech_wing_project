@@ -374,6 +374,8 @@ export interface TurnInfoState {
   bumped: string[];
   /** 擱置移動、等王牌移動步驟才動的機體 */
   deferred?: string[];
+  /** 本回合機動的速度（沒動、纏鬥中是 0）；導引反戰車飛彈的發射端要慢下來 */
+  speed?: Record<string, number>;
 }
 
 export interface GameState {

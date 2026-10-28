@@ -232,6 +232,8 @@ export const SMOKE_TURNS_GRAVITY = 4;
 export const SMOKE_TURNS_SPACE = 5;
 /** 隔著煙霧只在這個距離以內認得出是什麼 */
 export const SMOKE_ID_RANGE = 1;
+/** 反戰車飛彈：命中那回合，發射端的機動速度要在這個值以下（要一直瞄著目標），不然失去導引 */
+export const ATGM_GUIDE_MAX_SPEED = 3;
 /** 煙幕彈發射器：移動時一起放，速度要在這個值以下；煙幕留到這回合結束 */
 export const SCREEN_MAX_SPEED = 3;
 /** 丟煙霧彈的最遠距離（底板邊緣距離，中距離帶） */

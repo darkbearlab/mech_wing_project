@@ -190,6 +190,8 @@ export interface TurnInfo {
   velocity: Record<string, Vec>;
   /** 這回合被眩光照到的機體 */
   dazzled?: Set<string>;
+  /** 這回合機動的速度 */
+  speed?: Record<string, number>;
 }
 
 /**
@@ -340,6 +342,14 @@ export function landInbound(ctx: Ctx, turn: TurnInfo): void {
       }
       if (attacker.parts[weapon.id]?.destroyed) {
         lost('發射器被打壞，飛彈失去導引');
+        continue;
+      }
+      if ((turn.speed?.[attacker.id] ?? 0) > C.ATGM_GUIDE_MAX_SPEED) {
+        lost(`發射端這回合速度超過 ${C.ATGM_GUIDE_MAX_SPEED}，瞄不住目標`);
+        continue;
+      }
+      if (def.arc !== undefined && relativeAngle(attacker, target.pos) > def.arc * DEG) {
+        lost('目標離開發射端的正面射界');
         continue;
       }
       const c = coverOf(state.obstacles, attacker.pos, target.pos, attacker.z, target.z);

@@ -179,7 +179,7 @@ function shotTags(u: UnitView, from: Vec, t: UnitView, cover: CoverInfo, arc: nu
   const bp = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
   if (bp) tags.push(`目標在防禦彈幕裡 −${bp}`);
   for (const c of coverParts(cover)) tags.push(`${c.label} −${c.penalty}`);
-  if (flight) tags.push('下回合移動結束後才命中，那時發射端要看得到目標（隔著煙霧或被擋住就落空）');
+  if (flight) tags.push(`下回合移動結束後才命中：那回合自己要速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、目標留在正面射界、看得到（沒隔著煙霧），不然落空`);
   const high = from === u.pos ? heightAdvantage(u, t) : 0;
   if (high) tags.push(`高打低 +${high * config.HIGH_GROUND_HIT}${high >= config.HIGH_GROUND_DAMAGE_FROM ? `、每發傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%` : ''}`);
   if (t.mark) tags.push('已標定');
@@ -266,7 +266,7 @@ function render(v: PlayerView): string {
   if (s.mines.length) out.push(`地雷（我方的，加上我方機體 ${config.MINE_DETECT_RANGE} 格內發現的敵方地雷）${s.mines.map((m) => `${side(m.owner)}${pt(m)}`).join(' ')}`);
   for (const x of s.inbound) {
     const def = EQUIPMENT[x.defId];
-    const how = def?.fire === 'atgm' ? '發射端失去視線（隔著煙霧、被擋住、發射端倒下）就落空' : '目標的標定失效（煙幕的金屬粉、電子干擾、超出標定機感測距離）就落空';
+    const how = def?.fire === 'atgm' ? `發射端這回合要速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、目標留在發射端正面 ±${def.arc ?? 180}°、射擊線沒被擋住也沒隔著煙霧（發射端倒下或發射器壞了也一樣），不然落空` : '目標的標定失效（煙幕的金屬粉、電子干擾、超出標定機感測距離）就落空';
     out.push(x.owner === v.you ? `飛行中（我方發射）：${x.attacker} 的${def?.name ?? x.defId} ×${x.shots} → ${x.target}，下回合移動結束後命中；${how}` : `⚠來襲警告：${L(x.attacker)} 的${def?.name ?? x.defId} ×${x.shots} 飛向 ${x.target}，下回合移動結束後命中；${how}`);
   }
   const jammers = s.units.filter((u) => ecmOf(u as never) && !u.hidden);
@@ -464,7 +464,7 @@ function writeCatalog() {
     `重力圈（與水中）裡腳部全壞的機體（地面滑行、會飛的除外）：不能移動也不能轉向，只能原地懸停（hover-S-0、facingOffset 0），動能直接歸零。宇宙裡腳斷了照樣飄得動（只是不能急轉急停）。`,
     `彈藥：射擊武器的彈數以「發」計，每次射擊扣掉真正打出去的發數，剩的不夠一輪就只打剩下的（目錄的「彈N」）。開房勾選補給點時，雙方後方各一個補給點，停在自己的補給點上（動能 0、地面）用掉動作就補滿彈藥、道具與推進劑。`,
     `地雷：佈雷器在底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上埋雷，對手看不到（對方機體 ${config.MINE_DETECT_RANGE} 格內才看得到）；敵方的地面機體移動經過就引爆，${config.MINE_DAMAGE} 點化學能傷害打在腳上（樓頂上、會飛的不會踩到；自己這一方不會觸發）。路障：${config.BARRICADE_RANGE} 格內架一道長 ${config.BARRICADE_HALF_LENGTH * 2}、高 1 層的矮牆，和建築一樣擋移動、射擊與視線。`,
-    `飛行時間：迫擊砲、垂直飛彈、反戰車飛彈這回合只是發射（扣彈、暴露位置），下一回合移動結束後、行動步驟一開始才命中。雙方都看得到飛行中的彈藥（被瞄準的一方有來襲警告）。迫擊砲、垂直飛彈從發射的位置算、要目標那時還被標定，不然失去導引落空；反戰車飛彈不用標定，從發射端那時的位置算，發射端要還能操作、射擊線沒被擋住也沒隔著煙霧，不然落空。`,
+    `飛行時間：迫擊砲、垂直飛彈、反戰車飛彈這回合只是發射（扣彈、暴露位置），下一回合移動結束後、行動步驟一開始才命中。雙方都看得到飛行中的彈藥（被瞄準的一方有來襲警告）。迫擊砲、垂直飛彈從發射的位置算、要目標那時還被標定，不然失去導引落空；反戰車飛彈不用標定，從發射端那時的位置算：發射端要還能操作、發射器沒壞、那回合機動速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、目標還在發射器的正面射界內、射擊線沒被擋住也沒隔著煙霧，不然落空。命中時照一般射擊算，盾擋得到。`,
     `煙幕彈發射器：移動指令加 "smoke":"發射器id"（速度 ${config.SCREEN_MAX_SPEED} 以下），移動開始時在原地放出半徑 ${config.SMOKE_RADIUS} 的煙幕，留到這回合結束；從移動開始就生效（這回合的追擊、行動都吃得到）。射擊線穿過或目標在裡面命中 −${config.SMOKE_SHOT_PENALTY}（自己從裡面往外打也一樣），隔著煙霧認不出是哪台。煙霧裡有金屬粉：目標在煙裡、或標定機到目標的連線穿過煙霧，標定與鎖定都失效，也標定、鎖定不了；煙裡的機體也標定不了別人。一個發射器一場只能用一次。反輻射飛彈追的是干擾電波，煙擋不住。`,
     `導引武器（迫擊砲、垂直飛彈、飛彈莢艙）：只能打被標定的目標（沒被標定的，看得到也不能打）；命中只看機器：不算射手技能、沒有技能差懲罰、沒有標定加成、黑視不影響；目標駕駛的閃避照算。迫擊砲與垂直飛彈越過建築、不吃掩護與高低差、沒有射界、盾擋不到，打中照頂部攻擊表（腿 ×0.2，頭、軀幹、背包 ×1.5）。迫擊砲沒打中會偏離 ${config.MORTAR_SCATTER_MIN}～${config.MORTAR_SCATTER_MAX} 格落地，落點 ${config.MORTAR_SPLASH_RADIUS} 格內（底板邊緣）的機體不分敵我受 ${config.MORTAR_SPLASH_DAMAGE} 點。垂直飛彈與飛彈莢艙不吃相對速度的命中懲罰；飛彈莢艙要射擊線。`,
     `突進（行動 {"type":"lunge","target":".."}）：近戰姿態、手上有近戰武器；目標在正面 ±${config.LUNGE_ARC_DEG}°、底板邊緣 ${config.LUNGE_RANGE} 格內、同一個高度，中間沒被建築擋住。衝到目標身邊照近戰對決結算（對方可盾擋、閃避、反擊），推進劑 −${config.LUNGE_PROPELLANT}、壓力 +${config.LUNGE_STRESS}。`,

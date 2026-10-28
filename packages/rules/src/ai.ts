@@ -20,7 +20,7 @@ import { buildPath } from './movement';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
 import { BUILDING_TYPE_MULT, buildingHitChance } from './demolition';
 import { inFootprint } from './terrain';
-import { SCREEN_MAX_SPEED, SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { ATGM_GUIDE_MAX_SPEED, SCREEN_MAX_SPEED, SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
@@ -662,7 +662,9 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     // 有東西飛過來、身上有煙幕：只考慮放得了煙幕的慢速機動
     const all = availableManeuvers(u);
     const slow = all.filter((m) => moveSpeed({ maneuver: m.id }) <= SCREEN_MAX_SPEED);
-    const options = screenFor(view, u) && slow.length ? slow : all;
+    const guiding = (view.state.inbound ?? []).some((x) => x.attacker === u.id && EQUIPMENT[x.defId]?.fire === 'atgm');
+    const slowGuide = all.filter((m) => moveSpeed({ maneuver: m.id }) <= ATGM_GUIDE_MAX_SPEED);
+    const options = screenFor(view, u) && slow.length ? slow : guiding && slowGuide.length ? slowGuide : all;
     let best: { score: number; end: Vec; facing: number; track?: Vec[]; m: ManeuverSpec; climb?: boolean } = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver(cruiseManeuver(u)) };
     for (const m of options) {
       const s = scoreManeuver(u, m, team, rng);
