@@ -63,6 +63,13 @@ export interface EquipDef {
   utility?: 'smoke' | 'decoy' | 'mark';
   /** 標定器：一次標定前方幾台敵機（隨機挑） */
   markCount?: number;
+  /**
+   * 導引武器：mortar 迫擊砲（曲射越頂，沒打中會散布、炸到落點附近）、vls 垂直飛彈（越頂）、missile 平射飛彈（要射擊線）。
+   * 都只能打被標定的目標，命中只看機器：不算射手駕駛的技能、沒有標定加成（目標駕駛的閃避照算）
+   */
+  fire?: 'mortar' | 'vls' | 'missile';
+  /** 展開盾：可以在機體正面展開成一道矮牆 */
+  deployable?: boolean;
   mount?: EquipMount;
   /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
   arc?: number;
@@ -218,6 +225,8 @@ export interface EquipState {
   bits?: number;
   /** 感應武器：充能完畢、可以再放出去的回合 */
   readyTurn?: number;
+  /** 展開盾：展開中 */
+  deployed?: boolean;
 }
 
 export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';
@@ -360,6 +369,8 @@ export type Action =
   | { type: 'lock'; target: string }
   /** 突進：衝到 1.5 格內的敵機身邊砍一刀；目標比自己低就是跳劈（要近戰姿態、手上有近戰武器） */
   | { type: 'lunge'; target: string }
+  /** 展開盾：展開成正面的矮牆（已經展開就收起） */
+  | { type: 'deploy'; weapon: string }
   /** 標定：用標定器掃描前方，隨機標定幾台敵機（weapon 是標定器；不用選目標、不用視線） */
   | { type: 'mark'; weapon: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
@@ -471,6 +482,10 @@ export type GameEvent =
   | { type: 'reposition'; unit: string; to: Vec }
   | { type: 'swap'; unit: string; hand: Hand; equip: string | null }
   | { type: 'lock'; unit: string; target: string }
+  /** 迫擊砲沒打中：砲彈落在 at，炸到附近的 units */
+  | { type: 'blast'; by: string; at: Vec; units: string[] }
+  /** 展開盾展開（up）或收起 */
+  | { type: 'deploy'; unit: string; equip: string; up: boolean }
   /** 突進／跳劈：from 是出發位置；jump 是跳劈的落差（層），一般突進是 0 */
   | { type: 'lunge'; unit: string; target: string; from: Vec; to: Vec; jump: number }
   /** 標定；被標定的一方看不到標定的機體時 unit 是空字串 */

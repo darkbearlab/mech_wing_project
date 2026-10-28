@@ -1,9 +1,9 @@
 // 城市地圖的 AI 對打：確認建築、攀升、多武器齊射在整場對戰裡跑得動，順便看看雙方的戰況。
-import { DEFAULT_SETTINGS, Match, Rng, aiActions, aiMoves, aiPursuits, createGame, pickRosters, viewState } from '../src';
+import { DEFAULT_SETTINGS, EQUIPMENT, Match, Rng, aiActions, aiMoves, aiPursuits, createGame, pickRosters, viewState } from '../src';
 import type { GameEvent } from '../src';
 
 const games = Number(process.argv[2] ?? 30);
-const tally = { win: [0, 0], draw: 0, turns: 0, shots: 0, multi: 0, cover: 0, blockedFail: 0, wall: 0, drop: 0, climb: 0, mark: 0, markedHits: 0, lunge: 0, jump: 0 };
+const tally = { win: [0, 0], draw: 0, turns: 0, shots: 0, multi: 0, cover: 0, blockedFail: 0, wall: 0, drop: 0, climb: 0, mark: 0, markedHits: 0, lunge: 0, jump: 0, guided: 0, blast: 0, deploy: 0, walled: 0 };
 for (let g = 0; g < games; g++) {
   const seed = 1000 + g;
   const st = createGame(seed, pickRosters(seed), { ...DEFAULT_SETTINGS, terrain: 'city', environment: 'gravity' });
@@ -18,6 +18,9 @@ for (let g = 0; g < games; g++) {
       }
       if (e.type === 'obstacle') tally.wall++;
       if (e.type === 'mark') tally.mark++;
+      if (e.type === 'shot' && EQUIPMENT[e.weapon]?.fire) tally.guided++;
+      if (e.type === 'blast') tally.blast++;
+      if (e.type === 'deploy' && e.up) tally.deploy++;
       if (e.type === 'lunge') e.jump ? tally.jump++ : tally.lunge++;
       if (e.type === 'elevate') e.how === 'drop' ? tally.drop++ : tally.climb++;
       if (e.type === 'actionFail' && e.reason.includes('擋住')) tally.blockedFail++;
@@ -39,4 +42,4 @@ for (let g = 0; g < games; g++) {
   tally.turns += m.state.turn;
 }
 console.log(`${games} 場：A 勝 ${tally.win[0]}、B 勝 ${tally.win[1]}、平手 ${tally.draw}，平均 ${(tally.turns / games).toFixed(1)} 回合`);
-console.log(`射擊 ${tally.shots}、一次動作多武器開火 ${tally.multi}、撞牆 ${tally.wall}、攀升 ${tally.climb}、落下 ${tally.drop}、射擊線被擋 ${tally.blockedFail}、標定 ${tally.mark}、突進 ${tally.lunge}、跳劈 ${tally.jump}`);
+console.log(`射擊 ${tally.shots}、一次動作多武器開火 ${tally.multi}、撞牆 ${tally.wall}、攀升 ${tally.climb}、落下 ${tally.drop}、射擊線被擋 ${tally.blockedFail}、標定 ${tally.mark}、突進 ${tally.lunge}、跳劈 ${tally.jump}、導引武器射擊 ${tally.guided}、迫擊砲散布 ${tally.blast}、展開盾牆 ${tally.deploy}`);

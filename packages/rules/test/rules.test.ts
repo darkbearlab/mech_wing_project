@@ -674,8 +674,9 @@ describe('不需要準備的武器', () => {
   const shootTurn = (st: GameState, weapon: string) => {
     const [a, b] = st.units;
     const m = new Match(3, st);
-    m.submitMoves(0, { [a.id]: plan({ maneuver: 'hover-S-0' }) });
-    m.submitMoves(1, { [b.id]: plan({ maneuver: 'hover-S-0' }) });
+    const hover = (p: number) => Object.fromEntries(st.units.filter((u) => u.owner === p).map((u) => [u.id, plan({ maneuver: 'hover-S-0' })]));
+    m.submitMoves(0, hover(0));
+    m.submitMoves(1, hover(1));
     m.submitActions(0, { [a.id]: { action: { type: 'shoot', weapon, target: b.id } } });
     m.submitActions(1, {});
     return m;
@@ -715,9 +716,12 @@ describe('不需要準備的武器', () => {
   it('彈數：飛彈莢艙打兩次就沒彈', () => {
     const st = makeState([
       { entry: x04, owner: 0, x: 5, y: 10, facingDeg: 0 },
-      { entry: rifleX00, owner: 1, x: 10, y: 10, facingDeg: 180 },
+      { entry: rifleX00, owner: 1, x: 12, y: 10, facingDeg: 180 },
+      { entry: { chassis: 'X-07', pilot: 'veteran', equipment: [['designator', 'mount', 'head']] }, owner: 0, x: 5, y: 14, facingDeg: 0 },
     ]);
     const pod = byDef(st.units[0], 'missile_pod').id;
+    // 飛彈只能打被標定的目標
+    st.units[1].mark = { by: st.units[2].id };
     let m = shootTurn(st, pod);
     m = shootTurn(m.state, pod);
     expect(m.state.units[0].equipment.find((e) => e.id === pod)!.ammo).toBe(0);

@@ -37,20 +37,16 @@
       "pilot": "veteran",
       "equipment": [
         [
-          "bazooka",
+          "machine_gun",
           "right"
         ],
         [
-          "shield",
+          "riot_shield",
           "left"
         ],
         [
           "heat_axe",
           "stowed"
-        ],
-        [
-          "fuel_tank",
-          "mount"
         ]
       ]
     },
@@ -67,8 +63,9 @@
           "left"
         ],
         [
-          "beam_saber",
-          "stowed"
+          "missile_pod",
+          "mount",
+          "torso"
         ]
       ]
     },
@@ -94,22 +91,18 @@
       "pilot": "veteran",
       "equipment": [
         [
-          "shoulder_cannon",
-          "mount",
-          "torso"
-        ],
-        [
-          "shoulder_cannon",
-          "mount",
-          "torso"
-        ],
-        [
           "beam_rifle",
           "right"
         ],
         [
-          "shield",
-          "left"
+          "mortar",
+          "mount",
+          "torso"
+        ],
+        [
+          "mortar",
+          "mount",
+          "torso"
         ]
       ]
     },
