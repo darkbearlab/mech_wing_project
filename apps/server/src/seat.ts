@@ -23,6 +23,8 @@ import {
   contentVersion,
   controlPoints,
   supplyPoint,
+  forecastMoves,
+  type MovePlan,
   buildingHitChance,
   topHp,
   levelHp,
@@ -123,7 +125,8 @@ function gearText(u: UnitView): string {
       const d = EQUIPMENT[e.defId];
       const ps = psycommuOf(e);
       const bits = ps ? `${ps.wired ? '' : ` ${bitsLeft(e)}支`}${e.pod ? ` 放出@${pt(e.pod.pos)}${e.pod.charge !== undefined ? ` 能量${e.pod.charge}` : ''}` : (e.readyTurn ?? 0) > (view?.state.turn ?? 0) ? ` 充能到T${e.readyTurn}` : ''}` : '';
-      return `[${e.id}]${d.name}@${e.location}${e.ammo !== undefined ? ` 彈${e.ammo}` : ''}${bits}`;
+      const broken = !!u.parts[e.id]?.destroyed || (!!e.host && !!u.parts[e.host]?.destroyed);
+      return `[${e.id}]${d.name}@${e.location}${broken ? '（已損壞）' : e.ammo !== undefined ? ` 彈${e.ammo}` : ''}${bits}`;
     })
     .join('；');
 }
@@ -147,12 +150,10 @@ function maneuverTable(u: UnitView): string {
     if (c.blocked) continue;
     const path = buildPath(u as unknown as UnitState, { maneuver: id, limiter: false });
     const end = worldPose(path, 1);
-    // 路徑上會不會撞到大隕石（只看自己，不含其他機體）
-    const rocks = view!.state.obstacles.filter((o) => o.kind === 'rock');
-    const walls = view!.state.obstacles.filter((o) => o.kind === 'building' && o.levels! > (u.z ?? 0));
-    const pts = Array.from({ length: 25 }, (_, i) => worldPose(path, i / 24).pos);
-    const hit = pts.some((p) => rocks.some((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + radiusOf(u)));
-    const wall = walls.find((o) => pts.some((p) => wallPenetration(o, p, radiusOf(u)) > 0.05));
+    // 路徑上會不會撞到大隕石、建築（只看自己，不含其他機體；和實際移動用同一個判斷）
+    const w = forecastMoves([u], { [u.id]: { maneuver: id, stance: 'shoot', facingOffset: 0, limiter: false } }, view!.state.obstacles)[0];
+    const hit = w?.kind === 'rock';
+    const wall = w?.kind === 'wall' ? view!.state.obstacles.find((o) => o.id === w.with) : undefined;
     const canClimb = wall && !climbBlocked(u as unknown as UnitState, { maneuver: id }) && wall.levels! - (u.z ?? 0) <= climbLimits(u as unknown as UnitState).levels;
     const out = end.pos.x < 0 || end.pos.y < 0 || end.pos.x > config.MAP_SIZE || end.pos.y > config.MAP_SIZE;
     rows.push(`${id}→${pt(end.pos)}${out ? ' ⚠開出地圖（脫離戰場）' : ''}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠撞隕石' : ''}${wall ? ` ⚠撞${wall.id}(${wall.levels}層)${canClimb ? '，攀升可上樓頂' : ''}` : ''}`);
@@ -197,6 +198,7 @@ function perchTable(u: UnitView, enemies: UnitView[]): string {
   for (const o of view!.state.obstacles.filter((x) => x.kind === 'building' && x.levels && enemies.some((t) => t.z && inFootprint(x, t.pos))))
     for (const w of readyRanged(u)) {
       const def = EQUIPMENT[w.defId];
+      if (w.ammo !== undefined && w.ammo <= 0) continue;
       const h = buildingHitChance(u, PILOTS[u.pilotId!].skill, def, o, view!.state.obstacles, CHASSIS[u.chassisId].aim, view!.state.stance[u.id] === 'melee');
       if (h) rows.push(`    ${w.id} ${def.name} → 建築 ${o.id}（${o.levels}層，頂層 ${topHp(o)}/${levelHp(o)}）：約 ${h.chance}%，每發 ${Math.round((def.damage ?? 0) * BUILDING_TYPE_MULT[def.damageType ?? 'kinetic'])} 點`);
     }
@@ -378,6 +380,18 @@ function needsOrders(v: PlayerView): boolean {
 }
 
 /** 送出前整理指令：部署朝向可以用角度（facingDeg），弧度對齊到 45° 的倍數；移動指令省略的欄位補預設值 */
+/** 移動指令裡自己機體之間的擦撞預測；沒有就回傳空字串 */
+function allyWarnings(msg: any): string {
+  if (msg?.t !== 'moves' || msg.force || !view) return '';
+  const mine = view.state.units.filter((u) => u.owner === view!.you && u.status === 'active' && !u.hidden && (view!.squad === undefined || (u.squad ?? 0) === view!.squad));
+  const plans = msg.moves as Record<string, MovePlan>;
+  const seen = new Set<string>();
+  return forecastMoves(mine, plans, view.state.obstacles)
+    .filter((w) => w.kind === 'ally' && !seen.has([w.unit, w.with].sort().join()) && seen.add([w.unit, w.with].sort().join()))
+    .map((w) => `${w.unit} 和 ${w.with} 在移動 ${Math.round(w.t * 100)}% 時碰在 ${pt(w.at)}`)
+    .join('；');
+}
+
 function normalizeOrders(msg: any): any {
   const snap = (r: number) => Math.round(r / (Math.PI / 4)) * (Math.PI / 4);
   if (msg?.t === 'deploy')
@@ -410,6 +424,10 @@ function writeCatalog() {
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
   out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −隕石群 ${config.FIELD_SHOT_PENALTY} −建築半掩護 ${config.BUILDING_COVER_PENALTY} ＋高打低每層 ${config.HIGH_GROUND_HIT}（最多 ${config.HIGH_GROUND_MAX_LEVELS} 層；高 ${config.HIGH_GROUND_DAMAGE_FROM} 層以上每發傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%）＋被標定 +${config.MARK_BONUS} −自己是近戰姿態 ${config.MELEE_STANCE_SHOT_PENALTY} −黑視中 ${config.BLACKOUT_SHOT_PENALTY}；超過 100 的部分是爆擊`);
   out.push(
+    '',
+    '== 回合流程 ==',
+    `每回合依序：①移動（雙方同時暗選、一起結算）→②王牌移動（只有選了擱置的王牌駕駛：看完其他人的移動才動；技能低的一批先動）→③追擊（只有咬住敵機背後的機體才會出現這一步）→④行動（射擊、標定、突進等，每台一個動作）。沒有要下指令的步驟會自動跳過。`,
+    `追擊：移動結算後，射擊方在目標背後 ±${config.PURSUIT_ARC_DEG}°、而且自己面向目標 ±${config.PURSUIT_ARC_DEG}°，距離在${['零距離', '近距離', '中距離'][config.PURSUIT_MAX_BAND]}以內，就可以用一件射擊武器多開一槍（不算這回合的動作，行動步驟照常行動）。這是繞到背後的獎勵；腳斷了動不了的機體也能追擊，只要有敵機停在它面前、背對著它。追擊用 {"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}，null 是放棄；可以選的會列在 view.txt 的「追擊選項」。最靠後咬住的先結算。`,
     '',
     '== 城市戰的規則 ==',
     `傷害屬性與裝甲（三角相剋，±${config.TYPE_MULT * 100}%）：複合裝甲擋動能、怕化學能；反射裝甲擋能量、怕動能；陶瓷裝甲擋化學能、怕能量。機體部位照機型的裝甲，盾牌照盾牌的裝甲；武器和其他裝備不剋也不被剋。耐久與傷害的刻度是舊版的 10 倍（基本數值是 10 的倍數；相剋、高打低算完四捨五入，所以會有 8、13、38 這種零頭）。`,
@@ -490,6 +508,14 @@ setInterval(() => {
   const text = readFileSync(file, 'utf-8');
   try {
     const msg = normalizeOrders(JSON.parse(text));
+    const warn = allyWarnings(msg);
+    if (warn) {
+      // 會和隊友擦撞：先不送，讓下指令的人確認（加 "force":true 照送）
+      renameSync(file, resolve(dir, `held-${Date.now()}.json`));
+      prompt(`ERROR 預測會和隊友擦撞，這份指令還沒送出：${warn}。改機動避開；確定要這樣走就在指令加 "force":true 再送一次`);
+      return;
+    }
+    delete msg.force;
     ws.send(JSON.stringify(msg));
     renameSync(file, resolve(dir, `sent-${Date.now()}.json`));
     console.log(`SENT ${msg.t}`);

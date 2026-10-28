@@ -78,6 +78,9 @@ import {
   inBarrage,
   availableManeuvers,
   immobile,
+  forecastMoves,
+  warningText,
+  type MoveWarning,
   coveringShield,
   psycommuOf,
   canPsycommu,
@@ -1512,6 +1515,29 @@ function drawBarrages() {
   }
 }
 
+/** 移動預測：照目前選的機動，會撞牆、撞隕石、開出地圖或和隊友擦撞的地方畫紅圈 */
+function moveWarnings(): MoveWarning[] {
+  if (!view || (view.phase !== 'move' && view.phase !== 'ace') || view.submitted[view.you]) return [];
+  const mine = ownUnits().filter((u) => u.status === 'active' && !inGrapple(u.id));
+  return forecastMoves(mine, moveDrafts, view.state.obstacles);
+}
+
+function drawMoveWarnings() {
+  for (const w of moveWarnings()) {
+    const c = pr(w.at.x, w.at.y, 0);
+    if (!c.visible) continue;
+    g.strokeStyle = w.kind === 'ally' ? 'rgba(255,93,93,0.95)' : 'rgba(255,150,60,0.95)';
+    g.lineWidth = 2;
+    ringWorld(w.at.x, w.at.y, 0.6, 0, 0, Math.PI * 2, 24);
+    g.stroke();
+    g.lineWidth = 1;
+    g.fillStyle = g.strokeStyle;
+    g.font = '11px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(w.kind === 'ally' ? '擦撞' : w.kind === 'offmap' ? '出界' : '撞牆', c.x, c.y - 10);
+  }
+}
+
 /** 炮群的指令預覽：選取母機時畫控制距離（以移動後位置為中心）、炮群的移動範圍；已下的移動指令畫黃色虛線 */
 function drawPodPlans() {
   if (view?.phase === 'move' || view?.phase === 'ace') {
@@ -1845,6 +1871,7 @@ function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'fa
 
 function drawPreviews() {
   drawPodPlans();
+  drawMoveWarnings();
   drawDeferRings();
   drawRearArc();
   if (view?.phase === 'pursuit') {
@@ -2492,7 +2519,7 @@ for (const id of FLOATERS) {
 
 /** 裝備：有自己部位的顯示耐久；內建與內藏的跟著宿主（宿主壞了就失效） */
 function gearCell(u: UnitView, e: EquipState): string {
-  if (u.parts[e.id]) return partCell(u, e.id) + (e.ammo !== undefined ? `<span class="muted">彈${e.ammo}</span>` : '');
+  if (u.parts[e.id]) return partCell(u, e.id) + (e.ammo !== undefined && !u.parts[e.id].destroyed ? `<span class="muted">彈${e.ammo}</span>` : '');
   const host = e.host ? u.parts[e.host] : undefined;
   const ok = equipAlive(u, e);
   return `<span class="${ok ? '' : 'dead'}">${esc(EQUIPMENT[e.defId].name)}${host ? `(${esc(host.name)})` : ''}${ok ? '' : ' 失效'}</span>`;
@@ -2660,6 +2687,8 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   else if (m.kind === 'hover') {
     html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.filter((f) => !isShip(u) || Math.abs(f) <= config.SHIP_TURN_MAX_DEG).map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
   }
+  // 預測：這個機動會撞到什麼（敵機怎麼走看不到，不算）
+  for (const w of moveWarnings().filter((x) => x.unit === u.id)) html += `<div class="row"><span class="small warn">⚠ 預測${esc(warningText(w, (id) => labelOf(id).split(' ')[0]))}</span></div>`;
   const limiterTip = `限制器解除：這回合最大加減速 +1，壓力 +${config.LIMITER_STRESS}。${m.kind === 'hover' ? '懸停時不能用。' : ''}`;
   const purgeBtn = armorOf(u)
     ? tip(`<button class="${plan.purge ? 'on' : ''}" data-purge="1">拋棄外裝甲</button>`, `拋棄外裝甲（免費）：${EQUIPMENT[u.equipment.find((e) => EQUIPMENT[e.defId].kind === 'armor')!.defId].name}還能再擋 ${(() => { const e = u.equipment.find((x) => EQUIPMENT[x.defId].kind === 'armor')!; return u.parts[e.id].durability - u.parts[e.id].damage; })()} 點傷害。穿著時只能用頭部武器、迴避 −${armorOf(u)!.evasionPenalty ?? 0}、最大加減速 −${armorOf(u)!.accelPenalty ?? 0}；拋棄後恢復，這回合就生效。`)
