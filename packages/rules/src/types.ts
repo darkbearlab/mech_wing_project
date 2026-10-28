@@ -517,7 +517,7 @@ export type GameEvent =
     }
   | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number; pod?: string; from?: Vec; inbound?: string }
   /** typed：屬性相剋（weak 打在弱點上加傷、resist 被抵抗減傷） */
-  | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean; typed?: 'weak' | 'resist'; /** 打在機械外露的部位上 */ exposed?: boolean }
+  | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean; typed?: 'weak' | 'resist'; /** 打在結構外露的部位上 */ exposed?: boolean }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
   | { type: 'stress'; unit: string; amount: number; total: number; reason: string }
   | { type: 'propellant'; unit: string; amount: number; total: number }

@@ -3563,7 +3563,7 @@ function describe(e: GameEvent): string | null {
       if (e.pod) return `${L(e.attacker)} 指揮${(() => { const f = podById(e.pod, true); return f ? podName(f.u, f.e) : '炮群'; })()}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
       return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}${e.strays ? `，誤擊 ${e.strays}` : ''}`;
     case 'damage':
-      return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.exposed ? '（機械外露）' : e.typed === 'weak' ? '（打在弱點上）' : e.typed === 'resist' ? '（被裝甲抵抗）' : ''}${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
+      return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.exposed ? '（結構外露）' : e.typed === 'weak' ? '（打在弱點上）' : e.typed === 'resist' ? '（被裝甲抵抗）' : ''}${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
     case 'knockback':
       return `${L(e.unit)} 被撞開，姿勢失控`;
     case 'stress':
