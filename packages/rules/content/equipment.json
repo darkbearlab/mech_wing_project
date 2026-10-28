@@ -4,8 +4,8 @@
     "name": "光束步槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 3,
-    "damage": 3,
+    "durability": 30,
+    "damage": 30,
     "shots": 1,
     "mode": "focused",
     "ranges": {
@@ -13,105 +13,112 @@
       "2": 10,
       "3": -15
     },
-    "cost": 3
+    "cost": 3,
+    "damageType": "energy"
   },
   "machine_gun": {
     "id": "machine_gun",
     "name": "機槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 3,
-    "damage": 1,
+    "durability": 30,
+    "damage": 10,
     "shots": 4,
     "mode": "scattered",
     "ranges": {
       "1": 10,
       "2": 0
     },
-    "cost": 1
+    "cost": 1,
+    "damageType": "kinetic"
   },
   "sniper": {
     "id": "sniper",
     "name": "狙擊步槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 3,
-    "damage": 4,
+    "durability": 30,
+    "damage": 40,
     "shots": 1,
     "mode": "focused",
     "ranges": {
       "2": -10,
       "3": 10
     },
-    "cost": 3
+    "cost": 3,
+    "damageType": "kinetic"
   },
   "bazooka": {
     "id": "bazooka",
     "name": "火箭砲",
     "kind": "ranged",
     "weight": 2,
-    "durability": 3,
-    "damage": 5,
+    "durability": 30,
+    "damage": 50,
     "shots": 1,
     "mode": "focused",
     "ranges": {
       "1": 10,
       "2": -5
     },
-    "cost": 3
+    "cost": 3,
+    "damageType": "chemical"
   },
   "beam_saber": {
     "id": "beam_saber",
     "name": "光劍",
     "kind": "melee",
     "weight": 1,
-    "durability": 1,
-    "damage": 3,
+    "durability": 10,
+    "damage": 30,
     "mode": "focused",
     "cost": 1,
     "melee": {
       "cleave": {
         "dice": 1,
-        "damage": 3
+        "damage": 30
       },
       "thrust": {
         "dice": 1,
-        "damage": 3
+        "damage": 30
       }
-    }
+    },
+    "damageType": "energy"
   },
   "heat_axe": {
     "id": "heat_axe",
     "name": "熱能斧",
     "kind": "melee",
     "weight": 1,
-    "durability": 2,
-    "damage": 4,
+    "durability": 20,
+    "damage": 40,
     "mode": "focused",
     "meleeDice": 1,
     "cost": 1,
     "melee": {
       "cleave": {
         "dice": 1,
-        "damage": 4
+        "damage": 40
       },
       "thrust": {
         "dice": -1,
-        "damage": 2
+        "damage": 20
       },
       "entangle": {
         "dice": 0,
-        "damage": 1
+        "damage": 10
       }
-    }
+    },
+    "damageType": "kinetic"
   },
   "shield": {
     "id": "shield",
     "name": "盾牌",
     "kind": "shield",
     "weight": 4,
-    "durability": 6,
-    "cost": 1
+    "durability": 60,
+    "cost": 1,
+    "armorType": "composite"
   },
   "fuel_tank": {
     "id": "fuel_tank",
@@ -119,7 +126,7 @@
     "kind": "tank",
     "mount": "mounted",
     "weight": 2,
-    "durability": 1,
+    "durability": 10,
     "fuel": 6,
     "cost": 0
   },
@@ -130,7 +137,7 @@
     "mount": "integrated",
     "weight": 0,
     "durability": 0,
-    "damage": 1,
+    "damage": 10,
     "shots": 3,
     "mode": "scattered",
     "ranges": {
@@ -139,7 +146,8 @@
     "arc": 60,
     "tags": [
       "secondary"
-    ]
+    ],
+    "damageType": "kinetic"
   },
   "shoulder_cannon": {
     "id": "shoulder_cannon",
@@ -147,8 +155,8 @@
     "kind": "ranged",
     "mount": "mounted",
     "weight": 2,
-    "durability": 3,
-    "damage": 4,
+    "durability": 30,
+    "damage": 40,
     "shots": 1,
     "mode": "focused",
     "ranges": {
@@ -157,7 +165,8 @@
     },
     "arc": 30,
     "pointBlank": false,
-    "cost": 2
+    "cost": 2,
+    "damageType": "kinetic"
   },
   "back_beam": {
     "id": "back_beam",
@@ -165,8 +174,8 @@
     "kind": "ranged",
     "mount": "mounted",
     "weight": 2,
-    "durability": 2,
-    "damage": 5,
+    "durability": 20,
+    "damage": 50,
     "shots": 1,
     "mode": "focused",
     "ranges": {
@@ -174,7 +183,8 @@
     },
     "arc": 20,
     "pointBlank": false,
-    "cost": 4
+    "cost": 4,
+    "damageType": "energy"
   },
   "missile_pod": {
     "id": "missile_pod",
@@ -182,8 +192,8 @@
     "kind": "ranged",
     "mount": "mounted",
     "weight": 1,
-    "durability": 1,
-    "damage": 2,
+    "durability": 10,
+    "damage": 20,
     "shots": 2,
     "mode": "focused",
     "ranges": {
@@ -197,7 +207,8 @@
     ],
     "cost": 2,
     "fire": "missile",
-    "pointBlank": false
+    "pointBlank": false,
+    "damageType": "chemical"
   },
   "finger_beam": {
     "id": "finger_beam",
@@ -206,14 +217,15 @@
     "mount": "integrated",
     "weight": 0,
     "durability": 0,
-    "damage": 2,
+    "damage": 20,
     "shots": 2,
     "mode": "focused",
     "ranges": {
       "1": 5,
       "2": 0
     },
-    "blocksHand": true
+    "blocksHand": true,
+    "damageType": "energy"
   },
   "mega_beam": {
     "id": "mega_beam",
@@ -222,14 +234,15 @@
     "mount": "integrated",
     "weight": 0,
     "durability": 0,
-    "damage": 1,
+    "damage": 10,
     "shots": 4,
     "mode": "scattered",
     "ranges": {
       "1": 5,
       "2": -10
     },
-    "arc": 45
+    "arc": 45,
+    "damageType": "energy"
   },
   "arm_gatling": {
     "id": "arm_gatling",
@@ -238,14 +251,15 @@
     "mount": "integrated",
     "weight": 0,
     "durability": 0,
-    "damage": 1,
+    "damage": 10,
     "shots": 3,
     "mode": "scattered",
     "ranges": {
       "1": 5,
       "2": -5
     },
-    "cost": 1
+    "cost": 1,
+    "damageType": "kinetic"
   },
   "arm_saber": {
     "id": "arm_saber",
@@ -254,7 +268,7 @@
     "mount": "housed",
     "weight": 0,
     "durability": 0,
-    "damage": 3,
+    "damage": 30,
     "mode": "focused",
     "tags": [
       "quickDraw"
@@ -263,13 +277,14 @@
     "melee": {
       "cleave": {
         "dice": 0,
-        "damage": 3
+        "damage": 30
       },
       "thrust": {
         "dice": 1,
-        "damage": 3
+        "damage": 30
       }
-    }
+    },
+    "damageType": "energy"
   },
   "nose_vulcan": {
     "id": "nose_vulcan",
@@ -277,8 +292,8 @@
     "kind": "ranged",
     "mount": "integrated",
     "weight": 0,
-    "durability": 1,
-    "damage": 1,
+    "durability": 10,
+    "damage": 10,
     "shots": 4,
     "mode": "scattered",
     "arc": 30,
@@ -288,7 +303,8 @@
     },
     "tags": [
       "secondary"
-    ]
+    ],
+    "damageType": "kinetic"
   },
   "arm_cannon": {
     "id": "arm_cannon",
@@ -297,8 +313,8 @@
     "mount": "integrated",
     "blocksHand": true,
     "weight": 2,
-    "durability": 2,
-    "damage": 2,
+    "durability": 20,
+    "damage": 20,
     "shots": 2,
     "mode": "focused",
     "ranges": {
@@ -306,7 +322,8 @@
       "2": 5,
       "3": -15
     },
-    "cost": 2
+    "cost": 2,
+    "damageType": "energy"
   },
   "grapnel": {
     "id": "grapnel",
@@ -314,7 +331,7 @@
     "kind": "module",
     "mount": "mounted",
     "weight": 1,
-    "durability": 2,
+    "durability": 20,
     "climbBoost": {
       "levels": 1,
       "speed": 2
@@ -328,7 +345,7 @@
     "utility": "mark",
     "mount": "mounted",
     "weight": 1,
-    "durability": 2,
+    "durability": 20,
     "cost": 1,
     "markCount": 2
   },
@@ -339,8 +356,8 @@
     "mount": "mounted",
     "fire": "mortar",
     "weight": 2,
-    "durability": 3,
-    "damage": 2,
+    "durability": 30,
+    "damage": 20,
     "shots": 1,
     "ammo": 4,
     "pointBlank": false,
@@ -349,7 +366,8 @@
       "3": -15,
       "4": -25
     },
-    "cost": 3
+    "cost": 3,
+    "damageType": "chemical"
   },
   "vls": {
     "id": "vls",
@@ -358,8 +376,8 @@
     "mount": "mounted",
     "fire": "vls",
     "weight": 2,
-    "durability": 3,
-    "damage": 2,
+    "durability": 30,
+    "damage": 20,
     "shots": 2,
     "ammo": 2,
     "pointBlank": false,
@@ -368,7 +386,8 @@
       "3": 0,
       "4": -10
     },
-    "cost": 4
+    "cost": 4,
+    "damageType": "chemical"
   },
   "riot_shield": {
     "id": "riot_shield",
@@ -376,7 +395,8 @@
     "kind": "shield",
     "deployable": true,
     "weight": 3,
-    "durability": 8,
-    "cost": 2
+    "durability": 80,
+    "cost": 2,
+    "armorType": "reflective"
   }
 }

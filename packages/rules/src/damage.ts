@@ -2,7 +2,7 @@ import * as C from './config';
 import { FUEL_IGNITE_CHANCE, FUEL_IGNITE_DAMAGE } from './config';
 import { CHASSIS, EQUIPMENT } from './data';
 import type { Rng } from './rng';
-import type { DamageMode, GameEvent, GameState, UnitState, Vec } from './types';
+import type { ArmorType, DamageMode, DamageType, GameEvent, GameState, UnitState, Vec } from './types';
 import { isShip, shipPartMultiplier } from './ship';
 import { corePart, handOfPart, handPart, roleLost } from './body';
 import { equipDef, heldItem, pilotOf } from './unit';
@@ -17,6 +17,8 @@ export interface Ctx {
   aimAt?: string;
   /** 從上方打下來的傷害：部位照頂部攻擊表（腿部很難中） */
   topAttack?: boolean;
+  /** 這筆傷害的屬性（沒寫的不受裝甲相剋影響：墜落、撞牆、自傷等） */
+  damageType?: DamageType;
   /** 沒辦法瞄準的傷害（撞擊）：瞄準要害不生效 */
   unaimed?: boolean;
   /** 射擊位置（打戰艦時決定比較容易打到哪裡） */
@@ -124,16 +126,59 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
       if (amount <= 0) return;
     }
   }
+  // 分散傷害、溢出的傷害：每 DAMAGE_SCALE（舊的 1 點）抽一次部位
   if (mode === 'focused') {
     const spill = hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus, mult), amount);
-    if (overflow) for (let i = 0; i < spill && u.status !== 'destroyed'; i++) hitPart(ctx, u, rollPart(ctx.rng, u, bonus, mult), 1);
+    if (overflow) for (const n of chunks(spill)) if (u.status !== 'destroyed') hitPart(ctx, u, rollPart(ctx.rng, u, bonus, mult), n);
   } else {
-    for (let i = 0; i < amount; i++) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus, mult), 1);
+    for (const n of chunks(amount)) hitPart(ctx, u, forcePart ?? rollPart(ctx.rng, u, bonus, mult), n);
   }
 }
 
-/** 回傳打壞部位後多出來的傷害 */
-function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): number {
+const chunks = (n: number): number[] => {
+  const out: number[] = [];
+  for (let left = n; left > 0; left -= C.DAMAGE_SCALE) out.push(Math.min(C.DAMAGE_SCALE, left));
+  return out;
+};
+
+/** 這個部位的裝甲種類：機體部位照機型，盾牌與外裝甲照裝備；武器和其他裝備沒有（不剋也不被剋） */
+export function partArmor(u: Pick<UnitState, 'chassisId' | 'equipment'>, part: { id: string; kind: string }): ArmorType | undefined {
+  if (part.kind === 'body') return CHASSIS[u.chassisId]?.armorType;
+  const e = u.equipment.find((x) => x.id === part.id);
+  return e ? EQUIPMENT[e.defId]?.armorType : undefined;
+}
+
+export const DAMAGE_TYPE_NAMES: Record<DamageType, string> = { kinetic: '動能', energy: '能量', chemical: '化學能' };
+export const ARMOR_NAMES: Record<ArmorType, string> = { composite: '複合裝甲', reflective: '反射裝甲', ceramic: '陶瓷裝甲' };
+
+/** 這種屬性打這種裝甲的說明（例：「抵抗 −25%」）；不相剋是空字串 */
+export function matchupText(armor: ArmorType | undefined, type: DamageType | undefined): string {
+  const m = typeMultiplier(armor, type);
+  if (m === 1) return '';
+  return `${ARMOR_NAMES[armor!]}${m > 1 ? '弱點' : '抵抗'} ${m > 1 ? '+' : '−'}${Math.round(Math.abs(m - 1) * 100)}%`;
+}
+
+/** 屬性相剋的倍率（沒有屬性或沒有裝甲是 1） */
+export function typeMultiplier(armor: ArmorType | undefined, type: DamageType | undefined): number {
+  if (!armor || !type) return 1;
+  if (C.ARMOR_RESISTS[armor] === type) return 1 - C.TYPE_MULT;
+  if (C.ARMOR_WEAK[armor] === type) return 1 + C.TYPE_MULT;
+  return 1;
+}
+
+/** 以 type 屬性造成傷害 */
+export function typed(ctx: Ctx, type: DamageType | undefined, fn: () => void): void {
+  const prev = ctx.damageType;
+  ctx.damageType = type;
+  try {
+    fn();
+  } finally {
+    ctx.damageType = prev;
+  }
+}
+
+/** 回傳打壞部位後多出來的傷害（還沒乘屬性倍率的原始值） */
+function hitPart(ctx: Ctx, u: UnitState, partId: string, raw: number): number {
   if (u.status === 'destroyed') return 0;
   let part = u.parts[partId];
   if (part.kind === 'body' && part.destroyed) part = u.parts[corePart(u)];
@@ -143,14 +188,18 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, amount: number): number
     const held = heldItem(u, shieldHand);
     if (held && equipDef(held).kind === 'shield') part = u.parts[held.id];
   }
-  const spill = Math.max(0, amount - (part.durability - part.damage));
+  // 屬性相剋：照這個部位的裝甲加減傷；打穿多出來的傷害換回原始值，再照下一個部位的裝甲算
+  const m = typeMultiplier(partArmor(u, part), ctx.damageType);
+  const amount = m === 1 ? raw : Math.max(1, Math.round(raw * m));
+  const over = Math.max(0, amount - (part.durability - part.damage));
+  const spill = m === 1 ? over : Math.round(over / m);
   part.damage = Math.min(part.durability, part.damage + amount);
   const destroyed = part.damage >= part.durability;
   const newlyDestroyed = destroyed && !part.destroyed;
   part.destroyed = destroyed;
-  ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed });
-  // 戰艦的艦體很大，挨打不會讓艦長受衝擊
-  if (part.role === 'core' && !isShip(u)) addStress(ctx, u, amount, `${part.name}受創`);
+  ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed, ...(m > 1 ? { typed: 'weak' as const } : m < 1 ? { typed: 'resist' as const } : {}) });
+  // 戰艦的艦體很大，挨打不會讓艦長受衝擊；壓力照舊的點數算
+  if (part.role === 'core' && !isShip(u)) addStress(ctx, u, Math.max(1, Math.round(amount / C.DAMAGE_SCALE)), `${part.name}受創`);
   if (newlyDestroyed) onDestroyed(ctx, u, part.id);
   // 裝備（武器、盾、收著的東西）被打穿：多出來的傷害打進拿著它或掛著它的部位，不會被一件小裝備整發吸掉
   if (spill > 0 && part.kind === 'equip' && (u.status as string) !== 'destroyed') {

@@ -3,7 +3,7 @@ import { clinchAdvantage } from './grapple';
 import { radiusOf } from './body';
 import * as C from './config';
 import { meleeClash } from './melee';
-import { addStress, damageUnit, dealtBy, spendPropellant, type Ctx } from './damage';
+import { addStress, damageUnit, typed, dealtBy, spendPropellant, type Ctx } from './damage';
 import { pushOutOfWall, wallPenetration } from './terrain';
 import { CHASSIS } from './data';
 import { DEG, add, angleDiff, angleOf, dist, dot, normalize, scale, sub } from './geometry';
@@ -125,7 +125,7 @@ export function simulateMovement(
       stop(m);
       bumped.add(m.unit.id);
       const damage = Math.max(0, Math.round(m.path.length) - C.ROCK_SAFE_SPEED);
-      ctx.events.push({ type: 'obstacle', t, unit: m.unit.id, obstacle: rock.id, damage });
+      ctx.events.push({ type: 'obstacle', t, unit: m.unit.id, obstacle: rock.id, damage: damage * C.DAMAGE_SCALE });
       // 彈開一點，機頭偏向隕石表面（擦過去的方向），下回合才轉得出來；不能停的戰機尤其需要
       const away = sub(m.unit.pos, rock);
       const n = Math.hypot(away.x, away.y) < 1e-6 ? { x: Math.cos(m.unit.facing + Math.PI), y: Math.sin(m.unit.facing + Math.PI) } : normalize(away);
@@ -136,7 +136,7 @@ export function simulateMovement(
       m.unit.facing = Math.abs(angleDiff(tangents[0], m.unit.facing)) <= Math.abs(angleDiff(tangents[1], m.unit.facing)) ? tangents[0] : tangents[1];
       ctx.events.push({ type: 'reposition', unit: m.unit.id, to: { ...m.unit.pos } });
       if (damage) {
-        damageUnit(ctx, m.unit, damage, 'scattered');
+        damageUnit(ctx, m.unit, damage * C.DAMAGE_SCALE, 'scattered');
         addStress(ctx, m.unit, damage, '撞上隕石');
       }
     }
@@ -163,7 +163,7 @@ export function simulateMovement(
         stop(m);
         bumped.add(u.id);
         const damage = Math.max(0, Math.round(m.path.length) - C.ROCK_SAFE_SPEED);
-        ctx.events.push({ type: 'obstacle', t, unit: u.id, obstacle: o.id, damage });
+        ctx.events.push({ type: 'obstacle', t, unit: u.id, obstacle: o.id, damage: damage * C.DAMAGE_SCALE });
         // 彈開一點，機頭轉成沿著牆面（比較接近原本朝向的那一邊），下回合才走得開，不會一直貼著牆卡住
         const out = pushOutOfWall(o, u.pos, r + C.ROCK_BOUNCE_GAP);
         const cx = Math.max(o.x - o.hx!, Math.min(o.x + o.hx!, out.x));
@@ -174,7 +174,7 @@ export function simulateMovement(
         u.pos = out;
         ctx.events.push({ type: 'reposition', unit: u.id, to: { ...u.pos } });
         if (damage) {
-          damageUnit(ctx, u, damage, 'scattered');
+          damageUnit(ctx, u, damage * C.DAMAGE_SCALE, 'scattered');
           addStress(ctx, u, damage, '撞上建築');
         }
         break;
@@ -229,8 +229,8 @@ export function simulateMovement(
     for (const f of ctx.state.obstacles.filter((o) => o.kind === 'field')) {
       if (!m.samples.some((s) => Math.hypot(s[0] - f.x, s[1] - f.y) <= f.r)) continue;
       if (ctx.rng.d100() > (speed - C.DEBRIS_SAFE_SPEED) * C.DEBRIS_CHANCE_PER_SPEED) continue;
-      ctx.events.push({ type: 'debris', unit: m.unit.id, obstacle: f.id, damage: 1 });
-      damageUnit(ctx, m.unit, 1, 'scattered');
+      ctx.events.push({ type: 'debris', unit: m.unit.id, obstacle: f.id, damage: C.DAMAGE_SCALE });
+      damageUnit(ctx, m.unit, C.DAMAGE_SCALE, 'scattered');
     }
   }
 
@@ -332,11 +332,13 @@ export function simulateMovement(
     const wb = chassisOf(b.unit).weightClass;
     // 承受衝擊的一方受到的撞擊傷害減半
     const braced = (m: Mover, n: number) => (m === bracer ? Math.max(1, Math.floor(n / 2)) : n);
-    const hitA = braced(a, Math.max(1, vc + wb - wa));
-    const hitB = braced(b, Math.max(1, vc + wa - wb));
+    const hitA = braced(a, Math.max(1, vc + wb - wa)) * C.DAMAGE_SCALE;
+    const hitB = braced(b, Math.max(1, vc + wa - wb)) * C.DAMAGE_SCALE;
     const both = rammers.length === 2;
-    dealtBy(ctx, b.unit, () => damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : Math.floor(hitB / 2), 'scattered'), false);
-    dealtBy(ctx, a.unit, () => damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : Math.floor(hitA / 2), 'scattered'), false);
+    // 撞擊是動能；撞人的一方自己吃的一半照舊的點數取整
+    const half = (n: number) => Math.floor(n / C.DAMAGE_SCALE / 2) * C.DAMAGE_SCALE;
+    dealtBy(ctx, b.unit, () => typed(ctx, 'kinetic', () => damageUnit(ctx, a.unit, both || rammers[0] === b ? hitA : half(hitB), 'scattered')), false);
+    dealtBy(ctx, a.unit, () => typed(ctx, 'kinetic', () => damageUnit(ctx, b.unit, both || rammers[0] === a ? hitB : half(hitA), 'scattered')), false);
     addStress(ctx, a.unit, Math.floor(vc / 2), '撞擊');
     addStress(ctx, b.unit, Math.floor(vc / 2), '撞擊');
     if (wa === wb) return;

@@ -20,37 +20,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 10
+        "durability": 100
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 5
+        "durability": 50
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 5
+        "durability": 50
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "head": {
         "name": "頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 2
+        "durability": 20
       }
     },
     "dial": [
@@ -77,7 +77,8 @@
       "rbank-L-1",
       "rbank-R-1"
     ],
-    "cost": 6
+    "cost": 6,
+    "armorType": "composite"
   },
   "X-01": {
     "id": "X-01",
@@ -94,37 +95,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 8
+        "durability": 80
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 3,
-        "durability": 3
+        "durability": 30
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 3
+        "durability": 30
       },
       "head": {
         "name": "頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 2
+        "durability": 20
       }
     },
     "dial": [
@@ -158,7 +159,8 @@
       "rbank-L-1",
       "rbank-R-1"
     ],
-    "cost": 9
+    "cost": 9,
+    "armorType": "reflective"
   },
   "X-02": {
     "id": "X-02",
@@ -175,37 +177,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 14
+        "durability": 140
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 6
+        "durability": 60
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 6
+        "durability": 60
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 2,
-        "durability": 5
+        "durability": 50
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 6
+        "durability": 60
       },
       "head": {
         "name": "頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 3
+        "durability": 30
       }
     },
     "dial": [
@@ -222,7 +224,8 @@
       "kturn-S-2",
       "reverse-S-1"
     ],
-    "cost": 9
+    "cost": 9,
+    "armorType": "composite"
   },
   "X-04": {
     "id": "X-04",
@@ -239,37 +242,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 13
+        "durability": 130
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 5
+        "durability": 50
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 5
+        "durability": 50
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 6
+        "durability": 60
       },
       "head": {
         "name": "頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 3
+        "durability": 30
       }
     },
     "dial": [
@@ -292,7 +295,8 @@
         "host": "head"
       }
     ],
-    "cost": 8
+    "cost": 8,
+    "armorType": "ceramic"
   },
   "X-05": {
     "id": "X-05",
@@ -309,37 +313,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 11
+        "durability": 110
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 3
+        "durability": 30
       },
       "head": {
         "name": "頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 2
+        "durability": 20
       }
     },
     "dial": [
@@ -382,7 +386,8 @@
         "host": "head"
       }
     ],
-    "cost": 12
+    "cost": 12,
+    "armorType": "reflective"
   },
   "X-07": {
     "id": "X-07",
@@ -399,37 +404,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 7
+        "durability": 70
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 3
+        "durability": 30
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 3
+        "durability": 30
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 3,
-        "durability": 3
+        "durability": 30
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 3
+        "durability": 30
       },
       "head": {
         "name": "感測頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 3
+        "durability": 30
       }
     },
     "dial": [
@@ -464,7 +469,8 @@
       "rbank-R-1"
     ],
     "cost": 6,
-    "sensorRange": 14
+    "sensorRange": 14,
+    "armorType": "ceramic"
   },
   "CF-01": {
     "id": "CF-01",
@@ -490,25 +496,25 @@
         "name": "機身",
         "role": "core",
         "weight": 3,
-        "durability": 4
+        "durability": 40
       },
       "engine": {
         "name": "引擎",
         "role": "propulsion",
         "weight": 2,
-        "durability": 2
+        "durability": 20
       },
       "wing": {
         "name": "機翼",
         "role": null,
         "weight": 2,
-        "durability": 2
+        "durability": 20
       },
       "canopy": {
         "name": "座艙罩",
         "role": "sensor",
         "weight": 1,
-        "durability": 1
+        "durability": 10
       }
     },
     "dial": [
@@ -530,7 +536,8 @@
       "arc-L-5",
       "arc-R-5"
     ],
-    "cost": 4
+    "cost": 4,
+    "armorType": "ceramic"
   },
   "X-13": {
     "id": "X-13",
@@ -557,37 +564,37 @@
         "name": "軀幹",
         "role": "core",
         "weight": 3,
-        "durability": 12
+        "durability": 120
       },
       "rarm": {
         "name": "右臂",
         "role": "rightHand",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "larm": {
         "name": "左臂",
         "role": "leftHand",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "pack": {
         "name": "推進背包",
         "role": "propulsion",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "legs": {
         "name": "腿部",
         "role": "legs",
         "weight": 2,
-        "durability": 4
+        "durability": 40
       },
       "head": {
         "name": "頭部",
         "role": "sensor",
         "weight": 1,
-        "durability": 2
+        "durability": 20
       }
     },
     "dial": [
@@ -614,6 +621,7 @@
       "rbank-L-1",
       "rbank-R-1"
     ],
-    "cost": 9
+    "cost": 9,
+    "armorType": "composite"
   }
 }

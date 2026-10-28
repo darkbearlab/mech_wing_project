@@ -2,7 +2,7 @@
 // 每場對戰記下開場時用的版本，之後換資料也不影響進行中的對戰與重播。
 import { PART_ROLES, chassisParts } from './body';
 import { BUILTIN_CONTENT, replaceTables, type RosterEntry } from './data';
-import { MAX_DIAL_SPEED } from './config';
+import { DAMAGE_SCALE, MAX_DIAL_SPEED } from './config';
 import { parseManeuver } from './maneuvers';
 import type { ChassisDef, EquipDef, PilotDef } from './types';
 
@@ -13,10 +13,27 @@ export interface ContentPack {
   pilots: Record<string, PilotDef>;
   loadouts: Record<string, RosterEntry['equipment'][]>;
   rosters: [RosterEntry[], RosterEntry[]];
+  /** 傷害刻度（耐久與傷害「舊的 1 點」等於多少）；沒寫的是舊格式 1，載入時放大到 DAMAGE_SCALE */
+  damageScale?: number;
 }
 
-export const BUILTIN_VERSION = 'builtin-7';
-export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, ...BUILTIN_CONTENT };
+/** 把耐久與傷害換成目前的刻度（DAMAGE_SCALE）；已經是就原樣回傳 */
+export function scaleContent(pack: ContentPack): ContentPack {
+  const k = DAMAGE_SCALE / (pack.damageScale ?? 1);
+  if (k === 1) return pack;
+  const p = structuredClone(pack);
+  for (const c of Object.values(p.chassis)) for (const part of Object.values(c.parts)) part.durability = Math.round(part.durability * k);
+  for (const e of Object.values(p.equipment)) {
+    e.durability = Math.round(e.durability * k);
+    if (e.damage !== undefined) e.damage = Math.round(e.damage * k);
+    for (const t of Object.values(e.melee ?? {})) if (t) t.damage = Math.round(t.damage * k);
+  }
+  p.damageScale = DAMAGE_SCALE;
+  return p;
+}
+
+export const BUILTIN_VERSION = 'builtin-8';
+export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;
 export const contentVersion = (): string => active;
@@ -25,10 +42,12 @@ export const contentVersion = (): string => active;
 export function useContent(pack: ContentPack): void {
   const errors = validateContent(pack);
   if (errors.length) throw new Error(`資料包 ${pack.version} 有 ${errors.length} 個問題：\n${errors.join('\n')}`);
-  replaceTables(pack);
+  replaceTables(scaleContent(pack));
   active = pack.version;
 }
 
+const DAMAGE_TYPES = ['kinetic', 'energy', 'chemical'];
+const ARMOR_TYPES = ['composite', 'reflective', 'ceramic'];
 const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility', 'module'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
 const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle', 'turret'];
@@ -49,6 +68,8 @@ export function validateContent(pack: ContentPack): string[] {
     if (e.id !== key) err(w, `id（${e.id}）要和鍵名一致`);
     if (!e.name) err(w, '沒有名稱');
     if (!KINDS.includes(e.kind)) err(w, `kind 不正確（${e.kind}）`);
+    if (e.damageType !== undefined && !DAMAGE_TYPES.includes(e.damageType)) err(w, `damageType 不正確（${e.damageType}）`);
+    if (e.armorType !== undefined && !ARMOR_TYPES.includes(e.armorType)) err(w, `armorType 不正確（${e.armorType}）`);
     const mount = e.mount ?? 'hand';
     if (!MOUNTS.includes(mount)) err(w, `mount 不正確（${mount}）`);
     const hasBody = mount === 'hand' || mount === 'mounted';
@@ -83,6 +104,7 @@ export function validateContent(pack: ContentPack): string[] {
   for (const [key, c] of Object.entries(pack.chassis ?? {})) {
     const w = `機型 ${key}`;
     if (c.id !== key) err(w, `id（${c.id}）要和鍵名一致`);
+    if (c.armorType !== undefined && !ARMOR_TYPES.includes(c.armorType)) err(w, `armorType 不正確（${c.armorType}）`);
     for (const f of ['weightClass', 'propellant', 'baseThrust', 'maxAccel', 'power'] as const) if (!isNum(c[f], 0)) err(w, `${f} 要是 0 以上的數字`);
     for (const f of ['aim', 'evasion'] as const) if (!isNum(c[f])) err(w, `${f} 要是數字`);
     const parts = chassisParts(c);

@@ -38,7 +38,7 @@ export const FLIGHT_LEVEL = 2;
 /** 高打低：每高 1 層命中 +，最多算幾層；高出 HIGH_GROUND_DAMAGE_FROM 層以上時每發命中的傷害 + */
 export const HIGH_GROUND_HIT = 5;
 export const HIGH_GROUND_MAX_LEVELS = 3;
-export const HIGH_GROUND_DAMAGE = 1;
+export const HIGH_GROUND_DAMAGE = 10;
 export const HIGH_GROUND_DAMAGE_FROM = 2;
 /** 城市地圖：街廓大小、街道寬、街廓是空地的機率、最高幾層 */
 export const CITY_BLOCK = 4;
@@ -106,7 +106,7 @@ export const JUMP_SLASH_LEG_FROM = 3;
 export const MORTAR_SCATTER_MIN = 1.5;
 export const MORTAR_SCATTER_MAX = 3;
 export const MORTAR_SPLASH_RADIUS = 1;
-export const MORTAR_SPLASH_DAMAGE = 1;
+export const MORTAR_SPLASH_DAMAGE = 10;
 /** 展開盾：機體正面寬這麼多格、高 1 層的矮牆；穿過它的射擊算半掩護，命中一律打在盾上。展開中只能用這個速度以下的機動，快了就自動收起 */
 export const BARRIER_WIDTH = 2;
 export const BARRIER_LEVELS = 1;
@@ -146,6 +146,16 @@ export const BLACKOUT_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;
+/**
+ * 傷害的刻度：耐久與傷害都是「舊的 1 點 = 10」，才有空間做 ±25% 的加減傷。
+ * 撞擊、碎石、落地這些用公式算的傷害都乘上這個；舊格式的資料包（沒寫 damageScale）載入時自動放大
+ */
+export const DAMAGE_SCALE = 10;
+/** 屬性相剋：打在弱點 +、被抵抗 −（四捨五入，至少 1） */
+export const TYPE_MULT = 0.25;
+/** 每種裝甲擋哪一種屬性、怕哪一種 */
+export const ARMOR_RESISTS = { composite: 'kinetic', reflective: 'energy', ceramic: 'chemical' } as const;
+export const ARMOR_WEAK = { composite: 'chemical', reflective: 'kinetic', ceramic: 'energy' } as const;
 /** 標定：友軍對被標定的敵機射擊命中加成；持續到超出標定機的感測距離為止，不疊加 */
 export const MARK_BONUS = 10;
 /** 標定的範圍：標定機正面 ±這麼多度、感測距離內（不用視線） */
@@ -242,11 +252,11 @@ export const POD_SIGHT_NEWTYPE = 12;
 /** 纏鬥優勢（從側面或背後抓住、互相纏繞僵持時較重的一方）多幾顆骰 */
 export const GRAPPLE_ADV_DICE = 1;
 /** 徒手肉搏的三種手法（拳、掌、摔） */
-export const BARE_HANDS = { cleave: { dice: -1, damage: 1 }, thrust: { dice: -1, damage: 1 }, entangle: { dice: 1, damage: 1 } } as const;
+export const BARE_HANDS = { cleave: { dice: -1, damage: 10 }, thrust: { dice: -1, damage: 10 }, entangle: { dice: 1, damage: 10 } } as const;
 /** 劈砍、穿刺得手時把對方擊退的距離（纏繞得手是 THROW_DISTANCE） */
 export const KNOCKBACK_GAP = 1.5;
 export const THROW_DISTANCE = 2;
-export const THROW_DAMAGE = 1;
+export const THROW_DAMAGE = 10;
 export const THROW_STRESS = 2;
 export const DISENGAGE_STRESS = 1;
 export const DISENGAGE_GAP = 0.5;
@@ -259,4 +269,4 @@ export const INJURY_MAX_PENALTY = 2;
 
 // 部位
 export const FUEL_IGNITE_CHANCE = 30;
-export const FUEL_IGNITE_DAMAGE = 2;
+export const FUEL_IGNITE_DAMAGE = 20;

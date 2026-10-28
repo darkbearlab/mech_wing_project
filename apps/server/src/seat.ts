@@ -29,6 +29,9 @@ import {
   wallPenetration,
   climbBlocked,
   climbLimits,
+  ARMOR_NAMES,
+  DAMAGE_TYPE_NAMES,
+  matchupText,
   indirectFire,
   lungeCheck,
   heightAdvantage,
@@ -118,7 +121,7 @@ function unitLine(u: UnitView): string {
   const ch = CHASSIS[u.chassisId];
   const p = u.pilotId ? PILOTS[u.pilotId] : undefined;
   const status = u.status !== 'active' ? ` 【${u.status}】` : u.hidden ? ` 【看不到，最後目擊 T${u.seenTurn}】` : u.unknown ? ' 【煙霧中不明】' : '';
-  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ` 高度${u.z}層（樓頂）` : ''}${u.equipment.some((e) => e.deployed) ? ' 盾牆展開中' : ''}${u.mark ? ` 被標定${u.mark.by ? `（${u.mark.by} 照射中）` : ''}` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
+  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${ch?.armorType ? `・${ARMOR_NAMES[ch.armorType]}` : ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ` 高度${u.z}層（樓頂）` : ''}${u.equipment.some((e) => e.deployed) ? ' 盾牆展開中' : ''}${u.mark ? ` 被標定${u.mark.by ? `（${u.mark.by} 照射中）` : ''}` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
   if (p) s += `\n  駕駛 ${p.name} 技能${p.skill}${p.abilities.length ? ` [${p.abilities.join(',')}]` : ''} 壓力 ${u.stress}/${u.maxStress}${u.blackout ? ' 黑視' : ''} 推進劑 ${u.propellant}/${u.maxPropellant}${u.lockOn ? ` 鎖定 ${u.lockOn}` : ''}`;
   else if (u.vague) s += `  （${u.vague}）`;
   s += `\n  部位 ${partsText(u)}\n  裝備 ${gearText(u)}`;
@@ -184,7 +187,8 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
       const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never) });
       // 打不到的不列（太多了）；彈藥用完的標出來
       if (!h) continue;
-      rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc, indirectFire(def))}`}`);
+      const vs = matchupText(CHASSIS[t.chassisId]?.armorType, def.damageType ?? 'kinetic');
+      rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc, indirectFire(def))}${vs ? `【${vs}】` : ''}`}`);
     }
   }
   // 突進／跳劈：砍得到的才列
@@ -266,7 +270,7 @@ function eventText(e: GameEvent): string {
     case 'shot':
       return `${L(e.attacker)}${e.pod ? '（炮群）' : ''} 以${EQUIPMENT[e.weapon]?.name ?? e.weapon}射擊 ${L(e.target)} ${bandName(e.band)}${e.chance !== undefined ? ` ${e.chance}%` : ''}：${e.hits}/${e.shots} 命中${e.crits ? ` 爆擊${e.crits}` : ''}${e.blocked ? ` 盾擋${e.blocked}` : ''}${e.strays ? ` 誤擊${e.strays}` : ''}`;
     case 'damage':
-      return `${L(e.unit)} ${e.part} 受 ${e.amount}${e.destroyed ? ' 破壞' : ''}`;
+      return `${L(e.unit)} ${e.part} 受 ${e.amount}${e.typed === 'weak' ? '（弱點）' : e.typed === 'resist' ? '（抵抗）' : ''}${e.destroyed ? ' 破壞' : ''}`;
     case 'status':
       return `${L(e.unit)} ${e.status}${e.by ? `（${L(e.by)}）` : ''}`;
     case 'stress':
@@ -346,14 +350,14 @@ function writeCatalog() {
   for (const c of Object.values(CHASSIS)) {
     const parts = Object.entries(c.parts).map(([id, p]) => `${p.name}${p.durability}/${p.weight}${p.role === 'core' ? '核心' : ''}`).join(' ');
     const top = Math.max(...c.dial.map((d) => parseManeuver(d).speed));
-    out.push(`${c.id} ${c.name} ${c.cost ?? 0}｜重${c.weightClass} 瞄${c.aim} 迴避${c.evasion} 感測${c.sensorRange ?? config.SENSOR_RANGE} 半徑${c.radius ?? config.BASE_RADIUS} [${(c.envs ?? ['space', 'gravity']).join(',')}]${c.closeCombat === false ? ' 不能近戰' : ''}｜${parts}｜最高速${top}${c.builtIn?.length ? `｜內建 ${c.builtIn.map((b) => EQUIPMENT[b.defId]?.name).join('、')}` : ''}`);
+    out.push(`${c.id} ${c.name} ${c.cost ?? 0}｜${c.armorType ? ARMOR_NAMES[c.armorType] : '無裝甲屬性'} 重${c.weightClass} 瞄${c.aim} 迴避${c.evasion} 感測${c.sensorRange ?? config.SENSOR_RANGE} 半徑${c.radius ?? config.BASE_RADIUS} [${(c.envs ?? ['space', 'gravity']).join(',')}]${c.closeCombat === false ? ' 不能近戰' : ''}｜${parts}｜最高速${top}${c.builtIn?.length ? `｜內建 ${c.builtIn.map((b) => EQUIPMENT[b.defId]?.name).join('、')}` : ''}`);
   }
   out.push('', '== 裝備（id 名稱 費用｜傷害×發數 模式｜距離修正 R1/R2/R3｜其他）==');
   for (const e of Object.values(EQUIPMENT)) {
     const r = e.ranges ? `R1 ${e.ranges[1] ?? '—'} R2 ${e.ranges[2] ?? '—'} R3 ${e.ranges[3] ?? '—'} R4 ${e.ranges[4] ?? '—'}` : '';
     const fireText = { mortar: '迫擊砲（曲射越頂、沒中會散布）', vls: '垂直飛彈（越頂、導引）', missile: '平射飛彈（導引、要射擊線）' } as const;
     const extra = [e.fire ? `${fireText[e.fire]}・只能打被標定的目標` : '', e.utility === 'mark' ? `標定器：一次標定 ${e.markCount ?? config.MARK_COUNT} 台` : '', e.deployable ? '展開盾' : '', e.climbBoost ? `攀升 +${e.climbBoost.levels} 層・速度上限 +${e.climbBoost.speed}` : '', e.arc !== undefined ? `射界±${e.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : '', e.pointBlank === false ? '不能零距離' : '', e.meleeDice ? `近戰骰+${e.meleeDice}` : '', e.psycommu ? `感應武器 ${JSON.stringify(e.psycommu)}` : '', e.tags?.length ? e.tags.join(',') : ''].filter(Boolean).join(' ');
-    out.push(`${e.id} ${e.name} ${e.cost ?? 0}｜${e.kind}${e.damage ? ` ${e.damage}×${e.shots ?? 1} ${e.mode ?? 'focused'}` : ''}｜${r}｜耐久${e.durability}${extra ? ` ${extra}` : ''}`);
+    out.push(`${e.id} ${e.name} ${e.cost ?? 0}｜${e.kind}${e.damage ? ` ${DAMAGE_TYPE_NAMES[e.damageType ?? 'kinetic']} ${e.damage}×${e.shots ?? 1} ${e.mode ?? 'focused'}` : ''}${e.armorType ? ` ${ARMOR_NAMES[e.armorType]}` : ''}｜${r}｜耐久${e.durability}${extra ? ` ${extra}` : ''}`);
   }
   out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
@@ -361,6 +365,7 @@ function writeCatalog() {
   out.push(
     '',
     '== 城市戰的規則 ==',
+    `傷害屬性與裝甲（三角相剋，±${config.TYPE_MULT * 100}%）：複合裝甲擋動能、怕化學能；反射裝甲擋能量、怕動能；陶瓷裝甲擋化學能、怕能量。機體部位照機型的裝甲，盾牌照盾牌的裝甲；武器和其他裝備不剋也不被剋。耐久與傷害都是 10 的倍數（舊的 1 點 = 10）。`,
     `視野：感測距離內、視線沒被建築擋住就看得到（全隊共用）；看得到是雙向的。`,
     `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下。`,
     `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,

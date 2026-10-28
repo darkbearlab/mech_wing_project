@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONTENT, contentVersion, useContent, validateContent } from '../src/content';
 import { edgeDistance } from '../src/combat';
 import { grappleDice, grappleOptions, normalizeChoice, techniqueUse } from '../src/grapple';
@@ -17,13 +17,20 @@ import { submitStep } from '../src/record';
 import type { TurnPhase } from '../src/types';
 import { resolveActions, resolveMovement, resolveTurn } from '../src/resolve';
 import { hitChance, relativeSpeed } from '../src/combat';
-import { EQUIPMENT } from '../src/data';
+import { CHASSIS, EQUIPMENT } from '../src/data';
 import { Rng } from '../src/rng';
 import { createGame } from '../src/setup';
 import type { GameEvent, GameState } from '../src/types';
 import type { RosterEntry } from '../src/data';
 import { availableManeuvers, defaultMove, equipAlive, hasFreeHand, heldItem, maneuverCost, readyRanged, validateMove } from '../src/unit';
 import { makeState, plan, rifleX00, saberX00, type UnitPlan } from './helpers';
+
+// 這裡測的是基本數字：裝甲屬性相剋先拿掉（相剋另外在 armor.test.ts 測）
+beforeEach(() => {
+  for (const c of Object.values(CHASSIS)) delete c.armorType;
+  for (const e of Object.values(EQUIPMENT)) delete e.armorType;
+});
+afterAll(() => useContent(DEFAULT_CONTENT));
 
 type Plans = Record<string, UnitPlan>;
 
@@ -190,7 +197,7 @@ describe('同時移動與接觸', () => {
       expect(c.defense).toBe('blade');
       const margin = Math.abs(c.attHits - c.defHits);
       if (c.winner === null) expect(margin).toBe(0);
-      else expect(c.damage).toBe(3 + margin - 1);
+      else expect(c.damage).toBe((3 + margin - 1) * 10);
     }
   });
 
@@ -285,8 +292,8 @@ describe('同時移動與接觸', () => {
       const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0', stance }), st);
       return of(r.events, 'damage').filter((e) => e.unit === st.units[1].id).reduce((t, e) => t + e.amount, 0);
     };
-    expect(mk('shoot')).toBe(3);
-    expect(mk('melee')).toBe(1);
+    expect(mk('shoot')).toBe(30);
+    expect(mk('melee')).toBe(10);
   });
 
   it('突進但手上沒有近戰武器 → 撞擊，被撞的一方傷得比較重', () => {
@@ -297,8 +304,8 @@ describe('同時移動與接觸', () => {
     const r = duel(plan({ maneuver: 'straight-S-3', stance: 'melee' }), plan({ maneuver: 'hover-S-0' }), st);
     expect(of(r.events, 'contact')[0].result).toBe('ram');
     const dmg = (id: string) => of(r.events, 'damage').filter((e) => e.unit === id).reduce((t, e) => t + e.amount, 0);
-    expect(dmg(st.units[1].id)).toBe(3);
-    expect(dmg(st.units[0].id)).toBe(1);
+    expect(dmg(st.units[1].id)).toBe(30);
+    expect(dmg(st.units[0].id)).toBe(10);
   });
 
   it('沒拿刃類武器的突進慢速接觸 → 纏鬥', () => {
@@ -331,9 +338,9 @@ describe('部位破壞', () => {
   it('打到持盾手臂先由盾牌承受', () => {
     const st = makeState([{ entry: saberX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
     const u = st.units[0];
-    damageUnit(ctxFor(st), u, 2, 'focused', 'larm');
+    damageUnit(ctxFor(st), u, 20, 'focused', 'larm');
     const shield = u.equipment.find((e) => e.defId === 'shield')!;
-    expect(u.parts[shield.id].damage).toBe(2);
+    expect(u.parts[shield.id].damage).toBe(20);
     expect(u.parts.larm.damage).toBe(0);
   });
 
@@ -341,16 +348,16 @@ describe('部位破壞', () => {
     const st = makeState([{ entry: saberX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
     const u = st.units[0];
     const ctx = ctxFor(st);
-    damageUnit(ctx, u, 5, 'focused', 'rarm');
+    damageUnit(ctx, u, 50, 'focused', 'rarm');
     expect(heldItem(u, 'right')).toBeNull();
-    damageUnit(ctx, u, 1, 'focused', 'rarm');
-    expect(u.parts.torso.damage).toBe(1);
+    damageUnit(ctx, u, 10, 'focused', 'rarm');
+    expect(u.parts.torso.damage).toBe(10);
     expect(u.stress).toBe(1);
   });
 
   it('軀幹破壞 → 失去戰鬥能力', () => {
     const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
-    damageUnit(ctxFor(st), st.units[0], 10, 'focused', 'torso');
+    damageUnit(ctxFor(st), st.units[0], 100, 'focused', 'torso');
     expect(st.units[0].status).toBe('destroyed');
   });
 });
@@ -593,7 +600,7 @@ describe('地形與視野', () => {
     st.obstacles = [{ id: 'o0', kind: 'rock', x: 9, y: 10, r: 1 }];
     const r = resolveMovement(st, [{ [st.units[0].id]: plan({ maneuver: 'straight-S-4' }) }, {}]);
     const hit = of(r.events, 'obstacle')[0];
-    expect(hit.damage).toBe(2);
+    expect(hit.damage).toBe(20);
     expect(r.state.units[0].pos.x).toBeLessThan(7.6);
     expect(r.state.units[0].momentum).toBe(0);
     expect(r.state.turnInfo!.bumped).toContain(st.units[0].id);
@@ -695,9 +702,9 @@ describe('不需要準備的武器', () => {
     const st = makeState([{ entry: x04, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
     const u = st.units[0];
     const ctx: Ctx = { state: st, rng: new Rng(1), events: [] };
-    damageUnit(ctx, u, 6, 'focused', 'legs');
+    damageUnit(ctx, u, 60, 'focused', 'legs');
     expect(u.parts[byDef(u, 'missile_pod').id].destroyed).toBe(true);
-    damageUnit(ctx, u, 3, 'focused', 'head');
+    damageUnit(ctx, u, 30, 'focused', 'head');
     expect(equipAlive(u, byDef(u, 'head_vulcan'))).toBe(false);
     expect(readyRanged(u).map((e) => e.defId).sort()).toEqual(['beam_rifle', 'shoulder_cannon']);
   });
@@ -760,7 +767,7 @@ describe('不需要準備的武器', () => {
     // 拿在手上的內藏武器沒有自己的部位：手臂被打爆時跟著失效，不會出錯
     const ctx: Ctx = { state: m.state, rng: new Rng(2), events: [] };
     const after = m.state.units[0];
-    damageUnit(ctx, after, 4, 'focused', 'larm');
+    damageUnit(ctx, after, 40, 'focused', 'larm');
     expect(equipAlive(after, byDef(after, 'arm_saber'))).toBe(false);
   });
 });
@@ -847,7 +854,7 @@ describe('部位配置與戰機', () => {
     const st = makeState([{ entry: fighter, owner: 0, x: 5, y: 10, facingDeg: 0 }]);
     const u = st.units[0];
     expect(u.parts.hull.role).toBe('core');
-    damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 10, 'focused', 'hull');
+    damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 100, 'focused', 'hull');
     expect(u.status).toBe('destroyed');
 
     const old = structuredClone(DEFAULT_CONTENT);
@@ -876,8 +883,8 @@ describe('固定盾與肩部尖刺（薩克 II）', () => {
   const zakuPack = () => {
     const pack = structuredClone(DEFAULT_CONTENT);
     pack.version = 'zaku-test';
-    pack.equipment.zaku_shoulder_shield = { id: 'zaku_shoulder_shield', name: '左肩盾', kind: 'shield', mount: 'mounted', weight: 2, durability: 5, shieldOffset: -45, shieldArc: 45 };
-    pack.equipment.zaku_spike = { id: 'zaku_spike', name: '右肩尖刺', kind: 'melee', mount: 'mounted', weight: 1, durability: 3, damage: 2 };
+    pack.equipment.zaku_shoulder_shield = { id: 'zaku_shoulder_shield', name: '左肩盾', kind: 'shield', mount: 'mounted', weight: 2, durability: 50, shieldOffset: -45, shieldArc: 45 };
+    pack.equipment.zaku_spike = { id: 'zaku_spike', name: '右肩尖刺', kind: 'melee', mount: 'mounted', weight: 1, durability: 30, damage: 20 };
     pack.chassis['X-00'].builtIn = [{ defId: 'zaku_shoulder_shield', host: 'torso' }, { defId: 'zaku_spike', host: 'torso' }];
     return pack;
   };
@@ -898,7 +905,7 @@ describe('固定盾與肩部尖刺（薩克 II）', () => {
     const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
     const u = st.units[0];
     expect(readyMelee(u)?.defId).toBe('zaku_spike');
-    damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 10, 'focused', 'rarm');
+    damageUnit({ state: st, rng: new Rng(1), events: [] }, u, 100, 'focused', 'rarm');
     expect(u.parts.rarm.destroyed).toBe(true);
     expect(readyMelee(u)?.defId).toBe('zaku_spike');
     expect(grappleOptions(u)).toContain('thrust');
@@ -910,14 +917,14 @@ describe('溢出傷害標籤', () => {
     const st = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
     const u = st.units[0];
     const ctx: Ctx = { state: st, rng: new Rng(3), events: [] };
-    damageUnit(ctx, u, 7, 'focused', 'larm', true); // 左臂耐久 5，溢出 2
+    damageUnit(ctx, u, 70, 'focused', 'larm', true); // 左臂耐久 50，溢出 20
     const dmg = ctx.events.filter((e) => e.type === 'damage') as Extract<GameEvent, { type: 'damage' }>[];
-    expect(dmg[0]).toMatchObject({ part: 'larm', amount: 7, destroyed: true });
-    expect(dmg.slice(1).map((e) => e.amount)).toEqual([1, 1]);
+    expect(dmg[0]).toMatchObject({ part: 'larm', amount: 70, destroyed: true });
+    expect(dmg.slice(1).map((e) => e.amount)).toEqual([10, 10]);
 
     const st2 = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]);
     const ctx2: Ctx = { state: st2, rng: new Rng(3), events: [] };
-    damageUnit(ctx2, st2.units[0], 7, 'focused', 'larm');
+    damageUnit(ctx2, st2.units[0], 70, 'focused', 'larm');
     expect(ctx2.events.filter((e) => e.type === 'damage')).toHaveLength(1);
   });
 });
@@ -928,7 +935,7 @@ describe('眩光標籤', () => {
   it('眩光射擊最先結算，被照到的目標本回合射擊命中下降', () => {
     const pack = structuredClone(DEFAULT_CONTENT);
     pack.version = 'dazzle-test';
-    pack.equipment.flash = { id: 'flash', name: '眩光', kind: 'ranged', weight: 1, durability: 1, damage: 1, shots: 1, ranges: { 1: 50, 2: 50 }, tags: ['dazzle'] };
+    pack.equipment.flash = { id: 'flash', name: '眩光', kind: 'ranged', weight: 1, durability: 10, damage: 10, shots: 1, ranges: { 1: 50, 2: 50 }, tags: ['dazzle'] };
     useContent(pack);
     const flasher: RosterEntry = { chassis: 'X-00', pilot: 'recruit', equipment: [['flash', 'right']] };
     const ace: RosterEntry = { chassis: 'X-00', pilot: 'ace', equipment: [['beam_rifle', 'right']] };

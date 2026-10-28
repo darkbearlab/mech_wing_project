@@ -6,7 +6,7 @@ import { minSpeedOf, radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import { isShip } from './ship';
 import { lineOfFire, wallPenetration } from './terrain';
-import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, typed, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import type { Obstacle, Stance, UnitState, Vec } from './types';
 import { chassisOf, pilotOf, readyMelee } from './unit';
@@ -59,12 +59,12 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
   if (defense === 'none' || margin > 0) {
     winner = att.id;
     victim = def;
-    damage = (EQUIPMENT[attWeapon.defId].damage ?? 1) + Math.max(0, margin - 1) + Math.min(C.JUMP_SLASH_MAX_BONUS, jump);
+    damage = (EQUIPMENT[attWeapon.defId].damage ?? C.DAMAGE_SCALE) + (Math.max(0, margin - 1) + Math.min(C.JUMP_SLASH_MAX_BONUS, jump)) * C.DAMAGE_SCALE;
   } else if (margin < 0) {
     winner = def.id;
     if (defense === 'blade' && defWeapon) {
       victim = att;
-      damage = (EQUIPMENT[defWeapon.defId].damage ?? 1) + (-margin - 1);
+      damage = (EQUIPMENT[defWeapon.defId].damage ?? C.DAMAGE_SCALE) + (-margin - 1) * C.DAMAGE_SCALE;
     }
   }
   const caught = defBracing && defense !== 'none' && margin <= 0;
@@ -79,7 +79,8 @@ export function meleeClash(ctx: Ctx, att: UnitState, def: UnitState, t: number, 
     const top = ctx.topAttack;
     ctx.topAttack = jump > 0 && victim === def;
     try {
-      dealtBy(ctx, victim === def ? att : def, () => damageUnit(ctx, victim!, damage, 'focused'));
+      const blade = victim === def ? attWeapon : defWeapon;
+      dealtBy(ctx, victim === def ? att : def, () => typed(ctx, (blade && EQUIPMENT[blade.defId].damageType) || 'kinetic', () => damageUnit(ctx, victim!, damage, 'focused')));
     } finally {
       ctx.topAttack = top;
     }

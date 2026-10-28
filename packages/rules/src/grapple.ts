@@ -3,7 +3,7 @@
 // 脫離與徒手肉搏（不擅長肉搏的駕駛）永遠等於被剋。贏的一方用那種手法造成傷害，並一律把對方擊退、結束纏鬥；平手就繼續纏。
 import { closeCombatOf, radiusOf, roleLost } from './body';
 import * as C from './config';
-import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
+import { addStress, damageUnit, dealtBy, typed, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
 import type { EquipState, GameState, GrappleChoice, GrappleState, PartState, Technique, UnitState } from './types';
@@ -47,7 +47,7 @@ export function weaponTechnique(defId: string, t: Technique): { dice: number; da
   const v = def.melee?.[t];
   if (v) return v;
   if (def.melee) return null;
-  return t === 'entangle' ? null : { dice: def.meleeDice ?? 0, damage: def.damage ?? 1 };
+  return t === 'entangle' ? null : { dice: def.meleeDice ?? 0, damage: def.damage ?? C.DAMAGE_SCALE };
 }
 
 /** 能不能徒手肉搏：有一隻能動的手，或腳還在（踢） */
@@ -162,7 +162,7 @@ export function resolveGrapple(ctx: Ctx, g: GrappleState, a: UnitState, b: UnitS
         const use = wu!;
         const how = use.weapon ? EQUIPMENT[use.weapon.defId].name : '徒手';
         notes.push(`${w.label} 以${how}${GRAPPLE_NAMES[wc]}得手，擊退 ${l.label}`);
-        dealtBy(ctx, w, () => damageUnit(ctx, l, use.damage, 'focused'));
+        dealtBy(ctx, w, () => typed(ctx, (use.weapon && EQUIPMENT[use.weapon.defId].damageType) || 'kinetic', () => damageUnit(ctx, l, use.damage, 'focused')));
         if (wc === 'entangle') addStress(ctx, l, C.THROW_STRESS, '被摔出去');
         if (lc === 'disengage') addStress(ctx, l, C.DISENGAGE_STRESS, '脫離纏鬥');
         if (l.status === 'active') pushApart(ctx, w, l, wc === 'entangle' ? C.THROW_DISTANCE : C.KNOCKBACK_GAP);
