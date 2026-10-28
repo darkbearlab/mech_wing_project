@@ -123,8 +123,12 @@ export const MELEE_STANCE_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;
-/** 標定：友軍對被標定的敵機射擊命中加成；持續到標定機看不到它為止，不疊加 */
+/** 標定：友軍對被標定的敵機射擊命中加成；持續到超出標定機的感測距離為止，不疊加 */
 export const MARK_BONUS = 10;
+/** 標定的範圍：標定機正面 ±這麼多度、感測距離內（不用視線） */
+export const MARK_ARC_DEG = 60;
+/** 標定器沒寫 markCount 時一次標定幾台 */
+export const MARK_COUNT = 2;
 
 // ---- 側移與環境 ----
 /** 側移只能在動能 ±這個值以內使用 */

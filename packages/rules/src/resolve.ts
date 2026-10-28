@@ -1,6 +1,6 @@
 import { minSpeedOf, roleLost } from './body';
 import * as C from './config';
-import { canSee, sensorRange } from './vision';
+import { inMarkCone, sensorRange } from './vision';
 import { shoot, hitChance, type TurnInfo } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
@@ -539,26 +539,25 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
 }
 
 /**
- * 標定：用標定器照射自己看得到的敵機，我方射擊命中 +MARK_BONUS。持續到標定機看不到它為止（回合、攻擊都不會消耗）。
- * 不疊加：已經被標定的目標不能再標定；一台標定機同時只照一個目標，改照別的，原本的就解除。
- * 雷射照射是被動資料鏈，不會暴露自己的位置
+ * 標定：掃描正面 ±MARK_ARC_DEG、感測距離內的敵機（不用視線），隨機標定 markCount 台。
+ * 被標定的敵機我方一直看得到、射擊命中 +MARK_BONUS，持續到超出標定機的感測距離為止（回合、攻擊都不會消耗）。
+ * 不疊加：已經被標定的不會再被挑到；重新標定時，這台原本標的先全部解除再重挑。不會暴露自己的位置
  */
 function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'mark' }>): boolean {
   const { state } = ctx;
   const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
   if (!u.equipment.some((e) => e.id === action.weapon && equipAlive(u, e) && EQUIPMENT[e.defId].utility === 'mark')) return fail('標定器已損壞');
   if (roleLost(u, 'sensor')) return fail('感測部位損壞，無法標定');
-  if ((state.decoys ?? []).some((d) => d.id === action.target)) {
-    popDecoy(ctx, action.target, u.id, '標定後發現是氣球');
-    return false;
-  }
-  const target = state.units.find((x) => x.id === action.target);
-  if (!target || target.status !== 'active') return fail('目標已失去戰鬥能力');
-  if (!canSee(state.obstacles, u.pos, sensorRange(u), target.pos, radiusOf(u) + radiusOf(target), u.z, target.z)) return fail('標定要自己看得到目標（感測距離內、視線沒被擋住）');
-  if (target.mark) return fail(target.mark.by === u.id ? '已經在標定這台了' : '目標已經被標定了（不疊加）');
+  const def = EQUIPMENT[u.equipment.find((e) => e.id === action.weapon)!.defId];
   for (const x of state.units) if (x.mark?.by === u.id) delete x.mark;
-  target.mark = { by: u.id };
-  ctx.events.push({ type: 'mark', unit: u.id, target: target.id });
+  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
+  if (!pool.length) return fail(`正面 ±${C.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內沒有可以標定的敵機`);
+  for (let n = def.markCount ?? C.MARK_COUNT; n > 0 && pool.length; n--) {
+    const t = pool.splice(Math.floor(ctx.rng.next() * pool.length), 1)[0];
+    t.mark = { by: u.id };
+    ctx.events.push({ type: 'mark', unit: u.id, target: t.id });
+  }
+  updateSight(state);
   return false;
 }
 

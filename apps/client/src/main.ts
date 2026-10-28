@@ -1970,7 +1970,7 @@ function orderDone(u: UnitView): boolean {
   if (view!.phase !== 'action') return true;
   const a = actionDrafts[u.id]?.action;
   if (a?.type === 'smoke' || a?.type === 'decoy') return Number.isFinite(a.at.x);
-  return !a || a.type === 'none' || !!a.target;
+  return !a || a.type === 'none' || a.type === 'mark' || !!a.target;
 }
 
 function unitStatusText(u: UnitView): [string, boolean] {
@@ -2072,9 +2072,9 @@ function defaultTipFor(u: UnitView): string {
   if (!a || a.type === 'none') return plan && swapOrders(plan).length ? '換武器（那一側這回合不能開火）。' : '勾選要開火的武器（可以多選），再點地圖上的敵機當目標。';
   if (a.type === 'smoke') return Number.isFinite(a.at.x) ? `煙霧彈丟到選好的位置：半徑 ${config.SMOKE_RADIUS}，射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}，裡面的機體敵方認不出是什麼。` : `點地圖選煙霧彈的落點（${config.SMOKE_THROW_RANGE} 格內）。`;
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
+  if (a.type === 'mark') return markText(u);
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
   const t = unitView(a.target);
-  if (a.type === 'mark') return `標定 ${labelOf(a.target)}：我方射擊命中 +${config.MARK_BONUS}%，持續到這台看不到它為止。`;
   return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL}）看不到，所以沒算。`;
 }
 
@@ -2640,8 +2640,16 @@ function optionOn(o: EquipOption, plan: ActionPlan, u: UnitView): boolean {
   return a.type === 'none' && !swapOrders(plan).length;
 }
 
-/** 有目標的動作：射擊、鎖定、標定 */
-const aimsAt = (a: ActionPlan['action']): a is Extract<ActionPlan['action'], { target: string }> => a.type === 'shoot' || a.type === 'lock' || a.type === 'mark';
+/** 標定的說明 */
+function markText(u: UnitView, equip?: string): string {
+  const id = equip ?? (u.equipment.find((e) => EQUIPMENT[e.defId].utility === 'mark')?.id ?? '');
+  const def = EQUIPMENT[u.equipment.find((e) => e.id === id)?.defId ?? ''];
+  const n = def?.markCount ?? config.MARK_COUNT;
+  return `掃描正面 ±${config.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內的敵機（不用視線，建築擋不住），隨機標定 ${n} 台：我方一直看得到它們，射擊命中 +${config.MARK_BONUS}%（自己也算）。持續到超出這台的感測距離、或這台的頭部或標定器被破壞為止，回合和攻擊都不會消耗。已經被標定的不會重複；再標定一次，原本標的會全部解除重挑。不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。`;
+}
+
+/** 有目標的動作：射擊、鎖定 */
+const aimsAt = (a: ActionPlan['action']): a is Extract<ActionPlan['action'], { target: string }> => a.type === 'shoot' || a.type === 'lock';
 
 /** 這回合勾選開火的武器 */
 const tickedOf = (plan: ActionPlan): string[] => (plan.action.type === 'shoot' ? shotWeapons(plan.action) : []);
@@ -2769,7 +2777,7 @@ const BAND_LONG = { 1: '近距離', 2: '中距離', 3: '遠距離', 4: '超遠�
 function optionTip(u: UnitView, o: EquipOption): string {
   if (o.kind === 'lock') return `鎖定一台敵機，下次對它射擊命中率 +${config.LOCK_BONUS}%。頭部被破壞就不能鎖定。鎖定就不能開火。`;
   if (o.kind === 'none') return '這回合不行動（也不換武器）。';
-  if (o.kind === 'mark') return `用標定器照射一台自己看得到的敵機（感測距離 ${sensorRange(u)} 格內、視線沒被擋住）：我方對它射擊命中 +${config.MARK_BONUS}%（自己也算）。標定會一直持續，直到這台超出感測距離、視線被擋住、頭部或標定器被破壞為止，回合和攻擊都不會消耗。不疊加；同時只能照一個目標，改照別的，原本的就解除。照射不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。`;
+  if (o.kind === 'mark') return markText(u, o.equip);
   if (o.kind === 'smoke') return `丟出煙霧彈（${config.SMOKE_THROW_RANGE} 格內）：半徑 ${config.SMOKE_RADIUS}，持續 ${config.SMOKE_TURNS_GRAVITY} 回合（宇宙 ${config.SMOKE_TURNS_SPACE}）。射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}；隔著煙霧敵方只看得到「不明機體」。`;
   if (o.kind === 'decoy') return `放出欺敵氣球（${config.DECOY_PLACE_RANGE} 格內）：放在煙霧裡，敵方看起來就是一台不明機體；出了煙霧一眼就是氣球。被打中、鎖定或敵機靠近就破。`;
   const eq = u.equipment.find((e) => e.id === o.equip)!;
@@ -2822,7 +2830,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
     const enemies = view!.state.units.filter((x) => x.owner !== view!.you && x.status === 'active' && !x.hidden);
     html += `<div class="sec">目標（也可以直接點地圖上的敵機）</div><div class="row">`;
     html += enemies
-      .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}${a.type === 'shoot' && dangerClose(view!.state, t.id) ? ' danger' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `${a.type === 'mark' ? '標定' : '鎖定'} ${t.label}`))
+      .map((t) => tip(`<button class="${a.target === t.id ? 'on' : ''}${a.type === 'shoot' && dangerClose(view!.state, t.id) ? ' danger' : ''}" data-target="${t.id}">${esc(t.label.split(' ')[0])}</button>`, a.type === 'shoot' ? `${t.label}：${estimate(u, plan, t)}` : `鎖定 ${t.label}`))
       .join('');
     // 看得到的敵方炮群也可以當射擊目標
     if (a.type === 'shoot')
@@ -3005,7 +3013,7 @@ function bindControls(u: UnitView | undefined) {
       if (o.kind !== 'none') dropWireless();
       if (o.kind === 'smoke' || o.kind === 'decoy') plan.action = { type: o.kind, weapon: o.equip!, at: { x: NaN, y: NaN } };
       else if (o.kind === 'lock') plan.action = { type: 'lock', target: target() };
-      else if (o.kind === 'mark') plan.action = { type: 'mark', weapon: o.equip!, target: target() };
+      else if (o.kind === 'mark') plan.action = { type: 'mark', weapon: o.equip! };
       else {
         plan.action = { type: 'none' };
         plan.swap = undefined;

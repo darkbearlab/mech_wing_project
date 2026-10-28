@@ -61,6 +61,8 @@ export interface EquipDef {
   lockWeapons?: boolean;
   /** 戰術道具（kind utility）：smoke 煙霧彈、decoy 欺敵氣球；用 ammo 表示數量 */
   utility?: 'smoke' | 'decoy' | 'mark';
+  /** 標定器：一次標定前方幾台敵機（隨機挑） */
+  markCount?: number;
   mount?: EquipMount;
   /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
   arc?: number;
@@ -245,7 +247,7 @@ export interface UnitState {
   blackout: boolean;
   /** 高度（層）：站在幾層樓高的樓頂；沒寫是地面 0 */
   z?: number;
-  /** 被敵方標定：by 是標定的機體。敵方射擊命中 +MARK_BONUS；標定機超出感測距離或失去視線就解除 */
+  /** 被敵方標定：by 是標定的機體。敵方看得到它（不用視線）、射擊命中 +MARK_BONUS；超出標定機的感測距離就解除 */
   mark?: { by: string };
 }
 
@@ -356,8 +358,8 @@ export type Action =
   /** 射擊：weapon 加上 also 裡的武器一起打同一個目標 */
   | { type: 'shoot'; weapon: string; target: string; also?: string[] }
   | { type: 'lock'; target: string }
-  /** 標定：用標定器照射自己看得到的敵機（weapon 是標定器） */
-  | { type: 'mark'; weapon: string; target: string }
+  /** 標定：用標定器掃描前方，隨機標定幾台敵機（weapon 是標定器；不用選目標、不用視線） */
+  | { type: 'mark'; weapon: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
   | { type: 'smoke'; weapon: string; at: Vec }
   | { type: 'decoy'; weapon: string; at: Vec };

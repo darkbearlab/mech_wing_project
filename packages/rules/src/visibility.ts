@@ -123,7 +123,8 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
-      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
+      // 被標定的敵機不用視線也看得到
+      (e) => e.owner !== p && (revealed.has(e.id) || !!e.mark || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
@@ -133,7 +134,7 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
   state.obscured = obscured;
 }
 
-/** 標定機失去戰鬥能力、標定器或頭部壞了、超出感測距離、視線被擋住：標定解除 */
+/** 標定機失去戰鬥能力、標定器或頭部壞了、目標超出它的感測距離：標定解除（視線、射界都不影響） */
 export function checkMarks(state: GameState): void {
   for (const t of state.units) {
     if (!t.mark) continue;
@@ -144,7 +145,7 @@ export function checkMarks(state: GameState): void {
       by.status === 'active' &&
       !roleLost(by, 'sensor') &&
       by.equipment.some((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(by, e)) &&
-      canSee(state.obstacles, by.pos, sensorRange(by), t.pos, radiusOf(by) + radiusOf(t), by.z, t.z);
+      dist(by.pos, t.pos) - radiusOf(by) - radiusOf(t) <= sensorRange(by);
     if (!ok) delete t.mark;
   }
 }
