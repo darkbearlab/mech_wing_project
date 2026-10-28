@@ -1,7 +1,7 @@
 // 本機伺服器：房間邏輯在 @mech/rules 的 Room（線上版是 Cloudflare Durable Object，共用同一份）。
 // 開場前讀資料包：預設是原創內建資料；PACK=檔案路徑讀那個檔案，PACK=latest 抓線上最新版（已封存的鋼彈資料）。
 // 瀏覽器的出擊準備畫面送 setup 開新的一場。
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Room, contentVersion, useContent, type ContentPack } from '@mech/rules';
 
@@ -25,7 +25,16 @@ wss.on('connection', (ws: WebSocket, req) => {
   const roomId = url.searchParams.get('room') || 'test';
   let room = rooms.get(roomId);
   if (!room) {
-    room = new Room(TURN_SECONDS, (text) => console.log(`[${roomId}] ${text}`));
+    // 對戰紀錄存在 logs/battles（同一場結束後又有留言就覆寫同一個檔）
+    room = new Room(
+      TURN_SECONDS,
+      (text) => console.log(`[${roomId}] ${text}`),
+      (rec) => {
+        mkdirSync('logs/battles', { recursive: true });
+        writeFileSync(`logs/battles/${roomId}-${rec.startedAt.replace(/[:.]/g, '-')}.json`, JSON.stringify(rec));
+      },
+      roomId,
+    );
     rooms.set(roomId, room);
   }
   const seatParam = url.searchParams.get('seat');

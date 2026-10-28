@@ -313,7 +313,7 @@ function render(v: PlayerView): string {
   out.push('\n== 敵方 ==');
   for (const u of foes) out.push(unitLine(u));
   for (const p of s.enemyPods ?? []) out.push(`敵方炮群 [${p.id}] ${p.label} 的${p.wired ? `有線臂（${p.part ?? ''}）` : `${EQUIPMENT[p.defId].name} ×${p.bits}`} @${pt(p.pos)}（射擊目標用這個 id）`);
-  out.push(`\n指令格式（寫到 ${resolve(dir, 'orders.json')}）：`);
+  out.push(`\n指令格式（寫到 ${resolve(dir, 'orders.json')}；每份指令都可以加 "note":"這一步的觀察與理由"，會存進對戰紀錄給看重播的人看，對手看不到）：`);
   out.push(
     {
       deploy: `{"t":"deploy","deploy":{"<id>":{"x":..,"y":..,"facingDeg":整數角度（-90 是朝 -y）,"momentum":..}}}`,
@@ -536,7 +536,7 @@ function connect() {
         prompt(`YOUR_TURN turn=${msg.view.state.turn} phase=${msg.view.phase}`);
       } else if (msg.view.phase === 'over' && lastPrompt !== key) {
         lastPrompt = key;
-        prompt('GAME_OVER');
+        prompt('GAME_OVER（可以寫 {"t":"note","text":"這場的感想"} 到 orders.json 留下結束後的一段話）');
       }
     } else if (msg.t === 'resolved') {
       const text = msg.events.map(eventText).filter(Boolean).join('\n');

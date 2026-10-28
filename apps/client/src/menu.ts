@@ -44,6 +44,7 @@ export function openMenu(actions: MenuActions): void {
           <button class="mnBig" data-act="free"><b>自由對戰</b><span>出擊準備：自己挑陣容、勝利條件</span></button>
           <button class="mnBig" data-act="scenarios"><b>重演戰役</b><span>照原作設定的劇本</span></button>
           <a class="mnBig" href="editor.html"><b>機庫編輯器</b><span>編輯機型、武器、駕駛</span></a>
+          <a class="mnBig" href="?replays"><b>對戰紀錄</b><span>重播存下來的對戰、看代理的想法</span></a>
           <button class="mnBig" data-act="help"><b>玩法說明</b><span>規則一覽</span></button>
         </div></div>`;
       return;
