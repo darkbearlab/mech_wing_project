@@ -1,4 +1,4 @@
-import { CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
+import { SCREEN_MAX_SPEED, CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
@@ -274,6 +274,10 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): s
     const why = climbBlocked(u, plan);
     if (why) errors.push(`${u.label}：${why}`);
   }
+  if (plan.smoke) {
+    const why = grappled ? '纏鬥中不能放煙幕' : screenBlocked(u, plan);
+    if (why) errors.push(`${u.label}：${why}`);
+  }
   for (const id of Object.keys(plan.pods ?? {})) {
     const e = u.equipment.find((x) => x.id === id);
     if (!e || !EQUIPMENT[e.defId].psycommu) errors.push(`${u.label}：沒有這個感應武器`);
@@ -337,6 +341,21 @@ export function climbBlocked(u: UnitState | ManeuverLimits, plan: Pick<MovePlan,
   if (moveSpeed(plan) > max) return `速度 ${max} 以下才能攀升（太快蹬不了牆）`;
   if (roleLost(u, 'legs')) return '腳部損壞，不能攀升';
   if ((u.propellant ?? 0) < CLIMB_PROPELLANT) return '推進劑不足，不能攀升';
+  return null;
+}
+
+/** 能放煙幕的發射器（還有彈、沒壞） */
+export function screenLaunchers(u: Gear): EquipState[] {
+  return u.equipment.filter((e) => EQUIPMENT[e.defId]?.utility === 'screen' && equipAlive(u, e) && (e.ammo === undefined || e.ammo > 0));
+}
+
+/** 不能放煙幕的原因（可以就是 null）：沒有這個發射器、用過了、速度太快 */
+export function screenBlocked(u: Gear, plan: Pick<MovePlan, 'maneuver' | 'smoke'>): string | null {
+  const e = u.equipment.find((x) => x.id === plan.smoke);
+  if (!e || EQUIPMENT[e.defId]?.utility !== 'screen') return '沒有這個煙幕彈發射器';
+  if (!equipAlive(u, e)) return '煙幕彈發射器已損壞';
+  if (e.ammo !== undefined && e.ammo <= 0) return '這個煙幕彈發射器已經用過了';
+  if (moveSpeed(plan) > SCREEN_MAX_SPEED) return `速度 ${SCREEN_MAX_SPEED} 以下才能放煙幕（太快會衝出煙幕）`;
   return null;
 }
 

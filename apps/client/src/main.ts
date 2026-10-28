@@ -47,6 +47,8 @@ import {
   readyRanged,
   relativeAngle,
   lineOfFire,
+  coverOf,
+  coverParts,
   climbBlocked,
   climbLimits,
   wallPenetration,
@@ -2753,7 +2755,7 @@ function salvoControls(u: UnitView, plan: ActionPlan): string {
     const cur = plan.salvo?.[w.id];
     html += `<div class="row"><span class="small muted">${esc(def.name)}</span>`;
     for (const t of enemies) {
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
       if (!h) continue;
       html += tip(`<button class="${cur === t.id ? 'on' : ''}" data-salvo="${w.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${def.name} → ${t.label}：${bandName(h.band)}・${chanceText(h.chance)}`);
     }
@@ -2782,7 +2784,7 @@ function podActionControls(u: UnitView, plan: ActionPlan): string {
     for (const t of enemies) {
       const at = e.pod!.pos;
       // 炮群本身當作不動（和結算一樣），相對速度就是目標的速度
-      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, at, t.pos) });
       const est = h ? `${bandName(h.band)}・${chanceText(h.chance)}${dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險' : ''}` : '炮群射程外';
       html += tip(`<button class="${chosen.includes(t.id) ? 'on' : ''}${dangerClose(view!.state, t.id) ? ' danger' : ''}" data-pod-t="${e.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${t.label}：${est}`);
     }
@@ -2848,8 +2850,8 @@ function otherOptions(u: UnitView): EquipOption[] {
       if (!roleLost(u, 'sensor')) out.push({ key: `mark:${e.id}`, label: `${def.name}・標定${jammed(view!.state.units, u) ? '（我方干擾中，標定不了）' : ''}`, kind: 'mark', equip: e.id });
       continue;
     }
-    // 電子干擾器一直開著，不用下指令
-    if (def.utility === 'ecm') continue;
+    // 電子干擾器一直開著、煙幕彈在移動時放，不用在行動下指令
+    if (def.utility === 'ecm' || def.utility === 'screen') continue;
     // 地雷、路障在樓頂上放不了
     if ((def.utility === 'mine' || def.utility === 'barricade') && u.z) continue;
     const verb = { smoke: '丟出', decoy: '放置', mine: '埋設', barricade: '架設' }[def.utility];
@@ -3108,7 +3110,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       for (const p of view!.state.enemyPods ?? []) {
         const w = u.equipment.find((x) => x.id === a.weapon);
         const ps = EQUIPMENT[p.defId].psycommu!;
-        const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: p.id, chassisId: '', pos: p.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, p.pos), targetEvasion: ps.evasion ?? 0 }) : null;
+        const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: p.id, chassisId: '', pos: p.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: coverOf(view!.state.obstacles, u.pos, p.pos), targetEvasion: ps.evasion ?? 0 }) : null;
         html += tip(`<button class="${a.target === p.id ? 'on' : ''}" data-target="${p.id}">${esc(p.label.split(' ')[0])} ${esc(enemyPodName(p))}</button>`, `射擊 ${p.label} 的${enemyPodName(p)}：${h ? chanceText(h.chance) : '射程外'}。${p.wired ? '打中就是打那隻手臂。' : '每發命中打掉一支。'}`);
       }
     // 有敵機站在上面的建築：列出來方便拆（其他建築直接點地圖）

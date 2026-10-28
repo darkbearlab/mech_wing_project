@@ -5,7 +5,7 @@ import { DEG } from './geometry';
 import * as C from './config';
 import { hitChance, relativeAngle, relativeSpeed, shoot, type TurnInfo } from './combat';
 import { EQUIPMENT } from './data';
-import { lineOfFire } from './terrain';
+import { coverOf } from './terrain';
 import { readyRanged, pilotOf } from './unit';
 import type { Ctx } from './damage';
 import type { EquipState, GameState, PlayerPursuits, PursuitPlan, UnitState } from './types';
@@ -46,7 +46,7 @@ export function pursuitOptions(state: GameState, u: UnitState): PursuitOption[] 
         targetSkill: null,
         relSpeed: relativeSpeed(info?.velocity ?? {}, u.id, t.id),
         shooterMelee: info?.stance[u.id] === 'melee',
-        cover: lineOfFire(state.obstacles, u.pos, t.pos, u.z, t.z),
+        cover: coverOf(state.obstacles, u.pos, t.pos, u.z, t.z),
       });
       if (h && h.band <= C.PURSUIT_MAX_BAND) out.push({ target: t.id, weapon: w.id, chance: h.chance, band: h.band });
     }

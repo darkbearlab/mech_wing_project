@@ -3,7 +3,7 @@ import * as C from './config';
 import { EQUIPMENT } from './data';
 import { radiusOf } from './body';
 import { dist } from './geometry';
-import { wallPenetration } from './terrain';
+import { segmentHitsCircle, wallPenetration } from './terrain';
 import type { EquipState, Mine, Obstacle, PartState, PlayerId, Vec } from './types';
 
 type Jammer = { owner: PlayerId; pos: Vec; status?: string; equipment?: EquipState[]; parts: Record<string, PartState> };
@@ -17,6 +17,14 @@ export function ecmOf(u: Pick<Jammer, 'status' | 'equipment' | 'parts'>): EquipS
 /** u 在自己這一方的電子干擾範圍內（干擾機自己也算） */
 export function jammed(units: Jammer[], u: { owner: PlayerId; pos: Vec }): boolean {
   return units.some((j) => j.owner === u.owner && dist(j.pos, u.pos) <= C.ECM_RADIUS && !!ecmOf(j));
+}
+
+/**
+ * 煙霧裡的金屬粉：目標在煙霧裡，或從 from 到目標的連線穿過煙霧，就標定、鎖定不了（已經標定、鎖定的也失效）。
+ * from 自己在煙霧裡也一樣
+ */
+export function chaffed(obstacles: Obstacle[], from: Vec | null, to: Vec): boolean {
+  return obstacles.some((o) => o.kind === 'smoke' && (dist(to, o) <= o.r || (!!from && (dist(from, o) <= o.r || segmentHitsCircle(from, to, o, o.r)))));
 }
 
 /** 這裡埋得了地雷（不在大隕石、建築裡） */

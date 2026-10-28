@@ -8,7 +8,7 @@ import { hitChance, shoot, spendRounds, type TurnInfo } from './combat';
 import { addStress, damageUnit, typed, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
-import { lineOfFire } from './terrain';
+import { coverOf, lineOfFire } from './terrain';
 import { canSee, sensorRange } from './vision';
 import type { EquipState, GameState, MovePlan, PlayerId, PsycommuDef, UnitState, Vec } from './types';
 import { equipAlive, pilotOf } from './unit';
@@ -185,7 +185,7 @@ export function shootPod(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: 
     targetSkill: pilotOf(mother).skill,
     relSpeed: null,
     shooterMelee: turn.stance[attacker.id] === 'melee',
-    cover: lineOfFire(ctx.state.obstacles, attacker.pos, e.pod!.pos),
+    cover: coverOf(ctx.state.obstacles, attacker.pos, e.pod!.pos),
     dazzled: turn.dazzled?.has(attacker.id),
     targetEvasion: ps.evasion ?? 0,
   });

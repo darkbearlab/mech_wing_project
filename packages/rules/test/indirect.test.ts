@@ -41,7 +41,7 @@ describe('導引武器', () => {
     turn(m, { [s.id]: { action: { type: 'mark', weapon: s.equipment.find((e) => e.defId === 'designator')!.id } }, [g.id]: { action: { type: 'shoot', weapon: g.equipment.find((e) => e.defId === 'mortar')!.id, target: m.state.units[2].id } } });
     const events = m.turnResolvedEvents;
     const markAt = events.findIndex((e) => e.type === 'mark');
-    const shotAt = events.findIndex((e) => e.type === 'shot' || e.type === 'blast');
+    const shotAt = events.findIndex((e) => e.type === 'launch');
     expect(markAt).toBeGreaterThanOrEqual(0);
     expect(shotAt).toBeGreaterThan(markAt);
     expect(events.some((e) => e.type === 'actionFail' && e.unit === g.id)).toBe(false);
