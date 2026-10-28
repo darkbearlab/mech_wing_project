@@ -5,6 +5,7 @@ import type { Rng } from './rng';
 import type { ArmorType, DamageMode, DamageType, GameEvent, GameState, UnitState, Vec } from './types';
 import { isShip, shipPartMultiplier } from './ship';
 import { corePart, handOfPart, handPart, roleLost } from './body';
+import { DEG, angleDiff, angleOf, sub } from './geometry';
 import { equipDef, heldItem, pilotOf } from './unit';
 
 export interface Ctx {
@@ -21,8 +22,10 @@ export interface Ctx {
   damageType?: DamageType;
   /** 沒辦法瞄準的傷害（撞擊）：瞄準要害不生效 */
   unaimed?: boolean;
-  /** 射擊位置（打戰艦時決定比較容易打到哪裡） */
+  /** 射擊位置（打戰艦時決定比較容易打到哪裡；也決定打中哪個方向的部位） */
   from?: Vec;
+  /** 沒有方向的傷害（樓塌下來）：部位不看攻擊方向 */
+  undirected?: boolean;
 }
 
 /** 以 by 的名義造成傷害（擊墜歸屬），結束後還原 */
@@ -69,6 +72,33 @@ export function spendPropellant(ctx: Ctx, u: UnitState, amount: number): void {
   ctx.events.push({ type: 'propellant', unit: u.id, amount: -amount, total: u.propellant });
 }
 
+/** 部位所在的功能位置：機體部位照自己的功能；外掛照掛的部位；手上拿的照那隻手 */
+function partRole(u: UnitState, p: UnitState['parts'][string]): string | null {
+  if (p.kind === 'body') return p.role ?? null;
+  const e = u.equipment.find((x) => x.id === p.id);
+  if (!e) return null;
+  if (e.location === 'right') return 'rightHand';
+  if (e.location === 'left') return 'leftHand';
+  const host = e.host ? u.parts[e.host] : undefined;
+  return host?.role ?? null;
+}
+
+/** 從 from 打過來時各部位的權重倍率（HIT_DIRECTION_WEIGHT） */
+export function directionWeight(u: UnitState, from: Vec): (p: UnitState['parts'][string]) => number {
+  // 正值 = 順時針 = 目標的右手邊
+  const rel = angleDiff(angleOf(sub(from, u.pos)), u.facing);
+  const abs = Math.abs(rel);
+  const side = abs <= C.FRONT_ARC_DEG * DEG ? 'front' : abs >= C.BACK_ARC_DEG * DEG ? 'back' : 'side';
+  const w = C.HIT_DIRECTION_WEIGHT[side];
+  const near = rel > 0 ? 'rightHand' : 'leftHand';
+  return (p) => {
+    const role = partRole(u, p);
+    if (!role) return 1;
+    if (role === 'rightHand' || role === 'leftHand') return side === 'side' ? ((role === near ? w.near : w.far) ?? 1) : 1;
+    return w[role as 'core' | 'sensor' | 'propulsion' | 'legs'] ?? 1;
+  };
+}
+
 /** 依權重擲命中部位。機體部位永遠在表內（已破壞→轉軀幹）；已破壞的裝備移出權重表。 */
 const partCandidates = (u: UnitState) => Object.values(u.parts).filter((p) => p.kind === 'body' || !p.destroyed);
 const partWeight = (p: UnitState['parts'][string], coreBonus: number) => p.weight + (p.kind === 'body' && p.role === 'core' && !p.destroyed ? coreBonus : 0);
@@ -88,11 +118,11 @@ function calledShotBonus(ctx: Ctx): number {
 }
 
 /** 以 by 的名義、瞄準 aim 造成傷害 */
-export function shotBy(ctx: Ctx, by: UnitState, aim: UnitState, fn: () => void): void {
+export function shotBy(ctx: Ctx, by: UnitState, aim: UnitState, fn: () => void, from: Vec = by.pos): void {
   const prev = ctx.aimAt;
   const prevFrom = ctx.from;
   ctx.aimAt = aim.id;
-  ctx.from = { ...by.pos };
+  ctx.from = { ...from };
   try {
     dealtBy(ctx, by, fn);
   } finally {
@@ -114,6 +144,11 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
     bonus = 0;
   } else if (ctx.topAttack) {
     mult = (p) => (p.kind === 'body' && p.role ? (C.TOP_ATTACK_WEIGHT[p.role] ?? 1) : 1);
+  } else {
+    // 從哪個方向打過來：射擊照射擊位置，近戰、撞擊照造成傷害的機體位置（墜落、地雷、自傷等沒有方向）
+    const by = ctx.by ? ctx.state.units.find((x) => x.id === ctx.by) : undefined;
+    const from = ctx.from ?? (by && by.id !== u.id ? by.pos : undefined);
+    if (from && !ctx.undirected) mult = directionWeight(u, from);
   }
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {

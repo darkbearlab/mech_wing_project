@@ -260,14 +260,14 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
       // 盾牆擋在中間：一律打在盾上
       blocked++;
       const holder = wall.unit;
-      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, holder, dmg, 'focused', wall.equip.id, overflow))));
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, holder, dmg, 'focused', wall.equip.id, overflow), opts.from)));
     } else if (shield && ctx.rng.d100() <= blockChance(victim)) {
       blocked++;
-      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow))));
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow), opts.from)));
     } else {
       // 反輻射飛彈循著干擾電波打在干擾器上
       const homing = def.fire === 'antiRadiation' ? ecmOf(victim)?.id : undefined;
-      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', homing, overflow))));
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', homing, overflow), opts.from)));
     }
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}), ...(opts.pod ? { pod: opts.pod, from: { ...opts.from! } } : {}) });

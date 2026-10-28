@@ -621,10 +621,15 @@ function shootBuilding(ctx: Ctx, turn: TurnInfo, u: UnitState, weapons: EquipSta
     for (const v of collapseVictims(state.units, before)) {
       const total = C.COLLAPSE_DAMAGE * v.fell;
       const legs = Math.round(total * C.COLLAPSE_LEGS_SHARE);
-      dealtBy(ctx, u, () => {
-        damageUnit(ctx, v.unit, legs, 'focused', v.legs);
-        damageUnit(ctx, v.unit, total - legs, 'focused');
-      });
+      ctx.undirected = true;
+      try {
+        dealtBy(ctx, u, () => {
+          damageUnit(ctx, v.unit, legs, 'focused', v.legs);
+          damageUnit(ctx, v.unit, total - legs, 'focused');
+        });
+      } finally {
+        ctx.undirected = false;
+      }
     }
   }
   return fired;

@@ -113,6 +113,16 @@ export const BARRIER_LEVELS = 1;
 export const DEPLOYED_MAX_SPEED = 1;
 /** 頂部攻擊（從上方打下來：跳劈、之後的曲射武器）：部位權重倍率，沒寫的是 1 */
 export const TOP_ATTACK_WEIGHT: Partial<Record<'core' | 'rightHand' | 'leftHand' | 'propulsion' | 'legs' | 'sensor', number>> = { legs: 0.2, core: 1.5, sensor: 1.5, propulsion: 1.5 };
+/**
+ * 從哪個方向打過來：部位權重倍率（照目標的朝向分正面 ±FRONT_ARC_DEG、背後 BACK_ARC_DEG 以外、其餘側面）。
+ * 正面打不太到背包、多打在軀幹；背後容易打到背包；側面多打在靠近的那隻手（near）、少打到另一隻（far）。沒寫的是 1。
+ * 外掛裝備照它掛的部位算，手上拿的照那隻手。從上方打下來的照頂部攻擊表，不看方向
+ */
+export const HIT_DIRECTION_WEIGHT: Record<'front' | 'side' | 'back', Partial<Record<'core' | 'sensor' | 'propulsion' | 'legs' | 'near' | 'far', number>>> = {
+  front: { core: 1.2, propulsion: 0.3 },
+  side: { propulsion: 0.8, near: 1.5, far: 0.5 },
+  back: { sensor: 0.7, propulsion: 2 },
+};
 export const BACKSTAB_STRESS = 2;
 export const FRONT_ARC_DEG = 60;
 export const BACK_ARC_DEG = 120;
