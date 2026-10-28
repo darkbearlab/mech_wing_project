@@ -327,6 +327,7 @@
     "mount": "mounted",
     "weight": 1,
     "durability": 2,
-    "cost": 1
+    "cost": 1,
+    "markCount": 2
   }
 }

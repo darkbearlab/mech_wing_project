@@ -1,6 +1,6 @@
 // 視野：每台機體有感測距離（頭部壞了會變短），被大隕石擋住看不到，躲在隕石群裡要很近才發現。
 import * as C from './config';
-import { dist } from './geometry';
+import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import { buildingBlocks, insideField, segmentHitsCircle } from './terrain';
 import { roleLost } from './body';
 import type { Obstacle, PartState, Vec } from './types';
@@ -22,4 +22,10 @@ export function canSee(obstacles: Obstacle[], from: Vec, range: number, to: Vec,
   if (insideField(obstacles, to) && d > C.FIELD_SPOT_RANGE) return false;
   if (obstacles.some((o) => o.kind === 'rock' && segmentHitsCircle(from, to, o, o.r))) return false;
   return buildingBlocks(obstacles, from, to, zFrom, zTo) !== 'all';
+}
+
+/** 標定的範圍：標定機正面 ±MARK_ARC_DEG、感測距離內（底板邊緣距離；不用視線，建築擋不住） */
+export function inMarkCone(by: { pos: Vec; facing: number; parts: Record<string, PartState>; chassisId?: string }, to: Vec, radii = 2 * C.BASE_RADIUS): boolean {
+  if (dist(by.pos, to) - radii > sensorRange(by)) return false;
+  return Math.abs(angleDiff(angleOf(sub(to, by.pos)), by.facing)) <= C.MARK_ARC_DEG * DEG;
 }
