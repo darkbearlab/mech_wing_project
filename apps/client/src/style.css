@@ -39,6 +39,8 @@ canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 .ucard .st.done { color: var(--ok); }
 #phaseHint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(24, 32, 41, 0.92); border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; font-size: 13px; z-index: 2; max-width: 60%; text-align: center; }
 #phaseHint:empty { display: none; }
+#alertBar { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); background: rgba(90, 20, 20, 0.92); border: 1px solid #e24b4a; color: #ffd0d0; border-radius: 6px; padding: 4px 12px; font-size: 13px; z-index: 4; max-width: 50%; text-align: center; white-space: pre-line; pointer-events: none; }
+#alertBar:empty { display: none; }
 #log { position: absolute; right: 10px; bottom: 10px; width: 340px; z-index: 3; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; }
 #logLines { width: 100%; font-size: 12.5px; line-height: 1.55; text-shadow: 0 0 3px #000, 0 0 3px #000; }
 #logLines.open { background: rgba(10, 14, 18, 0.88); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-height: 50vh; overflow: auto; pointer-events: auto; text-shadow: none; }

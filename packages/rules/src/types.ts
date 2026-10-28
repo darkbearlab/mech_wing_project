@@ -67,14 +67,15 @@ export interface EquipDef {
    * 戰術道具（kind utility）：smoke 煙霧彈、decoy 欺敵氣球、mark 標定器、ecm 電子干擾器（一直開著）、
    * mine 佈雷器、barricade 路障；會用完的用 ammo 表示數量
    */
-  utility?: 'smoke' | 'decoy' | 'mark' | 'ecm' | 'mine' | 'barricade';
+  utility?: 'smoke' | 'screen' | 'decoy' | 'mark' | 'ecm' | 'mine' | 'barricade';
   /** 標定器：一次標定前方幾台敵機（隨機挑） */
   markCount?: number;
   /**
    * 導引武器：mortar 迫擊砲（曲射越頂，沒打中會散布、炸到落點附近）、vls 垂直飛彈（越頂）、missile 平射飛彈（要射擊線）。
    * 都只能打被標定的目標，命中只看機器：不算射手駕駛的技能、沒有標定加成（目標駕駛的閃避照算）
    */
-  fire?: 'mortar' | 'vls' | 'missile' | 'antiRadiation';
+  /** 開火方式：mortar 迫擊砲、vls 垂直飛彈（曲射，要標定，下一回合落下）；missile 飛彈（要標定）；antiRadiation 反輻射；atgm 反戰車飛彈（不用標定，下一回合命中，發射端要一直看得到目標） */
+  fire?: 'mortar' | 'vls' | 'missile' | 'antiRadiation' | 'atgm';
   /** 展開盾：可以在機體正面展開成一道矮牆 */
   deployable?: boolean;
   /** 武器的傷害屬性（沒寫照動能） */
@@ -297,6 +298,23 @@ export interface Obstacle {
   hp?: number;
 }
 
+/** 飛行中的彈藥：發射的下一回合、移動結束後才命中（迫擊砲、垂直飛彈要標定還在；反戰車飛彈要發射端還看得到目標） */
+export interface Inbound {
+  id: string;
+  owner: PlayerId;
+  attacker: string;
+  /** 發射的武器（裝備 id 與種類） */
+  weapon: string;
+  defId: string;
+  target: string;
+  shots: number;
+  /** 發射時的位置與高度 */
+  from: Vec;
+  z?: number;
+  /** 發射的回合 */
+  turn: number;
+}
+
 /** 地雷：敵方的地面機體移動經過就引爆（自己這一方不會觸發） */
 export interface Mine {
   id: string;
@@ -356,6 +374,8 @@ export interface TurnInfoState {
   bumped: string[];
   /** 擱置移動、等王牌移動步驟才動的機體 */
   deferred?: string[];
+  /** 本回合機動的速度（沒動、纏鬥中是 0）；導引反戰車飛彈的發射端要慢下來 */
+  speed?: Record<string, number>;
 }
 
 export interface GameState {
@@ -382,6 +402,8 @@ export interface GameState {
   decoys?: Decoy[];
   /** 埋在地上的地雷 */
   mines?: Mine[];
+  /** 飛行中的彈藥（雙方都看得到：發射會暴露位置，被瞄準的一方有來襲警告） */
+  inbound?: Inbound[];
   /** 還沒進場的增援 */
   reserves?: Reserve[];
   /** 各方看得到但分不出是什麼的機體（隔著煙霧） */
@@ -425,6 +447,8 @@ export interface MovePlan {
   climb?: boolean;
   /** 感應武器（key 是裝備 id）：放出或移動到 to，或收回 */
   pods?: Record<string, PodOrder>;
+  /** 煙幕彈發射器（裝備 id）：移動開始時在原地放出一團煙幕（含金屬粉，防標定），留到回合結束；速度要在 config.SCREEN_MAX_SPEED 以下 */
+  smoke?: string;
 }
 
 export type PodOrder = { to: Vec } | { recall: true };
@@ -491,7 +515,7 @@ export type GameEvent =
       /** 防守方承受衝擊並把攻擊方拖進纏鬥 */
       caught: boolean;
     }
-  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number; pod?: string; from?: Vec }
+  | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number; pod?: string; from?: Vec; inbound?: string }
   /** typed：屬性相剋（weak 打在弱點上加傷、resist 被抵抗減傷） */
   | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean; typed?: 'weak' | 'resist' }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
@@ -508,7 +532,11 @@ export type GameEvent =
   /** 炮群：放出、收回、失控（離母機太遠或母機不能指揮）、全滅 */
   | { type: 'pod'; unit: string; equip: string; what: 'launch' | 'recall' | 'lost' | 'destroyed'; at?: Vec; reason?: string }
   | { type: 'podHit'; unit: string; equip: string; by: string; bits: number }
-  | { type: 'smoke'; unit: string; at: Vec; r: number }
+  /** 發射有飛行時間的彈藥（下一回合命中） */
+  | { type: 'launch'; id: string; attacker: string; target: string; weapon: string; shots: number }
+  /** 飛行中的彈藥失去導引、落空 */
+  | { type: 'inboundLost'; id: string; attacker: string; target: string; weapon: string; reason: string }
+  | { type: 'smoke'; unit: string; at: Vec; r: number; screen?: boolean }
   | { type: 'decoy'; unit: string; decoy: string }
   /** 埋地雷（對手看不到）；引爆 */
   | { type: 'mine'; unit: string; at: Vec }

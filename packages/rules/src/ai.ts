@@ -15,12 +15,12 @@ import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { hitChance, relativeSpeed } from './combat';
 import { BEATS, TECHNIQUES, techniqueUse, grappleOptions, grapplePool } from './grapple';
 import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneuvers';
-import { lineOfFire, wallPenetration } from './terrain';
+import { coverOf, lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
 import { BUILDING_TYPE_MULT, buildingHitChance } from './demolition';
 import { inFootprint } from './terrain';
-import { SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { ATGM_GUIDE_MAX_SPEED, SCREEN_MAX_SPEED, SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
@@ -29,7 +29,7 @@ import { lungeCheck } from './melee';
 import { isShip } from './ship';
 import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone, supplyPoint } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
-import { immobile, armorOf, availableManeuvers, climbBlocked, climbLimits, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
+import { immobile, armorOf, availableManeuvers, climbBlocked, climbLimits, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged, screenLaunchers } from './unit';
 import type { PlayerView } from './match';
 import type { UnitView } from './visibility';
 
@@ -101,6 +101,8 @@ function hurtOf(u: UnitView): number {
 }
 
 const ASSUMED_SKILL = 3;
+/** 飛過來的彈藥預計傷害到這麼多就放煙幕 */
+const SCREEN_WORTH = 30;
 /** 命中率（可超過 100）換成每發的期望傷害倍率：命中機率 ×（1 ＋ 爆擊機率） */
 /** 射纏鬥中的敵機：命中打到它本身的比例（其餘打到纏住它的隊友） */
 function aimShare(view: PlayerView, t: UnitView): number {
@@ -161,7 +163,7 @@ function expectedDamage(shooter: UnitView, from: Vec, facing: number | null, tar
       targetSkill,
       relSpeed: null,
       shooterMelee: false,
-      cover: lineOfFire(obstacles, from, at, shooter.z, target.z),
+      cover: coverOf(obstacles, from, at, shooter.z, target.z),
     });
     if (h) best = Math.max(best, hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1));
   }
@@ -657,7 +659,12 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
   const choose = (u: UnitView) => {
     team.planned = team.planned.filter((p) => p.id !== u.id);
     prepareTeam(u, team);
-    const options = availableManeuvers(u);
+    // 有東西飛過來、身上有煙幕：只考慮放得了煙幕的慢速機動
+    const all = availableManeuvers(u);
+    const slow = all.filter((m) => moveSpeed({ maneuver: m.id }) <= SCREEN_MAX_SPEED);
+    const guiding = (view.state.inbound ?? []).some((x) => x.attacker === u.id && EQUIPMENT[x.defId]?.fire === 'atgm');
+    const slowGuide = all.filter((m) => moveSpeed({ maneuver: m.id }) <= ATGM_GUIDE_MAX_SPEED);
+    const options = screenFor(view, u) && slow.length ? slow : guiding && slowGuide.length ? slowGuide : all;
     let best: { score: number; end: Vec; facing: number; track?: Vec[]; m: ManeuverSpec; climb?: boolean } = { score: -Infinity, end: u.pos, facing: u.facing, m: options[0] ?? parseManeuver(cruiseManeuver(u)) };
     for (const m of options) {
       const s = scoreManeuver(u, m, team, rng);
@@ -711,9 +718,20 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     plan.stance = closeCombatOf(u) ? stance : 'shoot';
     const pods = aiPodMoves(view, u, team.focus ?? target, enemies);
     if (pods) plan.pods = pods;
+    // 煙幕：甩掉飛過來的迫擊砲、飛彈
+    const screen = screenFor(view, u);
+    if (screen && moveSpeed(plan) <= SCREEN_MAX_SPEED) plan.smoke = screen;
     out[u.id] = plan;
   }
   return out;
+}
+
+/** 值得放煙幕的話回傳發射器 id：飛過來的彈藥預計傷害夠大（ASSUMED_SKILL 不用算，照每發傷害×發數） */
+function screenFor(view: PlayerView, u: UnitView): string | null {
+  const launcher = screenLaunchers(u as unknown as UnitState)[0];
+  if (!launcher) return null;
+  const incoming = (view.state.inbound ?? []).filter((x) => x.target === u.id).reduce((s, x) => s + (EQUIPMENT[x.defId]?.damage ?? 0) * x.shots, 0);
+  return incoming >= SCREEN_WORTH ? launcher.id : null;
 }
 
 /** 炮群的攻擊位置：目標背後近距離（閃過正面的盾） */
@@ -749,7 +767,7 @@ function aiPodActions(view: PlayerView, u: UnitView, enemies: UnitView[], focus:
     let best: { t: UnitView; v: number } | null = null;
     for (const t of enemies) {
       const at = e.pod.pos;
-      const h = hitChance({ attacker: { ...u, pos: at, facing: angleOf(sub(t.pos, at)) }, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: null, shooterMelee: false, cover: lineOfFire(view.state.obstacles, at, t.pos) });
+      const h = hitChance({ attacker: { ...u, pos: at, facing: angleOf(sub(t.pos, at)) }, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: null, shooterMelee: false, cover: coverOf(view.state.obstacles, at, t.pos) });
       if (!h || h.chance < 10) continue;
       const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (e.bits ?? ps.count) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
       if (!best || v > best.v) best = { t, v };
@@ -802,7 +820,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
         if (!def.tags?.includes('turret') || (w.ammo !== undefined && w.ammo <= 0)) continue;
         let best: { t: UnitView; v: number } | null = null;
         for (const t of enemies) {
-          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
+          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
           if (!h || h.chance < 10) continue;
           const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
           if (!best || v > best.v) best = { t, v };
@@ -829,7 +847,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       // 眩光要靠隊友接著開火才划算；AI 還不會整體協調，先不用
       if (def.tags?.includes('dazzle')) continue;
       for (const t of enemies) {
-        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
+        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
         if (!h || (w.ammo !== undefined && w.ammo <= 0)) continue;
         // 集火：集火目標、受傷的、隊友已經瞄準的敵機加權
         // 誤擊風險：打到隊友的部分要倒扣，太容易打到隊友就不開火
@@ -937,7 +955,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       const t = shot!.target;
       const benched = new Set(Object.keys(plan.swaps ?? {}).map((h) => u.equipment.find((e) => e.location === h)?.id));
       const guns = heldOf(u, 'ranged').filter((w) => !benched.has(w.id) && (w.ammo === undefined || w.ammo > 0) && !EQUIPMENT[w.defId].tags?.includes('dazzle'));
-      const ok = guns.filter((w) => (hitChance({ attacker: u, attackerSkill: skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: lineOfFire(view.state.obstacles, u.pos, t.pos, u.z, t.z) })?.chance ?? 0) >= 12);
+      const ok = guns.filter((w) => (hitChance({ attacker: u, attackerSkill: skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) })?.chance ?? 0) >= 12);
       if (!ok.length) plan.action = { type: 'none' };
       else plan.action = { type: 'shoot', weapon: ok[0].id, target: t.id, ...(ok.length > 1 ? { also: ok.slice(1).map((w) => w.id) } : {}) };
     }

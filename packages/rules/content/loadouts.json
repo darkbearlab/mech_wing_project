@@ -137,6 +137,21 @@
         "mount",
         "pack"
       ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "smoke_discharger",
+        "mount",
+        "torso"
+      ]
     ]
   ],
   "X-01": [
@@ -330,6 +345,26 @@
         "mount",
         "legs"
       ]
+    ],
+    [
+      [
+        "machine_gun",
+        "right"
+      ],
+      [
+        "shield",
+        "left"
+      ],
+      [
+        "atgm",
+        "mount",
+        "torso"
+      ],
+      [
+        "smoke_discharger",
+        "mount",
+        "legs"
+      ]
     ]
   ],
   "X-04": [
@@ -437,6 +472,22 @@
       ],
       [
         "vls",
+        "mount",
+        "pack"
+      ]
+    ],
+    [
+      [
+        "beam_rifle",
+        "right"
+      ],
+      [
+        "atgm",
+        "mount",
+        "torso"
+      ],
+      [
+        "smoke_discharger",
         "mount",
         "pack"
       ]

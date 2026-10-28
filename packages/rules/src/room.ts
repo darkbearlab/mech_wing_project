@@ -243,7 +243,8 @@ export class Room {
   private runAi() {
     const m = this.match;
     if (!m || !this.aiSeats.size) return;
-    for (let guard = 0; guard < 20 && m.phase !== 'over'; guard++) {
+    // 真人的機體都倒了的話，剩下的整場都在這裡由電腦一路打完（每一步都要有人送出，沒有就停）
+    for (let guard = 0; guard < 2000 && m.phase !== 'over'; guard++) {
       let acted = false;
       for (const side of [0, 1] as PlayerId[]) {
         const step = m.resolvedCount;

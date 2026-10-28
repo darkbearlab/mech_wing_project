@@ -52,21 +52,64 @@ export function segmentHitsCircle(a: Vec, b: Vec, c: Vec, r: number): boolean {
 
 export const insideField = (obstacles: Obstacle[], p: Vec) => obstacles.some((o) => o.kind === 'field' && dist(p, o) <= o.r);
 
-/** cover：被建築擋住一部分（半掩護） */
+/** cover：被建築擋住一部分（半掩護）。只取最主要的一種，判斷擋不擋得住用；命中的扣分看 CoverInfo */
 export type Cover = 'clear' | 'field' | 'smoke' | 'blocked' | 'cover';
 
 /**
- * 射擊線：被大隕石擋住、被建築完全擋住、穿過（或目標在）隕石群或煙霧、被建築擋住一部分、或暢通。
- * za、zb：射擊方與目標站的高度（層）
+ * 射擊線上的掩體，分兩類：遮蔽（煙霧、隕石群／瓦礫，看不清楚）和硬掩護（建築、路障、盾牆，打得到的面積變小）。
+ * 同一類只算最重的一種，兩類相加
  */
-export function lineOfFire(obstacles: Obstacle[], a: Vec, b: Vec, za = 0, zb = 0): Cover {
-  if (obstacles.some((o) => o.kind === 'rock' && segmentHitsCircle(a, b, o, o.r))) return 'blocked';
+export interface CoverInfo {
+  blocked: boolean;
+  smoke: boolean;
+  field: boolean;
+  /** 被建築（含路障）擋住一部分 */
+  building: boolean;
+  /** 穿過別人展開的盾牆 */
+  barrier?: boolean;
+}
+
+/** 射擊線上有哪些掩體。za、zb：射擊方與目標站的高度（層） */
+export function coverOf(obstacles: Obstacle[], a: Vec, b: Vec, za = 0, zb = 0): CoverInfo {
+  const none = { blocked: false, smoke: false, field: false, building: false };
+  if (obstacles.some((o) => o.kind === 'rock' && segmentHitsCircle(a, b, o, o.r))) return { ...none, blocked: true };
   const walls = buildingBlocks(obstacles, a, b, za, zb);
-  if (walls === 'all') return 'blocked';
-  // 煙霧：射擊線穿過，或目標在裡面
-  if (obstacles.some((o) => o.kind === 'smoke' && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r))) return 'smoke';
-  if (obstacles.some((o) => o.kind === 'field' && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r))) return 'field';
-  return walls === 'some' ? 'cover' : 'clear';
+  if (walls === 'all') return { ...none, blocked: true };
+  // 煙霧、隕石群：射擊線穿過，或目標在裡面
+  const on = (kind: Obstacle['kind']) => obstacles.some((o) => o.kind === kind && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r));
+  return { blocked: false, smoke: on('smoke'), field: on('field'), building: walls === 'some' };
+}
+
+/** 掩體各項的扣分（遮蔽取最重的一種、硬掩護取一種，兩類相加） */
+export function coverParts(c: CoverInfo): { label: string; penalty: number }[] {
+  if (c.blocked) return [];
+  const out: { label: string; penalty: number }[] = [];
+  if (c.smoke) out.push({ label: '煙霧', penalty: C.SMOKE_SHOT_PENALTY });
+  else if (c.field) out.push({ label: '碎石', penalty: C.FIELD_SHOT_PENALTY });
+  if (c.barrier) out.push({ label: '盾牆', penalty: C.BUILDING_COVER_PENALTY });
+  else if (c.building) out.push({ label: '建築半掩護', penalty: C.BUILDING_COVER_PENALTY });
+  return out;
+}
+
+export const coverPenalty = (c: CoverInfo): number => coverParts(c).reduce((s, p) => s + p.penalty, 0);
+
+/** 舊的單一分類（最主要的那一種） */
+export function coverKind(c: CoverInfo): Cover {
+  if (c.blocked) return 'blocked';
+  if (c.smoke) return 'smoke';
+  if (c.field) return 'field';
+  return c.building || c.barrier ? 'cover' : 'clear';
+}
+
+/** 舊格式轉成 CoverInfo */
+export function asCoverInfo(c: Cover | CoverInfo | undefined): CoverInfo {
+  if (c && typeof c === 'object') return c;
+  return { blocked: c === 'blocked', smoke: c === 'smoke', field: c === 'field', building: c === 'cover' };
+}
+
+/** 射擊線：擋住、穿過煙霧、隕石群、半掩護或暢通（只取最主要的一種；扣分用 coverOf） */
+export function lineOfFire(obstacles: Obstacle[], a: Vec, b: Vec, za = 0, zb = 0): Cover {
+  return coverKind(coverOf(obstacles, a, b, za, zb));
 }
 
 // ---- 建築（沿地圖軸向的長方形，有高度） ----

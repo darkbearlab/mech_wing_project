@@ -445,5 +445,40 @@
     "durability": 20,
     "ammo": 2,
     "cost": 1
+  },
+  "atgm": {
+    "id": "atgm",
+    "name": "反戰車飛彈",
+    "kind": "ranged",
+    "mount": "mounted",
+    "fire": "atgm",
+    "weight": 2,
+    "durability": 10,
+    "damage": 100,
+    "shots": 1,
+    "mode": "focused",
+    "ammo": 2,
+    "ranges": {
+      "2": 10,
+      "3": 5
+    },
+    "arc": 60,
+    "pointBlank": false,
+    "tags": [
+      "volatile"
+    ],
+    "cost": 4,
+    "damageType": "chemical"
+  },
+  "smoke_discharger": {
+    "id": "smoke_discharger",
+    "name": "煙幕彈發射器",
+    "kind": "utility",
+    "utility": "screen",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 10,
+    "ammo": 1,
+    "cost": 1
   }
 }

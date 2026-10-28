@@ -47,6 +47,8 @@ import {
   readyRanged,
   relativeAngle,
   lineOfFire,
+  coverOf,
+  coverParts,
   climbBlocked,
   climbLimits,
   wallPenetration,
@@ -79,6 +81,10 @@ import {
   availableManeuvers,
   immobile,
   forecastMoves,
+  flightFire,
+  needsMark,
+  screenBlocked,
+  screenLaunchers,
   warningText,
   type MoveWarning,
   coveringShield,
@@ -1059,6 +1065,21 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
   } else if (head.type === 'mark' && !posOf(head.unit, over)) {
     // 看不到是誰標定的：只在目標身上閃一下
     drawFloat(posOf(head.target, over)!, '被標定！', '#ffb060', elapsed / 900);
+  } else if (head.type === 'launch') {
+    const a = posOf(head.attacker, over);
+    const t = posOf(head.target, over);
+    if (a && t) {
+      const k = Math.min(1, elapsed / 600);
+      g.strokeStyle = 'rgba(255,190,90,0.9)';
+      g.setLineDash([7, 5]);
+      polyWorld([
+        [a.x, a.y, UNIT_Z],
+        [a.x + (t.x - a.x) * k, a.y + (t.y - a.y) * k, UNIT_Z],
+      ]);
+      g.stroke();
+      g.setLineDash([]);
+      if (k >= 1) drawFloat(t, '下回合命中', '#ffbe5a', (elapsed - 600) / 300);
+    }
   } else if (head.type === 'lock' || head.type === 'mark') {
     const a = posOf(head.unit, over)!;
     const t = posOf(head.target, over)!;
@@ -1869,9 +1890,75 @@ function drawPath(u: UnitView, plan: Pick<MovePlan, 'maneuver' | 'limiter' | 'fa
   }
 }
 
+/** 勾了放煙幕的機體：在出發點畫煙幕的範圍 */
+function drawSmokePreview() {
+  if (!view || (view.phase !== 'move' && view.phase !== 'ace') || view.submitted[view.you]) return;
+  for (const [id, plan] of Object.entries(moveDrafts)) {
+    const u = plan.smoke ? unitView(id) : undefined;
+    if (!u) continue;
+    g.strokeStyle = 'rgba(200,200,190,0.9)';
+    g.fillStyle = 'rgba(200,200,190,0.12)';
+    g.setLineDash([5, 5]);
+    ringWorld(u.pos.x, u.pos.y, config.SMOKE_RADIUS);
+    g.fill();
+    g.stroke();
+    g.setLineDash([]);
+    const c = pr(u.pos.x, u.pos.y + config.SMOKE_RADIUS, 0);
+    if (!c.visible) continue;
+    g.fillStyle = 'rgba(220,220,210,0.95)';
+    g.font = '11px sans-serif';
+    g.textAlign = 'center';
+    g.fillText('煙幕預覽', c.x, c.y + 14);
+  }
+}
+
+/** 飛行中的彈藥：我方發射的畫藍色虛線，飛向我方的畫紅色虛線並圈出目標；曲射的畫成拋物線 */
+function drawInbound() {
+  if (!view || show) return;
+  for (const x of view.state.inbound) {
+    const t = unitView(x.target);
+    const a = unitView(x.attacker);
+    const def = EQUIPMENT[x.defId];
+    if (!t || t.hidden) continue;
+    const atgm = def?.fire === 'atgm';
+    const from = atgm && a && !a.hidden ? a.pos : x.from;
+    const mine = x.owner === view.you;
+    const color = mine ? 'rgba(80,160,240,0.95)' : 'rgba(240,80,80,0.95)';
+    const lift = atgm ? 0 : Math.max(2, Math.hypot(t.pos.x - from.x, t.pos.y - from.y) * 0.25);
+    const pts: [number, number, number][] = [];
+    for (let i = 0; i <= 24; i++) {
+      const k = i / 24;
+      pts.push([from.x + (t.pos.x - from.x) * k, from.y + (t.pos.y - from.y) * k, UNIT_Z + 4 * lift * k * (1 - k)]);
+    }
+    g.strokeStyle = color;
+    g.lineWidth = 2;
+    g.setLineDash([7, 5]);
+    polyWorld(pts);
+    g.stroke();
+    g.setLineDash([]);
+    if (!mine) {
+      ringWorld(t.pos.x, t.pos.y, radiusOf(t) + 0.45, UNIT_Z);
+      g.stroke();
+    }
+    g.lineWidth = 1;
+    const mid = pr(pts[12][0], pts[12][1], pts[12][2]);
+    if (!mid.visible) continue;
+    const text = `${mine ? '' : '來襲 '}${def?.name ?? x.defId}×${x.shots} 下回合${atgm ? '命中' : '落下'}`;
+    g.font = '11px sans-serif';
+    g.textAlign = 'center';
+    const w = g.measureText(text).width + 10;
+    g.fillStyle = mine ? 'rgba(16,40,70,0.9)' : 'rgba(70,16,16,0.9)';
+    g.fillRect(mid.x - w / 2, mid.y - 18, w, 16);
+    g.fillStyle = color;
+    g.fillText(text, mid.x, mid.y - 6);
+  }
+}
+
 function drawPreviews() {
   drawPodPlans();
   drawMoveWarnings();
+  drawSmokePreview();
+  drawInbound();
   drawDeferRings();
   drawRearArc();
   if (view?.phase === 'pursuit') {
@@ -2242,6 +2329,8 @@ function renderPanel() {
       : show || view.submitted[view.you]
         ? ''
         : PHASE_HINT[view.phase];
+  const incoming = view.state.inbound.filter((x) => x.owner !== view!.you && unitView(x.target)?.owner === view!.you);
+  $('alertBar').textContent = show || view.phase === 'over' ? '' : incoming.map((x) => `⚠ 來襲警告：${labelOf(x.attacker).split(' ')[0]} 的${EQUIPMENT[x.defId]?.name ?? x.defId} ×${x.shots} 飛向 ${labelOf(x.target).split(' ')[0]}，下回合移動結束後${EQUIPMENT[x.defId]?.fire === 'atgm' ? '命中；發射端看不到、瞄不住就落空' : '落下；標定失效就落空'}`).join('\n');
   const u = selected ? unitView(selected) : undefined;
   $('info').innerHTML = u ? infoHtml(u) : '';
   $('infoCard').hidden = !u;
@@ -2702,7 +2791,20 @@ function moveControls(u: UnitView, plan: MovePlan): string {
 現在不能用：${climbWhy}` : ''}`,
       )
     : '';
-  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${climbBtn}${purgeBtn}${deferBtn}</div>`;
+  // 煙幕：有發射器才有；速度太快、用過了就淡掉
+  const screens = screenLaunchers(u as unknown as UnitState);
+  const screenWhy = screens.length ? screenBlocked(u as unknown as UnitState, { maneuver: plan.maneuver, smoke: screens[0].id }) : null;
+  const smokeBtn = screens.length
+    ? tip(
+        `<button class="${plan.smoke ? 'on' : ''}" data-smoke="${screens[0].id}" ${screenWhy && !plan.smoke ? 'data-off="1"' : ''}>放煙幕（剩 ${screens.length}）</button>`,
+        `煙幕彈：移動開始時在原地放出半徑 ${config.SMOKE_RADIUS} 的煙幕，留到這回合結束。射擊線穿過或目標在裡面命中 −${config.SMOKE_SHOT_PENALTY}（自己往外打也一樣）；煙裡有金屬粉，煙裡或隔著煙的機體標定、鎖定都會失效，飛過來的迫擊砲、飛彈會因此落空。速度 ${config.SCREEN_MAX_SPEED} 以下才能放，一個發射器一場一次。${screenWhy ? `
+現在不能用：${screenWhy}` : ''}`,
+      )
+    : '';
+  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${climbBtn}${smokeBtn}${purgeBtn}${deferBtn}</div>`;
+  if (view!.state.inbound.some((x) => x.target === u.id)) html += `<div class="row"><span class="small warn">⚠ 有彈藥飛向這台，下回合移動結束後命中${screens.length ? '（可以放煙幕甩掉）' : ''}</span></div>`;
+  const guiding = view!.state.inbound.find((x) => x.attacker === u.id && EQUIPMENT[x.defId]?.fire === 'atgm');
+  if (guiding) html += `<div class="row"><span class="small warn">導引反戰車飛彈中：這回合速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、${labelOf(guiding.target).split(' ')[0]} 要留在正面射界、看得到，不然落空</span></div>`;
   return html + '</div></div>' + (plan.defer ? '' : podMoveControls(u, plan));
 }
 
@@ -2753,7 +2855,7 @@ function salvoControls(u: UnitView, plan: ActionPlan): string {
     const cur = plan.salvo?.[w.id];
     html += `<div class="row"><span class="small muted">${esc(def.name)}</span>`;
     for (const t of enemies) {
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
       if (!h) continue;
       html += tip(`<button class="${cur === t.id ? 'on' : ''}" data-salvo="${w.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${def.name} → ${t.label}：${bandName(h.band)}・${chanceText(h.chance)}`);
     }
@@ -2782,7 +2884,7 @@ function podActionControls(u: UnitView, plan: ActionPlan): string {
     for (const t of enemies) {
       const at = e.pod!.pos;
       // 炮群本身當作不動（和結算一樣），相對速度就是目標的速度
-      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: lineOfFire(view!.state.obstacles, at, t.pos) });
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, at, t.pos) });
       const est = h ? `${bandName(h.band)}・${chanceText(h.chance)}${dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險' : ''}` : '炮群射程外';
       html += tip(`<button class="${chosen.includes(t.id) ? 'on' : ''}${dangerClose(view!.state, t.id) ? ' danger' : ''}" data-pod-t="${e.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${t.label}：${est}`);
     }
@@ -2848,8 +2950,8 @@ function otherOptions(u: UnitView): EquipOption[] {
       if (!roleLost(u, 'sensor')) out.push({ key: `mark:${e.id}`, label: `${def.name}・標定${jammed(view!.state.units, u) ? '（我方干擾中，標定不了）' : ''}`, kind: 'mark', equip: e.id });
       continue;
     }
-    // 電子干擾器一直開著，不用下指令
-    if (def.utility === 'ecm') continue;
+    // 電子干擾器一直開著、煙幕彈在移動時放，不用在行動下指令
+    if (def.utility === 'ecm' || def.utility === 'screen') continue;
     // 地雷、路障在樓頂上放不了
     if ((def.utility === 'mine' || def.utility === 'barricade') && u.z) continue;
     const verb = { smoke: '丟出', decoy: '放置', mine: '埋設', barricade: '架設' }[def.utility];
@@ -2983,12 +3085,11 @@ function weaponShot(u: UnitView, w: EquipState, t: UnitView): { h: NonNullable<R
   const def = EQUIPMENT[w.defId];
   const indirect = indirectFire(def);
   const wall = indirect ? null : barrierBetween(view!.state.units as never[] as (UnitView & { status: string })[], u.id, u.pos, u.z, t.pos);
-  const los = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
-  const cover = wall && los !== 'blocked' ? 'cover' : los;
+  const cover = { ...coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z), barrier: !!wall };
   if (def.fire === 'antiRadiation') {
     if (!ecmOf(t as never)) return { h: null, why: '反輻射飛彈只能打開著電子干擾的機體' };
-  } else if (def.fire && !t.mark) return { h: null, why: '飛彈、迫擊砲只能打被標定的目標' };
-  if (cover === 'blocked' && !indirect) return { h: null, why: '射擊線被擋住' };
+  } else if (needsMark(def) && !t.mark) return { h: null, why: '飛彈、迫擊砲只能打被標定的目標' };
+  if (cover.blocked && !indirect) return { h: null, why: '射擊線被擋住' };
   if (w.ammo !== undefined && w.ammo <= 0) return { h: null, why: '彈藥耗盡' };
   if (!indirect && def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
   if (def.pointBlank === false && rangeBand(u, t) === 0) return { h: null, why: '太近' };
@@ -3002,10 +3103,9 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     .map((id) => u.equipment.find((e) => e.id === id))
     .filter((e): e is EquipState => !!e);
   if (!ws.length) return '';
-  const los = lineOfFire(view!.state.obstacles, u.pos, t.pos, u.z, t.z);
   const wall = barrierBetween(view!.state.units as never[] as (UnitView & { status: string })[], u.id, u.pos, u.z, t.pos);
-  const cover = wall && los !== 'blocked' ? 'cover' : los;
-  if (cover === 'blocked' && !ws.some((w) => indirectFire(EQUIPMENT[w.defId]))) return '射擊線被擋住';
+  const cover = { ...coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z), barrier: !!wall };
+  if (cover.blocked && !ws.some((w) => indirectFire(EQUIPMENT[w.defId]))) return '射擊線被擋住';
   const shots = ws.map((w) => ({ w, ...weaponShot(u, w, t) }));
   const first = shots.find((s) => s.h)?.h;
   if (!first) return shots.map((s) => `${EQUIPMENT[s.w.defId].name}：${s.why}`).join('／');
@@ -3018,16 +3118,15 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     u.blackout && direct ? `黑視中 −${config.BLACKOUT_SHOT_PENALTY}` : '',
     view!.state.stance[u.id] === 'melee' ? `近戰姿態 −${config.MELEE_STANCE_SHOT_PENALTY}` : '',
     `相對速度 ${relSpeed.toFixed(1)}`,
-    direct && cover === 'field' ? `碎石 −${config.FIELD_SHOT_PENALTY}` : '',
-    direct && cover === 'smoke' ? `煙霧 −${config.SMOKE_SHOT_PENALTY}` : '',
-    direct && cover === 'cover' ? `${wall ? '盾牆' : '半掩護'} −${config.BUILDING_COVER_PENALTY}${wall ? '（命中都打在盾上）' : ''}` : '',
+    ...(direct ? coverParts(cover).map((c) => `${c.label} −${c.penalty}${c.label === '盾牆' ? '（命中都打在盾上）' : ''}`) : []),
     direct && first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%` : ''}` : '',
     t.mark ? `已標定 +${config.MARK_BONUS}` : '',
     barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
     direct && coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
     ...[...new Set(ws.map((w) => matchupText(CHASSIS[t.chassisId]?.armorType, EQUIPMENT[w.defId].damageType ?? 'kinetic')).filter(Boolean))],
   ].filter(Boolean);
-  const each = shots.map((s) => `${EQUIPMENT[s.w.defId].name} ${s.h ? `約 ${s.h.chance}%${s.h.chance > 100 ? `（爆擊約 ${Math.min(100, s.h.chance - 100)}%）` : ''}` : s.why}`).join('／');
+  const flightNote = (d: (typeof EQUIPMENT)[string]) => (!flightFire(d) ? '' : d.fire === 'atgm' ? `（下回合命中，那時自己要速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、目標留在正面射界、看得到）` : '（下回合落下，那時標定失效就落空）');
+  const each = shots.map((s) => `${EQUIPMENT[s.w.defId].name} ${s.h ? `約 ${s.h.chance}%${s.h.chance > 100 ? `（爆擊約 ${Math.min(100, s.h.chance - 100)}%）` : ''}${flightNote(EQUIPMENT[s.w.defId])}` : s.why}`).join('／');
   const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
   return `${mods.join('・')}・${each}・未計對方駕駛閃避${danger}`;
 }
@@ -3108,7 +3207,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
       for (const p of view!.state.enemyPods ?? []) {
         const w = u.equipment.find((x) => x.id === a.weapon);
         const ps = EQUIPMENT[p.defId].psycommu!;
-        const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: p.id, chassisId: '', pos: p.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, p.pos), targetEvasion: ps.evasion ?? 0 }) : null;
+        const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: p.id, chassisId: '', pos: p.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: coverOf(view!.state.obstacles, u.pos, p.pos), targetEvasion: ps.evasion ?? 0 }) : null;
         html += tip(`<button class="${a.target === p.id ? 'on' : ''}" data-target="${p.id}">${esc(p.label.split(' ')[0])} ${esc(enemyPodName(p))}</button>`, `射擊 ${p.label} 的${enemyPodName(p)}：${h ? chanceText(h.chance) : '射程外'}。${p.wired ? '打中就是打那隻手臂。' : '每發命中打掉一支。'}`);
       }
     // 有敵機站在上面的建築：列出來方便拆（其他建築直接點地圖）
@@ -3143,6 +3242,7 @@ function bindControls(u: UnitView | undefined) {
       if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
       else move.facingOffset = 0;
       if (move.climb && climbBlocked(u as unknown as UnitState, move)) move.climb = false;
+      if (move.smoke && screenBlocked(u as unknown as UnitState, move)) delete move.smoke;
       hoverManeuver = null;
       changed();
     };
@@ -3170,6 +3270,14 @@ function bindControls(u: UnitView | undefined) {
     b.onclick = () => {
       if (b.dataset.off) return;
       move.climb = !move.climb || undefined;
+      changed();
+    };
+  });
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-smoke]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.off) return;
+      if (move.smoke) delete move.smoke;
+      else move.smoke = b.dataset.smoke!;
       changed();
     };
   });
@@ -3418,7 +3526,11 @@ function describe(e: GameEvent): string | null {
     case 'purge':
       return `${L(e.unit)} 拋棄外裝甲`;
     case 'smoke':
-      return `${L(e.unit)} 丟出煙霧彈`;
+      return `${e.unit ? L(e.unit) : '看不到的敵機'} ${e.screen ? '放出煙幕（留到這回合結束）' : '丟出煙霧彈'}`;
+    case 'launch':
+      return `${L(e.attacker)} 發射${EQUIPMENT[e.weapon]?.name ?? e.weapon} ×${e.shots} → ${L(e.target)}，下回合移動結束後命中`;
+    case 'inboundLost':
+      return `${L(e.attacker)} 的${EQUIPMENT[e.weapon]?.name ?? e.weapon}（→ ${L(e.target)}）落空：${e.reason}`;
     case 'decoy':
       return `${L(e.unit)} 放出欺敵氣球`;
     case 'mine':

@@ -7,7 +7,7 @@ import { equipAlive } from './unit';
 import { canSee, sensorRange } from './vision';
 import { podSeen } from './psycommu';
 import { EQUIPMENT } from './data';
-import { jammed, knownMines } from './ecm';
+import { chaffed, jammed, knownMines } from './ecm';
 
 /** 看得到的敵方炮群 */
 export interface EnemyPod {
@@ -23,7 +23,7 @@ export interface EnemyPod {
   pos: Vec;
   bits: number;
 }
-import type { EquipState, GameEvent, GameState, GrappleState, Obstacle, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
+import type { EquipState, GameEvent, GameState, GrappleState, Inbound, Obstacle, PartState, PlayerId, Stance, UnitState, UnitStatus, Vec } from './types';
 
 /** 對手看得到機體，看不到駕駛 */
 export interface UnitView {
@@ -79,6 +79,8 @@ export interface StateView {
   balloons: { id: string; owner: PlayerId; pos: Vec }[];
   /** 知道的地雷：自己埋的，加上我方機體附近的敵方地雷 */
   mines: { id: string; owner: PlayerId; x: number; y: number }[];
+  /** 飛行中的彈藥（雙方都看得到：自己發射的，和瞄準自己機體的來襲警告） */
+  inbound: Inbound[];
   /** 看得到的敵方炮群（和母機看不看得到無關；母機藏著也可能看到它放出來的手臂或感應炮） */
   enemyPods: EnemyPod[];
   /** 自己還沒進場的增援 */
@@ -154,10 +156,16 @@ export function checkMarks(state: GameState): void {
       by.status === 'active' &&
       !roleLost(by, 'sensor') &&
       by.equipment.some((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(by, e)) &&
-      // 進入自己這一方的電子干擾範圍，標定就失效
+      // 進入自己這一方的電子干擾範圍，或被煙霧裡的金屬粉隔開，標定就失效
       !jammed(state.units, t) &&
+      !chaffed(state.obstacles, by.pos, t.pos) &&
       dist(by.pos, t.pos) - radiusOf(by) - radiusOf(t) <= sensorRange(by);
     if (!ok) delete t.mark;
+  }
+  // 鎖定也一樣：目標在煙霧裡或隔著煙霧就失效
+  for (const u of state.units) {
+    const t = u.lockOn ? state.units.find((x) => x.id === u.lockOn) : undefined;
+    if (t && chaffed(state.obstacles, u.pos, t.pos)) u.lockOn = null;
   }
 }
 
@@ -224,7 +232,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), inbound: structuredClone(s.inbound ?? []), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */
@@ -284,6 +292,10 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
       case 'buildingShot':
         // 建築被打大家都看得到；看不到的射手不知道是誰
         out.push(known(e.attacker) ? e : { ...e, attacker: '', chance: 0 });
+        break;
+      case 'smoke':
+        // 煙霧大家都看得到；看不到是誰放的
+        out.push(known(e.unit) ? e : { ...e, unit: '' });
         break;
       case 'mark':
         // 被標定的一方知道自己被照到，但看不到的話不知道是誰

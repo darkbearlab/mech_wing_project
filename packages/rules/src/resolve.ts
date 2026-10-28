@@ -1,9 +1,9 @@
 import { minSpeedOf, roleLost, roleParts } from './body';
-import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
+import { barricadeSpotOk, barricadeWall, chaffed, jammed, mineSpotOk } from './ecm';
 import { buildingHitChance, collapseVictims, damageBuilding } from './demolition';
 import * as C from './config';
 import { inMarkCone, sensorRange } from './vision';
-import { shoot, hitChance, spendRounds, type TurnInfo } from './combat';
+import { landInbound, needsMark, shoot, hitChance, spendRounds, type TurnInfo } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, typed, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { lungeCheck, meleeClash } from './melee';
@@ -21,7 +21,7 @@ import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreOb
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
-import { moveSpeed, readyMelee } from './unit';
+import { moveSpeed, readyMelee, screenBlocked } from './unit';
 import { alwaysReady, busyHands, defaultAction, defaultMove, equipAlive, handUsable, heldItem, pilotOf, planCost, rackSide, readyRanged, shotWeapons, swapOrders } from './unit';
 import { settleHeights } from './movement';
 
@@ -74,6 +74,17 @@ function exposeDecoys(ctx: Ctx): void {
 function popDecoy(ctx: Ctx, id: string, by: string | undefined, reason: string): void {
   ctx.state.decoys = (ctx.state.decoys ?? []).filter((d) => d.id !== id);
   ctx.events.push({ type: 'decoyPop', decoy: id, by, reason });
+}
+
+/** 煙幕彈：移動開始時在原地放出一團煙幕，留到這回合結束（不能放的就不放，指令檢查會先擋） */
+function launchScreen(ctx: Ctx, u: UnitState, plan: MovePlan): void {
+  if (!plan.smoke || screenBlocked(u, plan)) return;
+  const e = u.equipment.find((x) => x.id === plan.smoke)!;
+  if (e.ammo !== undefined) e.ammo--;
+  const { state } = ctx;
+  const n = state.obstacles.filter((o) => o.kind === 'smoke').length;
+  state.obstacles.push({ id: `smoke${state.turn}-${u.id}-${n}`, kind: 'smoke', x: u.pos.x, y: u.pos.y, r: C.SMOKE_RADIUS, until: state.turn });
+  ctx.events.push({ type: 'smoke', unit: u.id, at: { ...u.pos }, r: C.SMOKE_RADIUS, screen: true });
 }
 
 /** 機動的推進劑與壓力 */
@@ -132,6 +143,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
     if (frozen.has(u.id)) continue;
     stowIfFast(ctx, u, plan);
     payForMove(ctx, u, plan);
+    launchScreen(ctx, u, plan);
   }
 
   // 同時移動（纏鬥中的機體不動；纏鬥在動作步驟最後才結算）
@@ -148,7 +160,9 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   const hit = new Set([...bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.a, e.b] : []))]);
   for (const id of deferred) if (hit.has(id) && unitById(ctx, id).status === 'active') ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
   const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !hit.has(id) && !inGrapple(state, id));
-  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting };
+  const speed: Record<string, number> = {};
+  for (const id of movers) if (!frozen.has(id) && plans[id]) speed[id] = moveSpeed(plans[id]);
+  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting, speed };
   updateSight(state);
   checkWinner(ctx, false);
   if (state.winner === null && waiting.length) {
@@ -175,6 +189,7 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
     stance[id] = plan.stance;
     if (plan.purge) purgeArmor(ctx, u);
     payForMove(ctx, u, plan);
+    launchScreen(ctx, u, plan);
   }
   const frozen = new Set(state.units.filter((u) => u.status === 'active' && !aces.has(u.id)).map((u) => u.id));
   const result = simulateMovement(ctx, plans, stance, frozen);
@@ -189,7 +204,9 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   const later = (info.deferred ?? []).filter((id) => !aces.has(id) && unitById(ctx, id).status === 'active');
   for (const id of later) if (hit.has(id)) ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
   const next = later.filter((id) => !hit.has(id) && !inGrapple(state, id));
-  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next };
+  const speed = { ...(info.speed ?? {}) };
+  for (const id of aces) speed[id] = moveSpeed(plans[id]);
+  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next, speed };
   updateSight(state);
   checkWinner(ctx, false);
   if (state.winner === null && next.length) ctx.events.push({ type: 'phase', phase: 'ace' });
@@ -220,10 +237,12 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [] };
   const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
-  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set() };
+  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set(), speed: info.speed };
   const bumped = new Set(info.bumped);
   // 開火或鎖定會暴露位置
   const revealed = new Set<string>();
+  // 上一回合發射的迫擊砲、飛彈先落下
+  landInbound(ctx, turn);
 
   // 標定最先結算（這回合標定、這回合就能打），再來是用眩光武器射擊的，其餘技能高者先、同分抽籤
   const dazzles = (u: UnitState) => {
@@ -739,10 +758,12 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
   if (!u.equipment.some((e) => e.id === action.weapon && equipAlive(u, e) && EQUIPMENT[e.defId].utility === 'mark')) return fail('標定器已損壞');
   if (roleLost(u, 'sensor')) return fail('感測部位損壞，無法標定');
   if (jammed(state.units, u)) return fail('在我方的電子干擾範圍內，標定不了');
+  if (chaffed(state.obstacles, null, u.pos)) return fail('在煙霧裡，金屬粉擋住了標定');
   const def = EQUIPMENT[u.equipment.find((e) => e.id === action.weapon)!.defId];
   for (const x of state.units) if (x.mark?.by === u.id) delete x.mark;
   // 在對方電子干擾範圍內的敵機標定不到
-  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !jammed(state.units, t) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
+  // 在煙霧裡、隔著煙霧的也標定不到（金屬粉）
+  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !jammed(state.units, t) && !chaffed(state.obstacles, u.pos, t.pos) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
   if (!pool.length) return fail(`正面 ±${C.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內沒有可以標定的敵機`);
   for (let n = def.markCount ?? C.MARK_COUNT; n > 0 && pool.length; n--) {
     const t = pool.splice(Math.floor(ctx.rng.next() * pool.length), 1)[0];
@@ -822,6 +843,10 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '感測部位損壞，無法鎖定' });
       return false;
     }
+    if (chaffed(ctx.state.obstacles, u.pos, target.pos)) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '隔著煙霧（金屬粉），鎖定不了' });
+      return false;
+    }
     const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, relSpeed: null, shooterMelee: false });
     if (!band) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: `目標超出鎖定距離（底板邊緣 ${C.RANGE_LIMITS.r3} 格以內才能鎖定）` });
@@ -836,7 +861,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   for (const w of weapons) {
     if (target.status !== 'active') break;
     if (shoot(ctx, turn, u, w, target)) fired = true;
-    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${EQUIPMENT[w.defId].fire && !target.mark ? '飛彈、迫擊砲只能打被標定的目標' : lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
+    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${needsMark(EQUIPMENT[w.defId]) && !target.mark ? '飛彈、迫擊砲只能打被標定的目標' : lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
   }
   return fired;
 }
