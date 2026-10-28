@@ -267,7 +267,9 @@ function render(v: PlayerView): string {
   for (const x of s.inbound) {
     const def = EQUIPMENT[x.defId];
     const how = def?.fire === 'atgm' ? `發射端這回合要速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、目標留在發射端正面 ±${def.arc ?? 180}°、射擊線沒被擋住也沒隔著煙霧（發射端倒下或發射器壞了也一樣），不然落空` : '目標的標定失效（煙幕的金屬粉、電子干擾、超出標定機感測距離）就落空';
-    out.push(x.owner === v.you ? `飛行中（我方發射）：${x.attacker} 的${def?.name ?? x.defId} ×${x.shots} → ${x.target}，下回合移動結束後命中；${how}` : `⚠來襲警告：${L(x.attacker)} 的${def?.name ?? x.defId} ×${x.shots} 飛向 ${x.target}，下回合移動結束後命中；${how}`);
+    // 上一回合發射的，這回合行動步驟一開始就落下
+    const when = x.turn < s.turn ? '這回合行動步驟一開始命中' : '下回合移動結束後命中';
+    out.push(x.owner === v.you ? `飛行中（我方發射）：${x.attacker} 的${def?.name ?? x.defId} ×${x.shots} → ${x.target}，${when}；${how}` : `⚠來襲警告：${L(x.attacker)} 的${def?.name ?? x.defId} ×${x.shots} 飛向 ${x.target}，${when}；${how}`);
   }
   const jammers = s.units.filter((u) => ecmOf(u as never) && !u.hidden);
   if (jammers.length) out.push(`電子干擾中（中心距離 ${config.ECM_RADIUS} 格以內，同一方的機體標定不到、也標定不了別人）${jammers.map((u) => `${u.id}${pt(u.pos)}`).join(' ')}`);

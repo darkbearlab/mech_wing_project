@@ -4,8 +4,8 @@ import { DEFAULT_SETTINGS, EQUIPMENT, Match, Rng, aiOrders, createGame, pickRost
 
 const games = Number(process.argv[2] ?? 20);
 const maps: [string, BattleSettings][] = [
-  ['宇宙', DEFAULT_SETTINGS],
-  ['城市', { ...DEFAULT_SETTINGS, terrain: 'city', environment: 'gravity' }],
+  ['宇宙', { ...DEFAULT_SETTINGS, turnLimit: 25 }],
+  ['城市', { ...DEFAULT_SETTINGS, terrain: 'city', environment: 'gravity', turnLimit: 25 }],
 ];
 
 /** 射擊武器剩下的彈藥比例（有彈數的才算） */
