@@ -234,6 +234,20 @@ export const SMOKE_TURNS_GRAVITY = 4;
 export const SMOKE_TURNS_SPACE = 5;
 /** 隔著煙霧只在這個距離以內認得出是什麼 */
 export const SMOKE_ID_RANGE = 1;
+/**
+ * 垂直噴射器：滑完既有動能後跳到 JUMP_RANGE 格內、面向任選。推進劑宇宙 JUMP_PROPELLANT（重量級 JUMP_HEAVY_CLASS 以上 JUMP_PROPELLANT_HEAVY），
+ * 重力圈、水中 ×JUMP_GRAVITY_MULT（把機體推離地面和水平加速是兩回事）；最多跳上 JUMP_LEVELS 層。
+ * 壓力宇宙 +JUMP_STRESS_SPACE、重力圈 +JUMP_STRESS_GRAVITY；重力圈落地那回合射擊命中 −JUMP_LANDING_PENALTY
+ */
+export const JUMP_RANGE = 1;
+export const JUMP_PROPELLANT = 2;
+export const JUMP_PROPELLANT_HEAVY = 3;
+export const JUMP_HEAVY_CLASS = 3;
+export const JUMP_GRAVITY_MULT = 3;
+export const JUMP_LEVELS = 2;
+export const JUMP_STRESS_SPACE = 1;
+export const JUMP_STRESS_GRAVITY = 2;
+export const JUMP_LANDING_PENALTY = 20;
 /** 反戰車飛彈：命中那回合，發射端的機動速度要在這個值以下（要一直瞄著目標），不然失去導引 */
 export const ATGM_GUIDE_MAX_SPEED = 3;
 /** 煙幕彈發射器：移動時一起放，速度要在這個值以下；煙幕留到這回合結束 */

@@ -293,6 +293,9 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
         // 建築被打大家都看得到；看不到的射手不知道是誰
         out.push(known(e.attacker) ? e : { ...e, attacker: '', chance: 0 });
         break;
+      case 'jump':
+        if (known(e.unit)) out.push(e);
+        break;
       case 'smoke':
         // 煙霧大家都看得到；看不到是誰放的
         out.push(known(e.unit) ? e : { ...e, unit: '' });

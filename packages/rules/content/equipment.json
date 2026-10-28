@@ -480,5 +480,15 @@
     "durability": 10,
     "ammo": 1,
     "cost": 1
+  },
+  "jump_jet": {
+    "id": "jump_jet",
+    "name": "垂直噴射器",
+    "kind": "module",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 20,
+    "jumpJet": true,
+    "cost": 2
   }
 }

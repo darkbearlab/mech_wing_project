@@ -2,7 +2,8 @@ import { SCREEN_MAX_SPEED, CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACI
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
-import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, PartState, PilotDef, UnitState } from './types';
+import type { ActionPlan, ChassisDef, EquipDef, EquipState, Hand, MovePlan, Obstacle, PartState, PilotDef, UnitState } from './types';
+import { coastManeuver, jumpBlocked } from './jump';
 
 export const chassisOf = (u: { chassisId: string }): ChassisDef => CHASSIS[u.chassisId];
 export const pilotOf = (u: { pilotId: string }): PilotDef => PILOTS[u.pilotId];
@@ -254,11 +255,23 @@ export function cruiseManeuver(u: ManeuverLimits): string {
   return dial.filter((m) => m.kind === 'straight').sort((a, b) => Math.abs(a.speed - u.momentum) - Math.abs(b.speed - u.momentum))[0].id;
 }
 
-export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean): string[] {
+export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean, world?: { obstacles: Obstacle[]; settings?: { environment?: string } }): string[] {
   const errors: string[] = [];
   if (plan.defer) {
     if (!pilotOf(u).abilities.includes('ace_move')) errors.push(`${u.label}：駕駛沒有王牌移動能力，不能擱置`);
     else if (grappled) errors.push(`${u.label}：纏鬥中不能擱置移動`);
+    return errors;
+  }
+  // 垂直噴射器：不照機動盤
+  if (plan.jump) {
+    const why = grappled ? '纏鬥中不能噴射' : plan.climb ? '噴射和攀升不能同時用' : jumpBlocked(u, plan, world && { obstacles: world.obstacles, environment: world.settings?.environment });
+    if (why) errors.push(`${u.label}：${why}`);
+    if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
+    else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
+    if (plan.smoke) {
+      const s = screenBlocked(u, { maneuver: coastManeuver(u), smoke: plan.smoke });
+      if (s) errors.push(`${u.label}：${s}`);
+    }
     return errors;
   }
   if (!grappled) {

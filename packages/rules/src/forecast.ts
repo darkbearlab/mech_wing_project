@@ -4,6 +4,7 @@ import * as C from './config';
 import { radiusOf } from './body';
 import { worldPose } from './maneuvers';
 import { buildPath } from './movement';
+import { coastManeuver } from './jump';
 import { wallPenetration } from './terrain';
 import type { MovePlan, Obstacle, Vec } from './types';
 
@@ -21,6 +22,7 @@ interface Mover {
   id: string;
   pos: Vec;
   facing: number;
+  momentum?: number;
   chassisId: string;
   z?: number;
 }
@@ -30,7 +32,8 @@ const STEPS = 48;
 /** 一條路徑在時間 t 的位置（沒有機動、擱置或纏鬥中就是原地） */
 function track(u: Mover, plan: MovePlan | undefined): (t: number) => Vec {
   if (!plan || plan.defer) return () => u.pos;
-  const path = buildPath(u, plan);
+  // 噴射：預測只看滑行那一段（跳起來在空中不會撞）
+  const path = buildPath(u, plan.jump ? { ...plan, maneuver: coastManeuver(u as never) } : plan);
   return (t) => worldPose(path, t).pos;
 }
 

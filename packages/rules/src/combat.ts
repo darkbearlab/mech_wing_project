@@ -62,6 +62,8 @@ export interface HitInput {
   cover?: Cover | CoverInfo;
   /** 射擊方這回合被眩光照到 */
   dazzled?: boolean;
+  /** 射擊方這回合在重力圈噴射跳躍落地（落地衝擊） */
+  landing?: boolean;
   /** 目標不是機體（炮群）：用這個迴避代替機型的迴避 */
   targetEvasion?: number;
   /** 目標在生效中的防禦彈幕裡：命中下降這麼多 */
@@ -141,6 +143,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
   if (!machine && h.attacker.blackout) chance -= C.BLACKOUT_SHOT_PENALTY;
   if (h.dazzled) chance -= C.DAZZLE_PENALTY;
+  if (!machine && h.landing) chance -= C.JUMP_LANDING_PENALTY;
   if (!indirect) {
     const cover = asCoverInfo(h.cover);
     if (cover.blocked) return null;
@@ -192,6 +195,8 @@ export interface TurnInfo {
   dazzled?: Set<string>;
   /** 這回合機動的速度 */
   speed?: Record<string, number>;
+  /** 重力圈裡噴射跳躍、這回合剛落地的機體 */
+  jumped?: Set<string>;
 }
 
 /**
@@ -213,6 +218,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     shooterMelee: turn.stance[attacker.id] === 'melee',
     cover: { ...los, barrier: !!wall },
     dazzled: turn.dazzled?.has(attacker.id),
+    landing: turn.jumped?.has(attacker.id),
     // 戰艦自己的射擊不受彈幕影響
     barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
   });

@@ -59,6 +59,8 @@ export interface EquipDef {
   kind: 'ranged' | 'melee' | 'shield' | 'tank' | 'armor' | 'utility' | 'module';
   /** 輔助模組（kind module）：錨鉤這類被動裝備，攀升能多爬幾層、速度上限多多少 */
   climbBoost?: { levels: number; speed: number };
+  /** 垂直噴射器：移動步驟可以不選機動盤，滑完動能後跳到 1 格內任一點、面向任選 */
+  jumpJet?: boolean;
   /** 外裝甲（kind armor）：穿著時迴避減少、最大加減速減少；lockWeapons 為 true 時只有頭部武器能用 */
   evasionPenalty?: number;
   accelPenalty?: number;
@@ -376,6 +378,8 @@ export interface TurnInfoState {
   deferred?: string[];
   /** 本回合機動的速度（沒動、纏鬥中是 0）；導引反戰車飛彈的發射端要慢下來 */
   speed?: Record<string, number>;
+  /** 重力圈裡用垂直噴射器跳過的機體（落地衝擊，射擊命中下降） */
+  jumped?: string[];
 }
 
 export interface GameState {
@@ -447,6 +451,8 @@ export interface MovePlan {
   climb?: boolean;
   /** 感應武器（key 是裝備 id）：放出或移動到 to，或收回 */
   pods?: Record<string, PodOrder>;
+  /** 垂直噴射器：不照機動盤，滑完既有動能後跳到 to（1 格內），面向 facing（度，45 的倍數）；這時 maneuver 不看 */
+  jump?: { to: Vec; facing: number };
   /** 煙幕彈發射器（裝備 id）：移動開始時在原地放出一團煙幕（含金屬粉，防標定），留到回合結束；速度要在 config.SCREEN_MAX_SPEED 以下 */
   smoke?: string;
 }
@@ -495,7 +501,9 @@ export type GameEvent =
   | { type: 'move'; unit: string; samples: ([number, number, number] | null)[] }
   | { type: 'obstacle'; t: number; unit: string; obstacle: string; damage: number }
   /** 高度改變：攀升上樓頂或從樓頂邊緣落下 */
-  | { type: 'elevate'; t: number; unit: string; z: number; how: 'climb' | 'drop' }
+  | { type: 'elevate'; t: number; unit: string; z: number; how: 'climb' | 'drop' | 'jump' }
+  /** 垂直噴射器：從 from 跳到 to */
+  | { type: 'jump'; unit: string; from: Vec; to: Vec; facing: number }
   | { type: 'debris'; unit: string; obstacle: string; damage: number }
   | { type: 'contact'; t: number; a: string; b: string; vc: number; result: ContactResult }
   | {

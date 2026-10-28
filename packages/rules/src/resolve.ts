@@ -13,7 +13,7 @@ import { CHASSIS, EQUIPMENT } from './data';
 import { lineOfFire, wallPenetration } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
-import type { ActionPlan, EquipState, GameEvent, Mine, Obstacle, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
+import type { ActionPlan, EquipState, GameEvent, Mine, Obstacle, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState, Vec } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { barrageActive, inBarrage, isShip } from './ship';
@@ -22,6 +22,7 @@ import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
 import { moveSpeed, readyMelee, screenBlocked } from './unit';
+import { applyJumps, coastManeuver } from './jump';
 import { alwaysReady, busyHands, defaultAction, defaultMove, equipAlive, handUsable, heldItem, pilotOf, planCost, rackSide, readyRanged, shotWeapons, swapOrders } from './unit';
 import { settleHeights } from './movement';
 
@@ -74,6 +75,28 @@ function exposeDecoys(ctx: Ctx): void {
 function popDecoy(ctx: Ctx, id: string, by: string | undefined, reason: string): void {
   ctx.state.decoys = (ctx.state.decoys ?? []).filter((d) => d.id !== id);
   ctx.events.push({ type: 'decoyPop', decoy: id, by, reason });
+}
+
+const env = (state: GameState) => state.settings?.environment ?? 'space';
+
+/** 垂直噴射器落地：付推進劑與壓力，移動向量改成實際的位移 */
+function landJumps(ctx: Ctx, plans: Record<string, MovePlan>, ids: Iterable<string>, halted: Set<string>, velocity: Record<string, Vec>, startPos: Map<string, Vec>): Set<string> {
+  const done = applyJumps(ctx, plans, ids, halted, (u, propellant, stress) => {
+    spendPropellant(ctx, u, Math.min(propellant, u.propellant));
+    addStress(ctx, u, stress, env(ctx.state) === 'space' ? '噴射急轉' : '噴射跳躍');
+  });
+  for (const id of done) {
+    const u = unitById(ctx, id);
+    const s = startPos.get(id) ?? u.pos;
+    velocity[id] = { x: u.pos.x - s.x, y: u.pos.y - s.y };
+  }
+  return done;
+}
+
+/** 噴射後的動能：宇宙保留（已經跟著新的面向），重力圈落地歸零 */
+function settleJumpMomentum(ctx: Ctx, jumped: Set<string>): void {
+  if (env(ctx.state) === 'space') return;
+  for (const id of jumped) unitById(ctx, id).momentum = 0;
 }
 
 /** 煙幕彈：移動開始時在原地放出一團煙幕，留到這回合結束（不能放的就不放，指令檢查會先擋） */
@@ -141,17 +164,22 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
     }
     if (plan.purge) purgeArmor(ctx, u);
     if (frozen.has(u.id)) continue;
-    stowIfFast(ctx, u, plan);
-    payForMove(ctx, u, plan);
-    launchScreen(ctx, u, plan);
+    // 垂直噴射器：先沿朝向滑完動能（推進劑、壓力落地時才付）
+    if (plan.jump) plans[u.id] = { ...plan, maneuver: coastManeuver(u), limiter: false, facingOffset: 0, climb: undefined };
+    stowIfFast(ctx, u, plans[u.id]);
+    if (!plan.jump) payForMove(ctx, u, plan);
+    launchScreen(ctx, u, plans[u.id]);
   }
+  const startPos = new Map(state.units.map((u) => [u.id, { ...u.pos }]));
 
   // 同時移動（纏鬥中的機體不動；纏鬥在動作步驟最後才結算）
   const moveFrom = ctx.events.length;
   const { bumped, velocity, stopped } = simulateMovement(ctx, plans, stance, new Set([...frozen, ...deferred]));
-  triggerMines(ctx, moveFrom);
   const movers = new Set(Object.keys(plans).filter((id) => !deferred.has(id)));
+  const jumped = landJumps(ctx, plans, [...movers].filter((id) => !frozen.has(id)), new Set([...stopped, ...bumped]), velocity, startPos);
+  triggerMines(ctx, moveFrom);
   settleMomentum(ctx, plans, movers, frozen, stopped);
+  settleJumpMomentum(ctx, jumped);
   // 炮群跟著母機的新位置放出、移動或收回（擱置的王牌在王牌移動步驟才動）
   movePods(ctx, plans, movers, (id) => inGrapple(state, id));
 
@@ -162,7 +190,7 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
   const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !hit.has(id) && !inGrapple(state, id));
   const speed: Record<string, number> = {};
   for (const id of movers) if (!frozen.has(id) && plans[id]) speed[id] = moveSpeed(plans[id]);
-  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting, speed };
+  state.turnInfo = { stance, velocity, bumped: [...bumped], deferred: waiting, speed, ...(jumped.size && env(state) !== 'space' ? { jumped: [...jumped] } : {}) };
   updateSight(state);
   checkWinner(ctx, false);
   if (state.winner === null && waiting.length) {
@@ -185,16 +213,19 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   for (const id of aces) {
     const u = unitById(ctx, id);
     const plan = { ...(movesByPlayer[u.owner][id] ?? defaultMove(u)), defer: false };
-    plans[id] = plan;
+    plans[id] = plan.jump ? { ...plan, maneuver: coastManeuver(u), limiter: false, facingOffset: 0, climb: undefined } : plan;
     stance[id] = plan.stance;
     if (plan.purge) purgeArmor(ctx, u);
-    payForMove(ctx, u, plan);
-    launchScreen(ctx, u, plan);
+    if (!plan.jump) payForMove(ctx, u, plan);
+    launchScreen(ctx, u, plans[id]);
   }
+  const startPos = new Map(state.units.map((u) => [u.id, { ...u.pos }]));
   const frozen = new Set(state.units.filter((u) => u.status === 'active' && !aces.has(u.id)).map((u) => u.id));
   const result = simulateMovement(ctx, plans, stance, frozen);
+  const jumped = landJumps(ctx, plans, aces, new Set([...result.stopped, ...result.bumped]), result.velocity, startPos);
   triggerMines(ctx, 0);
   settleMomentum(ctx, plans, aces, new Set(), result.stopped);
+  settleJumpMomentum(ctx, jumped);
   movePods(ctx, plans, aces, (id) => inGrapple(state, id));
   const velocity = { ...info.velocity };
   for (const id of aces) velocity[id] = result.velocity[id] ?? { x: 0, y: 0 };
@@ -206,7 +237,8 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   const next = later.filter((id) => !hit.has(id) && !inGrapple(state, id));
   const speed = { ...(info.speed ?? {}) };
   for (const id of aces) speed[id] = moveSpeed(plans[id]);
-  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next, speed };
+  const landed = [...(info.jumped ?? []), ...(env(state) !== 'space' ? jumped : [])];
+  state.turnInfo = { stance, velocity, bumped: [...new Set([...info.bumped, ...result.bumped])], deferred: next, speed, ...(landed.length ? { jumped: landed } : {}) };
   updateSight(state);
   checkWinner(ctx, false);
   if (state.winner === null && next.length) ctx.events.push({ type: 'phase', phase: 'ace' });
@@ -237,7 +269,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   const rng = new Rng(state.rngState);
   const ctx: Ctx = { state, rng, events: [] };
   const info = state.turnInfo ?? { stance: {}, velocity: {}, bumped: [] };
-  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set(), speed: info.speed };
+  const turn: TurnInfo = { stance: info.stance, velocity: info.velocity, dazzled: new Set(), speed: info.speed, jumped: new Set(info.jumped ?? []) };
   const bumped = new Set(info.bumped);
   // 開火或鎖定會暴露位置
   const revealed = new Set<string>();
