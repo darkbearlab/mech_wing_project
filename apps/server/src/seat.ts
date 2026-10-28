@@ -36,6 +36,7 @@ import {
   grappleOptions,
   hitChance,
   lineOfFire,
+  exposed,
   coverOf,
   coverParts,
   flightFire,
@@ -121,7 +122,7 @@ const L = (id: string) => labels.get(id) ?? id;
 
 function partsText(u: UnitView): string {
   return Object.values(u.parts)
-    .map((p) => `${p.name}${p.destroyed ? '✕' : `${p.durability - p.damage}/${p.durability}`}`)
+    .map((p) => `${p.name}${p.destroyed ? '✕' : `${p.durability - p.damage}/${p.durability}${exposed(p) ? '（外露）' : ''}`}`)
     .join(' ');
 }
 
@@ -325,7 +326,7 @@ function eventText(e: GameEvent): string {
     case 'shot':
       return `${L(e.attacker)}${e.pod ? '（炮群）' : ''} 以${EQUIPMENT[e.weapon]?.name ?? e.weapon}射擊 ${L(e.target)} ${bandName(e.band)}${e.chance !== undefined ? ` ${e.chance}%` : ''}：${e.hits}/${e.shots} 命中${e.crits ? ` 爆擊${e.crits}` : ''}${e.blocked ? ` 盾擋${e.blocked}` : ''}${e.strays ? ` 誤擊${e.strays}` : ''}`;
     case 'damage':
-      return `${L(e.unit)} ${e.part} 受 ${e.amount}${e.typed === 'weak' ? '（弱點）' : e.typed === 'resist' ? '（抵抗）' : ''}${e.destroyed ? ' 破壞' : ''}`;
+      return `${L(e.unit)} ${e.part} 受 ${e.amount}${e.exposed ? '（外露）' : e.typed === 'weak' ? '（弱點）' : e.typed === 'resist' ? '（抵抗）' : ''}${e.destroyed ? ' 破壞' : ''}`;
     case 'status':
       return `${L(e.unit)} ${e.status}${e.by ? `（${L(e.by)}）` : ''}`;
     case 'stress':
@@ -453,6 +454,7 @@ function writeCatalog() {
     `追擊：移動結算後，射擊方在目標背後 ±${config.PURSUIT_ARC_DEG}°、而且自己面向目標 ±${config.PURSUIT_ARC_DEG}°，距離在${['零距離', '近距離', '中距離'][config.PURSUIT_MAX_BAND]}以內，就可以用一件射擊武器多開一槍（不算這回合的動作，行動步驟照常行動）。這是繞到背後的獎勵；腳斷了動不了的機體也能追擊，只要有敵機停在它面前、背對著它。追擊用 {"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}，null 是放棄；可以選的會列在 view.txt 的「追擊選項」。最靠後咬住的先結算。`,
     '',
     '== 城市戰的規則 ==',
+    `機械外露：機體部位的耐久剩三分之一以下（含）就標「外露」，被打中一律算弱點 +${config.TYPE_MULT * 100}%，不管裝甲與屬性（武器、盾、外掛裝備不算）。`,
     `傷害屬性與裝甲（三角相剋，±${config.TYPE_MULT * 100}%）：複合裝甲擋動能、怕化學能；反射裝甲擋能量、怕動能；陶瓷裝甲擋化學能、怕能量。機體部位照機型的裝甲，盾牌照盾牌的裝甲；武器和其他裝備不剋也不被剋。耐久與傷害的刻度是舊版的 10 倍（基本數值是 10 的倍數；相剋、高打低算完四捨五入，所以會有 8、13、38 這種零頭）。`,
     `命中部位看攻擊方向（照目標的朝向：正面 ±${config.FRONT_ARC_DEG}°、背後 ${config.BACK_ARC_DEG}° 以外、其餘側面）：正面打背包權重 ×${config.HIT_DIRECTION_WEIGHT.front.propulsion}、軀幹 ×${config.HIT_DIRECTION_WEIGHT.front.core}；背後打背包 ×${config.HIT_DIRECTION_WEIGHT.back.propulsion}、頭 ×${config.HIT_DIRECTION_WEIGHT.back.sensor}；側面打靠近的那隻手 ×${config.HIT_DIRECTION_WEIGHT.side.near}、另一隻 ×${config.HIT_DIRECTION_WEIGHT.side.far}、背包 ×${config.HIT_DIRECTION_WEIGHT.side.propulsion}。外掛裝備照掛的部位、手上的武器照那隻手。近戰、撞擊照出手那台的位置；從上方打下來的（迫擊砲、垂直飛彈、跳劈）照頂部攻擊表；樓塌、地雷、墜落不看方向。從正面打過來的傷害 ×${config.FRONT_DAMAGE_MULT}（正面裝甲最厚；從上方打下來的不算），所以繞到側面、背後打比較划算。`,
     `零距離開火（底板邊緣 ${config.RANGE_LIMITS.r0} 格內）：有 ${config.ZERO_RANGE_SELF_DAMAGE}% 機率傷到自己這件武器 ${config.DAMAGE_SCALE} 點（內建武器傷到所在部位）。`,

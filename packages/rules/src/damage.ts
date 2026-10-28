@@ -210,6 +210,10 @@ export function typeMultiplier(armor: ArmorType | undefined, type: DamageType | 
   return 1;
 }
 
+/** 機械外露：還沒壞的機體部位，耐久剩 EXPOSED_RATIO 以下 */
+export const exposed = (p: { kind: string; durability: number; damage: number; destroyed?: boolean }): boolean =>
+  p.kind === 'body' && !p.destroyed && p.durability > 0 && p.durability - p.damage <= p.durability * C.EXPOSED_RATIO + 1e-9;
+
 /** 以 type 屬性造成傷害 */
 export function typed(ctx: Ctx, type: DamageType | undefined, fn: () => void): void {
   const prev = ctx.damageType;
@@ -233,7 +237,9 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, raw: number): number {
     if (held && equipDef(held).kind === 'shield') part = u.parts[held.id];
   }
   // 屬性相剋：照這個部位的裝甲加減傷；打穿多出來的傷害換回原始值，再照下一個部位的裝甲算
-  const m = typeMultiplier(partArmor(u, part), ctx.damageType);
+  // 機械外露的部位：不管裝甲與屬性，一律算弱點
+  const bare = exposed(part);
+  const m = bare ? 1 + C.TYPE_MULT : typeMultiplier(partArmor(u, part), ctx.damageType);
   const amount = m === 1 ? raw : Math.max(1, Math.round(raw * m));
   const over = Math.max(0, amount - (part.durability - part.damage));
   const spill = m === 1 ? over : Math.round(over / m);
@@ -241,7 +247,7 @@ function hitPart(ctx: Ctx, u: UnitState, partId: string, raw: number): number {
   const destroyed = part.damage >= part.durability;
   const newlyDestroyed = destroyed && !part.destroyed;
   part.destroyed = destroyed;
-  ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed, ...(m > 1 ? { typed: 'weak' as const } : m < 1 ? { typed: 'resist' as const } : {}) });
+  ctx.events.push({ type: 'damage', unit: u.id, part: part.id, amount, destroyed: newlyDestroyed, ...(m > 1 ? { typed: 'weak' as const } : m < 1 ? { typed: 'resist' as const } : {}), ...(bare ? { exposed: true } : {}) });
   // 戰艦的艦體很大，挨打不會讓艦長受衝擊；壓力照舊的點數算
   if (part.role === 'core' && !isShip(u)) addStress(ctx, u, Math.max(1, Math.round(amount / C.DAMAGE_SCALE)), `${part.name}受創`);
   if (newlyDestroyed) onDestroyed(ctx, u, part.id);

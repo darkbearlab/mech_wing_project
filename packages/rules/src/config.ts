@@ -165,6 +165,8 @@ export const LOCK_BONUS = 20;
 export const DAMAGE_SCALE = 10;
 /** 屬性相剋：打在弱點 +、被抵抗 −（四捨五入，至少 1） */
 export const TYPE_MULT = 0.25;
+/** 機械外露：機體部位的耐久剩這個比例以下（含），裝甲已經掀開，被打中一律算弱點（×(1 + TYPE_MULT)），不管裝甲與屬性 */
+export const EXPOSED_RATIO = 1 / 3;
 /** 每種裝甲擋哪一種屬性、怕哪一種 */
 export const ARMOR_RESISTS = { composite: 'kinetic', reflective: 'energy', ceramic: 'chemical' } as const;
 export const ARMOR_WEAK = { composite: 'chemical', reflective: 'kinetic', ceramic: 'energy' } as const;
