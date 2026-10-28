@@ -1,0 +1,99 @@
+{
+  "note": "CF-01 核心戰機（鋼彈的核心戰機）：2026-10-28 從原創內建資料移出封存。測試仍用它驗證戰機規則（最低速度、飛行高度、沒有手）。",
+  "damageScale": 10,
+  "chassis": {
+    "CF-01": {
+      "id": "CF-01",
+      "name": "CF-01 核心戰機",
+      "weightClass": 1,
+      "propellant": 14,
+      "baseThrust": 2,
+      "maxAccel": 2,
+      "power": 1,
+      "aim": 0,
+      "evasion": 20,
+      "radius": 0.35,
+      "minSpeed": 2,
+      "closeCombat": false,
+      "builtIn": [
+        {
+          "defId": "nose_vulcan",
+          "host": "hull"
+        }
+      ],
+      "parts": {
+        "hull": {
+          "name": "機身",
+          "role": "core",
+          "weight": 3,
+          "durability": 40
+        },
+        "engine": {
+          "name": "引擎",
+          "role": "propulsion",
+          "weight": 2,
+          "durability": 20
+        },
+        "wing": {
+          "name": "機翼",
+          "role": null,
+          "weight": 2,
+          "durability": 20
+        },
+        "canopy": {
+          "name": "座艙罩",
+          "role": "sensor",
+          "weight": 1,
+          "durability": 10
+        }
+      },
+      "dial": [
+        "straight-S-2",
+        "straight-S-3",
+        "straight-S-4",
+        "straight-S-5",
+        "straight-S-6",
+        "bank-L-2",
+        "bank-R-2",
+        "bank-L-3",
+        "bank-R-3",
+        "bank-L-4",
+        "bank-R-4",
+        "turn-L-2",
+        "turn-R-2",
+        "turn-L-3",
+        "turn-R-3",
+        "arc-L-5",
+        "arc-R-5"
+      ],
+      "cost": 4
+    }
+  },
+  "equipment": {
+    "nose_vulcan": {
+      "id": "nose_vulcan",
+      "name": "機首機砲",
+      "kind": "ranged",
+      "mount": "integrated",
+      "weight": 0,
+      "durability": 10,
+      "damage": 10,
+      "shots": 4,
+      "mode": "scattered",
+      "arc": 30,
+      "ranges": {
+        "1": 5,
+        "2": -5
+      },
+      "tags": [
+        "secondary"
+      ],
+      "damageType": "kinetic"
+    }
+  },
+  "loadouts": {
+    "CF-01": [
+      []
+    ]
+  }
+}

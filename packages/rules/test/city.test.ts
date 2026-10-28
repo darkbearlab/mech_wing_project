@@ -14,7 +14,8 @@ import { DEFAULT_SETTINGS } from '../src/objectives';
 import type { GameEvent, GameState, Obstacle } from '../src/types';
 import { busyHands, validateAction, validateMove } from '../src/unit';
 import { canSee } from '../src/vision';
-import { makeState, plan, rifleX00 } from './helpers';
+import { makeState, plan, rifleX00, withFighter } from './helpers';
+import { DEFAULT_CONTENT, useContent } from '../src/content';
 
 const bld = (id: string, x: number, y: number, hx: number, hy: number, levels: number): Obstacle => ({ id, kind: 'building', x, y, hx, hy, levels, r: Math.hypot(hx, hy) });
 
@@ -90,7 +91,7 @@ describe('高打低', () => {
     expect(at(0, 2).chance).toBe(at(0, 0).chance);
   });
 
-  it('高出 HIGH_GROUND_DAMAGE_FROM 層以上命中：每發傷害 +HIGH_GROUND_DAMAGE', () => {
+  it('高出 HIGH_GROUND_DAMAGE_FROM 層以上命中：每發傷害 +HIGH_GROUND_DAMAGE_PCT', () => {
     const run = (z: number) => {
       const st = makeState([
         { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 },
@@ -106,7 +107,7 @@ describe('高打低', () => {
     const high = run(C.HIGH_GROUND_DAMAGE_FROM);
     expect(run(C.HIGH_GROUND_DAMAGE_FROM - 1)).toBe(low);
     expect(low).toBeGreaterThan(0);
-    expect(high).toBe(low + C.HIGH_GROUND_DAMAGE);
+    expect(high).toBe(Math.round(low * (1 + C.HIGH_GROUND_DAMAGE_PCT)));
   });
 });
 
@@ -291,10 +292,12 @@ describe('試玩回饋的修正', () => {
   });
 
   it('城市地圖：戰機在 FLIGHT_LEVEL 層飛，不會落下', () => {
+    withFighter();
     const roster = [{ chassis: 'CF-01', pilot: 'veteran', equipment: [] }, ...pickRosters(1)[0].slice(1)] as RosterEntry[];
     const st = createGame(5, [roster, pickRosters(1)[1]], { ...DEFAULT_SETTINGS, terrain: 'city', environment: 'gravity' });
     const jet = st.units.find((u) => u.chassisId === 'CF-01')!;
     expect(jet.z).toBe(C.FLIGHT_LEVEL);
+    useContent(DEFAULT_CONTENT);
   });
 
   it('戰爭迷霧：看不到的敵機爬樓、落下的事件不送給對手', () => {

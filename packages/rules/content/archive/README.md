@@ -11,3 +11,6 @@
 - 瀏覽器：開發版加上 `?content=/@fs/<repo 路徑>/packages/rules/content/archive/gundam-0.4.1.json`，
   或 `?content=0.4.1` 直接讀線上 API 上的那一版。
 - 本機伺服器：`PACK=packages/rules/content/archive/gundam-0.4.1.json npm run dev`。
+
+- `cf-01.json`：CF-01 核心戰機（2026-10-28 從原創內建資料移出）。不是完整資料包，只有機型、機首機砲與配裝；
+  測試用 `test/helpers.ts` 的 `withFighter()` 把它加回內建資料，驗證戰機規則（最低速度、飛行高度、沒有手）。

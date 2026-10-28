@@ -6,7 +6,7 @@ import { createGame } from '../src/setup';
 import { availableManeuvers, dialOf, maneuverCost } from '../src/unit';
 import { parseManeuver } from '../src/maneuvers';
 import type { PlayerMoves } from '../src/types';
-import { makeState, rifleX00 } from './helpers';
+import { makeState, rifleX00, withFighter } from './helpers';
 import { rollPart } from '../src/damage';
 import { hitChance } from '../src/combat';
 import { EQUIPMENT } from '../src/data';
@@ -27,6 +27,7 @@ describe('側移', () => {
     expect(dialOf({ chassisId: 'X-00' })).toEqual(expect.arrayContaining(['slide-L-1', 'slide-R-1']));
     expect(dialOf({ chassisId: 'X-00' })).not.toContain('slide-L-2');
     expect(dialOf({ chassisId: 'X-01' })).toContain('slide-R-2');
+    withFighter();
     expect(dialOf({ chassisId: 'CF-01' }).some((m) => m.startsWith('slide'))).toBe(false);
   });
 

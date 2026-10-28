@@ -2842,11 +2842,12 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   const mods = [
     `${bandName(first.band)}`,
     u.blackout && direct ? `黑視中 −${config.BLACKOUT_SHOT_PENALTY}` : '',
+    view!.state.stance[u.id] === 'melee' ? `近戰姿態 −${config.MELEE_STANCE_SHOT_PENALTY}` : '',
     `相對速度 ${relSpeed.toFixed(1)}`,
     direct && cover === 'field' ? `碎石 −${config.FIELD_SHOT_PENALTY}` : '',
     direct && cover === 'smoke' ? `煙霧 −${config.SMOKE_SHOT_PENALTY}` : '',
     direct && cover === 'cover' ? `${wall ? '盾牆' : '半掩護'} −${config.BUILDING_COVER_PENALTY}${wall ? '（命中都打在盾上）' : ''}` : '',
-    direct && first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE}` : ''}` : '',
+    direct && first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%` : ''}` : '',
     t.mark ? `已標定 +${config.MARK_BONUS}` : '',
     barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
     direct && coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
