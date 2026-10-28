@@ -2076,7 +2076,7 @@ function drawJumpPlans() {
     }
     const to = plan.jump.to;
     const z = landingHeight(view.state.obstacles, u, to);
-    const ok = z !== null && Math.hypot(to.x - from.x, to.y - from.y) <= config.JUMP_RANGE + 1e-6;
+    const ok = z !== null && Math.hypot(to.x - from.x, to.y - from.y) <= config.JUMP_RANGE + 0.1;
     g.strokeStyle = ok ? 'rgba(239,159,39,0.95)' : 'rgba(240,80,80,0.95)';
     const pts: [number, number, number][] = [];
     for (let i = 0; i <= 12; i++) {

@@ -61,7 +61,8 @@ export function jumpBlocked(u: Jumper, plan: Pick<MovePlan, 'jump'>, world?: { o
   const cost = jumpCost(u, env);
   if ((u.propellant ?? 0) < cost) return `推進劑不足（要 ${cost}）`;
   if (!j.to || !Number.isFinite(j.to.x) || !Number.isFinite(j.to.y)) return '落點不正確';
-  if (dist(from, j.to) > C.JUMP_RANGE + 1e-6) return `落點要在滑完動能後的位置 ${C.JUMP_RANGE} 格以內`;
+  // 顯示的座標只到小數一位：多給 0.1 格的寬容，照畫面上的數字算剛好 1 格也落得下去
+  if (dist(from, j.to) > C.JUMP_RANGE + 0.1) return `落點要在滑完動能後的位置 ${C.JUMP_RANGE} 格以內`;
   if (world && landingHeight(world.obstacles, u, j.to) === null) return `那裡落不下去（大隕石、太高的建築；最多跳上 ${C.JUMP_LEVELS} 層）`;
   return null;
 }
