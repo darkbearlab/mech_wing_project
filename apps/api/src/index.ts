@@ -11,7 +11,7 @@
 //   POST   /battles            上傳一場對戰紀錄（不用金鑰；只留最近 MAX_BATTLES 場）
 //   GET    /battles            對戰紀錄列表（需管理金鑰）；?limit=
 //   GET    /battles/:id        一場對戰的完整紀錄（需管理金鑰）
-//   GET    /ws?room=&seat=     對戰房間（WebSocket；一個房間一個 Durable Object，seat 是 0、1 或 watch）
+//   GET    /ws?room=&seat=     對戰房間（WebSocket；一個房間一個 Durable Object，seat 是 0、1、小隊席位 0-1 這類，或 watch）
 // 版本號是「大.小.修」（例如 0.1.4）；最早的 v1…v5 已改名為 0.1.0…0.1.4
 import { DurableObject } from 'cloudflare:workers';
 import { MAX_RECORD_BYTES, Room, checkRecord, validateContent, type BattleRecord, type ContentPack } from '@mech/rules';
@@ -33,7 +33,7 @@ export class MatchRoom extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     const seatParam = new URL(req.url).searchParams.get('seat');
-    const seat = seatParam === 'watch' ? 'watch' : Number(seatParam) === 1 ? 1 : 0;
+    const seat = seatParam ?? '0';
     const { 0: client, 1: server } = new WebSocketPair();
     server.accept();
     const conn = this.room.connect({ send: (d) => server.send(d), close: (c, r) => server.close(c, r) }, seat);

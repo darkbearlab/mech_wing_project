@@ -9,6 +9,8 @@ import type { BattleSettings } from './objectives';
 
 export interface BattleStep {
   seat: PlayerId;
+  /** 小隊席位送出的（沒寫是整方） */
+  squad?: number;
   phase: TurnPhase;
   orders: PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy;
 }
@@ -53,10 +55,10 @@ export function checkRecord(r: unknown): string | null {
 
 /** 照步驟送出指令 */
 export function submitStep(match: Match, s: BattleStep): string[] {
-  if (s.phase === 'move' || s.phase === 'ace') return match.submitMoves(s.seat, s.orders as PlayerMoves);
-  if (s.phase === 'pursuit') return match.submitPursuits(s.seat, s.orders as PlayerPursuits);
-  if (s.phase === 'deploy') return match.submitDeploy(s.seat, s.orders as PlayerDeploy);
-  return match.submitActions(s.seat, s.orders as PlayerActions);
+  if (s.phase === 'move' || s.phase === 'ace') return match.submitMoves(s.seat, s.orders as PlayerMoves, s.squad);
+  if (s.phase === 'pursuit') return match.submitPursuits(s.seat, s.orders as PlayerPursuits, s.squad);
+  if (s.phase === 'deploy') return match.submitDeploy(s.seat, s.orders as PlayerDeploy, s.squad);
+  return match.submitActions(s.seat, s.orders as PlayerActions, s.squad);
 }
 
 /**
@@ -78,7 +80,7 @@ export function replayRecord(rec: BattleRecord, onResolved?: (m: Match, phase: T
       errors.push(`第 ${i} 步（${'AB'[s.seat]} 方）：${errs.join('；')}`);
       break;
     }
-    pending[s.seat] = s.orders;
+    pending[s.seat] = s.squad === undefined ? s.orders : ({ ...pending[s.seat], ...s.orders } as BattleStep['orders']);
     if (match.resolvedCount !== before) {
       onResolved?.(match, s.phase, pending);
       pending = [null, null];

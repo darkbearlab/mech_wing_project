@@ -1,5 +1,5 @@
 // 等文字座位的下一個提示（給沒辦法被背景通知叫醒的 Agent 用）。
-// 用法：npm run seat-wait -- <房間> <席位> <上次看到的提示編號>
+// 用法：npm run seat-wait -- <房間> <席位（0、1、0-1…）> <上次看到的提示編號>
 //   一直等到 logs/seat/<房間>-<席位>/prompt.json 的編號比給的大（輪到你、對戰結束或伺服器回錯），
 //   然後印出提示、最近的結算結果與 view.txt；超過約 9 分鐘沒有新提示就印 TIMEOUT 結束（再呼叫一次繼續等）。
 import { existsSync, readFileSync } from 'node:fs';

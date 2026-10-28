@@ -13,6 +13,8 @@ export interface RosterEntry {
   pilot: string;
   /** [裝備 id, 位置, 宿主部位]（外掛、內建、內藏要寫宿主） */
   equipment: [string, 'right' | 'left' | 'stowed' | 'mount' | 'builtin' | 'housed', string?][];
+  /** 這台歸哪個小隊指揮（同一方可以分給幾個玩家或電腦各自下指令）；沒寫是 0 */
+  squad?: number;
 }
 
 export const EQUIPMENT: Record<string, EquipDef> = {};

@@ -49,6 +49,7 @@ export function createUnit(entry: RosterEntry, owner: PlayerId, index: number, p
     lockOn: null,
     status: 'active',
     blackout: false,
+    ...(entry.squad !== undefined ? { squad: entry.squad } : {}),
   };
 }
 

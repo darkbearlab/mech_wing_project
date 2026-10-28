@@ -1,5 +1,5 @@
 // 文字座位：用純文字坐進連線房間的一個席位（給 Claude 這類讀文字的玩家用）。
-// 用法：npm run seat -- [房間] [席位 0/1]
+// 用法：npm run seat -- [房間] [席位 0/1，分小隊時 0-1、1-2 這類]
 //   輪到這一席下指令時，把這一方看得到的局面寫到 logs/seat/<房間>-<席位>/view.txt（原始資料在 view.json），並在標準輸出印一行 YOUR_TURN。
 //   把要送的指令（和網頁送的一樣的 ClientMessage JSON）寫到同一個資料夾的 orders.json，送出後改名成 sent-<時間>.json。
 //   結算結果附加到 events.txt，伺服器回的錯誤印 ERROR。
@@ -62,12 +62,15 @@ import {
 } from '@mech/rules';
 
 const [room = 'claude', seatArg = '1'] = process.argv.slice(2);
-const seat = seatArg === '0' ? 0 : 1;
+/** 席位名稱（0、1、0-1…）與所屬的一方 */
+const seatName = /^[01](-\d{1,2})?$/.test(seatArg) ? seatArg.replace(/-0$/, '') : '1';
+const seat = seatName.startsWith('0') ? 0 : 1;
+const seatSquad = Number(seatName.split('-')[1] ?? 0);
 const PORT = Number(process.env.MECH_SERVER_PORT ?? 8787);
 /** 對戰伺服器：預設本機；MECH_SERVER=wss://mech-wing-api.darkbearlab.workers.dev 連線上房間 */
 const SERVER = (process.env.MECH_SERVER ?? `ws://localhost:${PORT}`).replace(/\/$/, '');
 const API = process.env.MECH_API ?? 'https://mech-wing-api.darkbearlab.workers.dev';
-const dir = resolve(process.env.INIT_CWD ?? process.cwd(), 'logs', 'seat', `${room}-${seat}`);
+const dir = resolve(process.env.INIT_CWD ?? process.cwd(), 'logs', 'seat', `${room}-${seatName}`);
 mkdirSync(dir, { recursive: true });
 
 try {
@@ -214,13 +217,15 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
 
 function render(v: PlayerView): string {
   const s = v.state;
-  const mine = s.units.filter((u) => u.owner === v.you);
+  // 分小隊時只列自己小隊的機體，隊友另外列
+  const mine = s.units.filter((u) => u.owner === v.you && (v.squad === undefined || (u.squad ?? 0) === v.squad));
+  const mates = s.units.filter((u) => u.owner === v.you && !mine.includes(u));
   const foes = s.units.filter((u) => u.owner !== v.you);
   const seen = foes.filter((u) => u.status === 'active' && !u.hidden);
   for (const u of s.units) labels.set(u.id, u.label);
   const set = s.settings;
   const out: string[] = [];
-  out.push(`資料 ${contentVersion()}　房間 ${room}　你是 ${side(v.you)} 方　第 ${s.turn} 回合　步驟 ${v.phase}　已送出 A:${v.submitted[0]} B:${v.submitted[1]}`);
+  out.push(`資料 ${contentVersion()}　房間 ${room}　你是 ${side(v.you)} 方${v.squad !== undefined ? `第 ${v.squad} 小隊（席位 ${seatName}）` : ''}　第 ${s.turn} 回合　步驟 ${v.phase}　已送出 A:${v.submitted[0]} B:${v.submitted[1]}${v.squads ? `　我方各小隊 ${Object.entries(v.squads).map(([k, x]) => `${k}:${x}`).join(' ')}` : ''}`);
   out.push(`環境 ${set.environment ?? 'space'}　地形 ${set.terrain ?? '-'}　勝利條件 ${JSON.stringify({ killScore: set.killScore, decap: set.decapitation, goal: set.goal, control: set.control, turnLimit: set.turnLimit })}　擊墜分 A ${s.score[0]} / B ${s.score[1]}　旗艦 ${s.flagship.join(' / ')}`);
   out.push(`地圖 ${config.MAP_SIZE}×${config.MAP_SIZE}，y 往 B 方增加；朝向 0° = +x、90° = +y。距離帶 R1≤${config.RANGE_LIMITS.r1} R2≤${config.RANGE_LIMITS.r2} R3≤${config.RANGE_LIMITS.r3} R4≤${config.RANGE_LIMITS.r4}（底板邊緣距離；R4 只有戰艦主砲）`);
   if (set.goal) out.push(`達陣點 A 要去 ${pt(goalZone(1))}、B 要去 ${pt(goalZone(0))}`);
@@ -249,6 +254,10 @@ function render(v: PlayerView): string {
   if (v.phase === 'deploy') {
     const z = deployZone(v.you);
     out.push(`\n部署區 x ${z.x0}–${z.x1}、y ${z.y0}–${z.y1}`);
+  }
+  if (mates.length) {
+    out.push('\n== 友軍（其他小隊指揮，你不能下令；視野共用）==');
+    for (const u of mates) out.push(`${unitLine(u)}　小隊 ${u.squad ?? 0}`);
   }
   out.push('\n== 敵方 ==');
   for (const u of foes) out.push(unitLine(u));
@@ -303,7 +312,8 @@ function eventText(e: GameEvent): string {
 /** 開房模式：選隊用的目錄（機型、駕駛、配裝與費用）和房主的條件 */
 function renderLobby(msg: Extract<ServerMessage, { t: 'lobby' }>): string {
   const out: string[] = [];
-  out.push(`房間 ${room}　你是 ${side(seat)} 方　開房模式：還沒開打　已加入 A:${msg.joined[0]} B:${msg.joined[1]}　連線 A:${msg.connected[0]} B:${msg.connected[1]}`);
+  out.push(`房間 ${room}　你是 ${side(seat)} 方${seatSquad ? `第 ${seatSquad} 小隊` : ''}（席位 ${seatName}）　開房模式：還沒開打　已加入 A:${msg.joined[0]} B:${msg.joined[1]}　連線 A:${msg.connected[0]} B:${msg.connected[1]}`);
+  if (msg.seats) out.push(`席位 ${msg.seats.map((s) => `${s.key}${s.ai ? '(電腦)' : ''}:${s.joined ? '已加入' : '未加入'}`).join('　')}；一方的費用與台數上限是各小隊加起來算`);
   out.push(msg.terms ? `房主條件：規模 ${msg.terms.scale}（預算 ${SCALES[msg.terms.scale].budget}、最多 ${SCALES[msg.terms.scale].maxUnits} 台）　${JSON.stringify(msg.terms.settings)}` : '房主還沒選條件');
   out.push(`規模：${Object.entries(SCALES).map(([k, s]) => `${k}=${s.budget}分/${s.maxUnits}台`).join('　')}；斬首時旗艦（最貴的那台）至少 15 分；具名駕駛（unique）一隊只能一次`);
   out.push('', '== 機型（id 名稱 費用 環境；下面是可選的配裝）==');
@@ -317,8 +327,8 @@ function renderLobby(msg: Extract<ServerMessage, { t: 'lobby' }>): string {
   out.push('', `一台的費用 = 機型 + 駕駛 + 配裝（例：${(() => { const c = Object.values(CHASSIS)[0]; const e = { chassis: c.id, pilot: 'veteran', equipment: (LOADOUTS[c.id] ?? [[]])[0] ?? [] }; return `${c.id}+veteran+配裝0 = ${entryCost(e)}`; })()}）`);
   out.push('', `指令（寫到 ${resolve(dir, 'orders.json')}）：`);
   out.push(
-    seat === 0
-      ? `{"t":"join","roster":[{"chassis":"..","pilot":"..","equipment":[["裝備id","位置"],...]}],"terms":{"scale":"standard","settings":{"killScore":50,"decapitation":true,"turnLimit":12,"deploy":"fixed","environment":"space","terrain":"asteroid"}}}`
+    seatName === '0'
+      ? `{"t":"join","roster":[{"chassis":"..","pilot":"..","equipment":[["裝備id","位置"],...]}],"terms":{"scale":"standard","settings":{"killScore":50,"decapitation":true,"turnLimit":12,"deploy":"fixed","environment":"space","terrain":"asteroid"},"squads"?:[2,2]（每方幾個小隊，各一個席位 0、0-1…；省略是一方一個）,"ai"?:{"1-1":[隊伍]}（交給電腦指揮的小隊和它的隊伍）}}`
       : `{"t":"join","roster":[{"chassis":"..","pilot":"..","equipment":[["裝備id","位置"],...]}]}  （equipment 直接抄配裝選項的 JSON）`,
   );
   return out.join('\n');
@@ -385,15 +395,16 @@ writeCatalog();
 
 let ws: WebSocket;
 function connect() {
-  ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${seat}`);
-  ws.on('open', () => console.log(`CONNECTED room=${room} seat=${seat} 資料 ${contentVersion()} 資料夾 ${dir}`));
+  ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${seatName}`);
+  ws.on('open', () => console.log(`CONNECTED room=${room} seat=${seatName} 資料 ${contentVersion()} 資料夾 ${dir}`));
   ws.on('message', (data) => {
     const msg = JSON.parse(String(data)) as ServerMessage;
     if (msg.t === 'lobby') {
       view = null;
       writeFileSync(resolve(dir, 'view.txt'), renderLobby(msg));
-      const key = `lobby-${msg.game}-${msg.joined[seat]}-${!!msg.terms}`;
-      if (!msg.joined[seat] && key !== lastPrompt) {
+      const joined = msg.seats ? !!msg.seats.find((s) => s.key === seatName)?.joined : msg.joined[seat];
+      const key = `lobby-${msg.game}-${joined}-${!!msg.terms}`;
+      if (!joined && key !== lastPrompt) {
         lastPrompt = key;
         prompt(`YOUR_TURN lobby（選隊加入）${msg.terms ? '' : ' 房主還沒選條件'}`);
       }
