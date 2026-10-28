@@ -114,7 +114,14 @@ const side = (p: number) => (p === 0 ? 'A' : 'B');
 let view: PlayerView | null = null;
 let lastPrompt = '';
 /** 第幾次提示（給 seat-wait 判斷有沒有新的一步） */
-let prompts = 0;
+// 座位程式重啟時接著上次的編號（等提示的人才不會一直等一個已經用過的號碼）
+let prompts = (() => {
+  try {
+    return (JSON.parse(readFileSync(resolve(dir, 'prompt.json'), 'utf-8')) as { n: number }).n ?? 0;
+  } catch {
+    return 0;
+  }
+})();
 /** 印出提示，同時記到 prompt.json */
 function prompt(line: string) {
   prompts++;
@@ -552,6 +559,8 @@ function connect() {
     }
     console.log('DISCONNECTED，1 秒後重連');
     reconnected = true;
+    // 重連後一律重新提示目前的畫面（伺服器的房間可能被重設回大廳）
+    lastPrompt = '';
     setTimeout(connect, 1000);
   });
   ws.on('error', () => {});
