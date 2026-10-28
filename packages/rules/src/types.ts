@@ -60,7 +60,7 @@ export interface EquipDef {
   accelPenalty?: number;
   lockWeapons?: boolean;
   /** 戰術道具（kind utility）：smoke 煙霧彈、decoy 欺敵氣球；用 ammo 表示數量 */
-  utility?: 'smoke' | 'decoy';
+  utility?: 'smoke' | 'decoy' | 'mark';
   mount?: EquipMount;
   /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
   arc?: number;
@@ -245,6 +245,8 @@ export interface UnitState {
   blackout: boolean;
   /** 高度（層）：站在幾層樓高的樓頂；沒寫是地面 0 */
   z?: number;
+  /** 被敵方標定：到 until 這個回合結束前，敵方一直看得到它（不用視線），射擊命中 +MARK_BONUS */
+  mark?: { until: number };
 }
 
 /** rock：大隕石；field：隕石群（碎石區）；building：建築（長方形、有高度） */
@@ -354,6 +356,8 @@ export type Action =
   /** 射擊：weapon 加上 also 裡的武器一起打同一個目標 */
   | { type: 'shoot'; weapon: string; target: string; also?: string[] }
   | { type: 'lock'; target: string }
+  /** 標定：用標定器照射自己看得到的敵機（weapon 是標定器） */
+  | { type: 'mark'; weapon: string; target: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
   | { type: 'smoke'; weapon: string; at: Vec }
   | { type: 'decoy'; weapon: string; at: Vec };
@@ -463,6 +467,8 @@ export type GameEvent =
   | { type: 'reposition'; unit: string; to: Vec }
   | { type: 'swap'; unit: string; hand: Hand; equip: string | null }
   | { type: 'lock'; unit: string; target: string }
+  /** 標定；被標定的一方看不到標定的機體時 unit 是空字串 */
+  | { type: 'mark'; unit: string; target: string }
   | { type: 'dazzle'; unit: string; by: string }
   | { type: 'actionFail'; unit: string; reason: string }
   | { type: 'fuelFire'; unit: string }

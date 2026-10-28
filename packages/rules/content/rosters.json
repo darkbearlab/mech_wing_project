@@ -73,21 +73,17 @@
       ]
     },
     {
-      "chassis": "X-00",
+      "chassis": "X-07",
       "pilot": "recruit",
       "equipment": [
         [
-          "beam_rifle",
+          "machine_gun",
           "right"
         ],
         [
-          "machine_gun",
-          "left"
-        ],
-        [
-          "bazooka",
-          "stowed",
-          "larm"
+          "designator",
+          "mount",
+          "head"
         ]
       ]
     }
@@ -161,7 +157,7 @@
       ]
     },
     {
-      "chassis": "X-00",
+      "chassis": "X-07",
       "pilot": "recruit",
       "equipment": [
         [
@@ -169,8 +165,9 @@
           "right"
         ],
         [
-          "beam_saber",
-          "stowed"
+          "designator",
+          "mount",
+          "head"
         ]
       ]
     }

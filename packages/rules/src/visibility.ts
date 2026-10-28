@@ -32,6 +32,8 @@ export interface UnitView {
   pos: Vec;
   /** 高度（層），地面沒寫 */
   z?: number;
+  /** 被敵方標定（雙方都知道） */
+  mark?: { until: number };
   facing: number;
   parts: Record<string, PartState>;
   equipment: EquipState[];
@@ -99,6 +101,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     chassisId: u.chassisId,
     pos: { ...u.pos },
     ...(u.z ? { z: u.z } : {}),
+    ...(u.mark ? { mark: { ...u.mark } } : {}),
     facing: u.facing,
     parts: structuredClone(u.parts),
     // 內藏武器第一次拿出來之前，對手看不到
@@ -118,12 +121,13 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
-      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
+      // 被標定的敵機不用視線也看得到
+      (e) => e.owner !== p && (revealed.has(e.id) || (!!e.mark && e.status === 'active') || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
     // 隔著煙霧（或在煙霧裡）只看得到有東西，認不出是什麼；開火的會暴露
-    for (const e of seen) if (!revealed.has(e.id) && smokeHides(state, eyes, e.pos, radiusOf(e))) obscured[p].push(e.id);
+    for (const e of seen) if (!revealed.has(e.id) && !e.mark && smokeHides(state, eyes, e.pos, radiusOf(e))) obscured[p].push(e.id);
   }
   state.obscured = obscured;
 }
@@ -240,6 +244,10 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
         break;
       case 'podHit':
         if (mine(e.unit) || mine(e.by)) out.push(e);
+        break;
+      case 'mark':
+        // 被標定的一方知道自己被照到，但看不到的話不知道是誰
+        out.push(known(e.unit) ? e : { ...e, unit: '' });
         break;
       default:
         out.push(e);

@@ -1,5 +1,6 @@
 import { minSpeedOf, roleLost } from './body';
 import * as C from './config';
+import { canSee, sensorRange } from './vision';
 import { shoot, hitChance, type TurnInfo } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
@@ -365,6 +366,8 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
 
   state.phase = 'move';
   state.turnInfo = null;
+  // 回合結束：標定到期
+  for (const u of state.units) if (u.mark && u.mark.until <= state.turn) delete u.mark;
   updateSight(state, revealed);
   // 回合結束：煙霧散掉（散了以後氣球就藏不住了）
   state.obstacles = state.obstacles.filter((o) => o.kind !== 'smoke' || (o.until ?? 0) > state.turn);
@@ -537,11 +540,33 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
   return false;
 }
 
+/**
+ * 標定：用標定器照射自己看得到的敵機。到下回合結束前友軍不用視線也看得到它、射擊命中 +MARK_BONUS。
+ * 雷射照射是被動資料鏈，不會暴露自己的位置
+ */
+function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'mark' }>): boolean {
+  const { state } = ctx;
+  const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
+  if (!u.equipment.some((e) => e.id === action.weapon && equipAlive(u, e) && EQUIPMENT[e.defId].utility === 'mark')) return fail('標定器已損壞');
+  if (roleLost(u, 'sensor')) return fail('感測部位損壞，無法標定');
+  if ((state.decoys ?? []).some((d) => d.id === action.target)) {
+    popDecoy(ctx, action.target, u.id, '標定後發現是氣球');
+    return false;
+  }
+  const target = state.units.find((x) => x.id === action.target);
+  if (!target || target.status !== 'active') return fail('目標已失去戰鬥能力');
+  if (!canSee(state.obstacles, u.pos, sensorRange(u), target.pos, radiusOf(u) + radiusOf(target), u.z, target.z)) return fail('標定要自己看得到目標（感測距離內、視線沒被擋住）');
+  target.mark = { until: state.turn + C.MARK_TURNS - 1 };
+  ctx.events.push({ type: 'mark', unit: u.id, target: target.id });
+  return false;
+}
+
 /** 回傳 true 表示有開火或鎖定（會暴露位置） */
 function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benched: Set<string> = new Set()): boolean {
   const action = plan.action;
   if (action.type === 'none') return false;
   if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
+  if (action.type === 'mark') return doMark(ctx, u, action);
   // 打到或鎖定的是氣球：氣球破掉，這個動作就浪費了
   // 一起開火的武器：要現在能用，而且不在換武器的那隻手上
   const weapons: EquipState[] = [];

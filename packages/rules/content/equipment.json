@@ -318,5 +318,15 @@
       "speed": 2
     },
     "cost": 1
+  },
+  "designator": {
+    "id": "designator",
+    "name": "標定器",
+    "kind": "utility",
+    "utility": "mark",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 2,
+    "cost": 1
   }
 }

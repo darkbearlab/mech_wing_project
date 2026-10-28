@@ -17,6 +17,8 @@ export interface Positioned {
   facing: number;
   parts: Record<string, PartState>;
   equipment?: EquipState[];
+  /** 被敵方標定（敵方射擊命中 +MARK_BONUS） */
+  mark?: { until: number };
 }
 
 /** 高打低：射擊方比目標高幾層（只算往下打，最多 HIGH_GROUND_MAX_LEVELS） */
@@ -96,6 +98,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   chance += high * C.HIGH_GROUND_HIT;
   if (h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
+  if (h.target.mark) chance += C.MARK_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
   if (h.barrage) chance -= h.barrage;
