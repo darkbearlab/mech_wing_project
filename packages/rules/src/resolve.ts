@@ -1,5 +1,6 @@
 import { minSpeedOf, roleLost, roleParts } from './body';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
+import { buildingHitChance, collapseVictims, damageBuilding } from './demolition';
 import * as C from './config';
 import { inMarkCone, sensorRange } from './vision';
 import { shoot, hitChance, spendRounds, type TurnInfo } from './combat';
@@ -12,7 +13,7 @@ import { CHASSIS, EQUIPMENT } from './data';
 import { lineOfFire, wallPenetration } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
-import type { ActionPlan, EquipState, GameEvent, Mine, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
+import type { ActionPlan, EquipState, GameEvent, Mine, Obstacle, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { barrageActive, inBarrage, isShip } from './ship';
@@ -593,6 +594,33 @@ function placeBarricade(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['acti
   return false;
 }
 
+/** 射擊建築：每件武器各自擲骰，打中的傷害照屬性倍率算進建築；樓層塌了，上面的機體跟著掉下來受傷 */
+function shootBuilding(ctx: Ctx, turn: TurnInfo, u: UnitState, weapons: EquipState[], o: Obstacle): boolean {
+  const { state } = ctx;
+  let fired = false;
+  for (const w of weapons) {
+    if (!state.obstacles.includes(o)) break;
+    const def = EQUIPMENT[w.defId];
+    const h = buildingHitChance(u, pilotOf(u).skill, def, o, state.obstacles, CHASSIS[u.chassisId].aim, turn.stance[u.id] === 'melee');
+    if (!h) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${def.name}：打不到這棟建築` });
+      continue;
+    }
+    const shots = spendRounds(w, def.shots ?? 1);
+    if (!shots) continue;
+    fired = true;
+    let hits = 0;
+    for (let i = 0; i < shots; i++) if (ctx.rng.d100() <= h.chance) hits++;
+    const before = new Map(state.units.map((x) => [x.id, x.z ?? 0]));
+    const r = hits ? damageBuilding(state.obstacles, o, hits * (def.damage ?? C.DAMAGE_SCALE), def.damageType ?? 'kinetic') : { amount: 0, lost: 0, collapsed: false };
+    ctx.events.push({ type: 'buildingShot', attacker: u.id, obstacle: o.id, weapon: def.id, shots, hits, chance: h.chance, amount: r.amount, levels: o.levels ?? 0, collapsed: r.collapsed });
+    if (!r.lost) continue;
+    settleHeights(state, ctx.events);
+    for (const v of collapseVictims(state.units, before)) dealtBy(ctx, u, () => damageUnit(ctx, v.unit, C.COLLAPSE_DAMAGE * v.fell, 'focused', v.legs));
+  }
+  return fired;
+}
+
 /** 補給：停在自己的補給點上（動能 0、在地面上），彈藥與推進劑補滿 */
 function resupply(ctx: Ctx, u: UnitState): boolean {
   const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
@@ -737,6 +765,15 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
       else weapons.push(w);
     }
     if (!weapons.length) return false;
+  }
+  // 射擊建築
+  const building = ctx.state.obstacles.find((o) => o.id === action.target && o.kind === 'building');
+  if (building) {
+    if (action.type !== 'shoot') {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '建築不能鎖定' });
+      return false;
+    }
+    return shootBuilding(ctx, turn, u, weapons, building);
   }
   if ((ctx.state.decoys ?? []).some((d) => d.id === action.target)) {
     for (const w of weapons) spendRounds(w, EQUIPMENT[w.defId].shots ?? 1);

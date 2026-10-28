@@ -291,6 +291,8 @@ export interface Obstacle {
   levels?: number;
   /** 煙霧：最後一個還在的回合 */
   until?: number;
+  /** 建築：最上面那層還剩的耐久（沒寫是滿的） */
+  hp?: number;
 }
 
 /** 地雷：敵方的地面機體移動經過就引爆（自己這一方不會觸發） */
@@ -509,6 +511,8 @@ export type GameEvent =
   /** 埋地雷（對手看不到）；引爆 */
   | { type: 'mine'; unit: string; at: Vec }
   | { type: 'mineBlast'; unit: string; at: Vec; mine: string }
+  /** 射擊建築：打掉一層就 levels 少一，collapsed 是整棟打平（變成瓦礫） */
+  | { type: 'buildingShot'; attacker: string; obstacle: string; weapon: string; shots: number; hits: number; chance: number; amount: number; levels: number; collapsed: boolean }
   /** 在補給點補滿彈藥與推進劑 */
   | { type: 'resupply'; unit: string }
   /** 架路障（obstacle 是新的建築 id） */

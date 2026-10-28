@@ -3,6 +3,12 @@ import {
   DAMAGE_TYPE_NAMES,
   matchupText,
   barrierBetween,
+  buildingAim,
+  buildingHitChance,
+  topHp,
+  levelHp,
+  BUILDING_TYPE_MULT,
+  inFootprint,
   barricadeWall,
   ecmOf,
   barrierOf,
@@ -495,7 +501,19 @@ const ownUnits = () => (view ? view.state.units.filter(commands) : []);
 /** 開房模式：自己這個席位加入了沒 */
 const lobbyJoined = () => (lobby?.seats ? !!lobby.seats.find((s) => s.key === seatName)?.joined : !!lobby?.joined[seat]);
 const unitView = (id: string) => view?.state.units.find((u) => u.id === id);
-const labelOf = (id: string) => unitView(id)?.label ?? show?.prevUnits.find((u) => u.id === id)?.label ?? podLabel(id) ?? id;
+const labelOf = (id: string) => unitView(id)?.label ?? show?.prevUnits.find((u) => u.id === id)?.label ?? podLabel(id) ?? (buildingOf(id) || id.startsWith('b') ? `建築 ${id}` : id);
+/** 地圖上還在的建築 */
+const buildingOf = (id: string) => view?.state.obstacles.find((o) => o.id === id && o.kind === 'building');
+/** 打這棟建築的估計（武器、射手照現在的） */
+function buildingEstimate(u: UnitView, weaponId: string | undefined, o: Obstacle): string {
+  const w = u.equipment.find((x) => x.id === weaponId);
+  const def = w && EQUIPMENT[w.defId];
+  if (!def) return '';
+  const h = buildingHitChance(u, PILOTS[u.pilotId!]?.skill ?? 0, def, o, view!.state.obstacles, CHASSIS[u.chassisId].aim, view!.state.stance[u.id] === 'melee');
+  const hp = `剩 ${o.levels} 層，頂層耐久 ${topHp(o)}/${levelHp(o)}`;
+  if (!h) return `${def.fire ? '導引武器打不了建築' : '打不到（射程、射界或射擊線）'}（${hp}）`;
+  return `${chanceText(h.chance)}，每發 ${Math.round((def.damage ?? 0) * BUILDING_TYPE_MULT[def.damageType ?? 'kinetic'])} 點（${hp}）`;
+}
 
 // ---- 感應武器（炮群） ----
 
@@ -725,12 +743,17 @@ attachCameraControls(canvas, cam, {
       }
       return;
     }
-    // 點到看得到的敵方炮群：當射擊目標
+    // 點到看得到的敵方炮群、或建築：當射擊目標
     if (view && !show && view.phase === 'action' && sel && commands(sel) && plan?.action.type === 'shoot' && !view.submitted[view.you]) {
       const w = cam.unproject(sx, sy);
       const p = w && (view.state.enemyPods ?? []).find((x) => Math.hypot(x.pos.x - w.x, x.pos.y - w.y) < 0.8);
       if (p && !hit) {
         setTarget(sel.id, p.id);
+        return;
+      }
+      const b = w && !hit && view.state.obstacles.find((o) => o.kind === 'building' && o.levels && inFootprint(o, w, 0.2));
+      if (b) {
+        setTarget(sel.id, b.id);
         return;
       }
     }
@@ -959,6 +982,24 @@ function drawBeatEffect(beat: Beat, elapsed: number, over: Map<string, Disp>) {
   const head = beat.events[0];
   const text = describe(head);
   if (text && beat.kind !== 'note') drawBanner(text);
+  if (head.type === 'buildingShot') {
+    // 射擊建築：從射手拉一條火線到建築，打中的話建築那頭閃一下
+    const a = head.attacker ? posOf(head.attacker, over) : null;
+    const o = view?.state.obstacles.find((x) => x.id === head.obstacle);
+    if (a && o) {
+      const p = Math.min(1, elapsed / 500);
+      const at = buildingAim(o, a);
+      g.strokeStyle = `rgba(255,170,80,${1 - p * 0.6})`;
+      g.lineWidth = 2;
+      polyWorld([
+        [a.x, a.y, UNIT_Z],
+        [at.x, at.y, UNIT_Z * 0.8],
+      ]);
+      g.stroke();
+      g.lineWidth = 1;
+      if (head.hits) dotAt(pr(at.x, at.y, UNIT_Z * 0.8), 6 + p * 12, `rgba(255,150,60,${1 - p})`);
+    }
+  }
   if (head.type === 'shot') {
     const a = head.from ?? posOf(head.attacker, over)!;
     const t = posOf(head.target, over)!;
@@ -1323,7 +1364,8 @@ function drawBuilding(o: Obstacle) {
   g.font = `${Math.round(Math.max(10, Math.min(13, c.k * 0.3)))}px sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(`${o.levels} 層`, c.x, c.y);
+  // 被打過的建築：標出頂層剩的耐久
+  g.fillText(`${o.levels} 層${o.hp !== undefined ? `（${o.hp}/${levelHp(o)}）` : ''}`, c.x, c.y);
   g.textBaseline = 'alphabetic';
 }
 
@@ -1833,7 +1875,8 @@ function drawPreviews() {
         drawUtilityPreview(a, plan.action.type, plan.action.at);
         continue;
       }
-      const t = (aimsAt(plan.action)) && plan.action.target ? (unitView(plan.action.target) ?? (enemyPod(plan.action.target) ? { pos: enemyPod(plan.action.target)!.pos } : null)) : null;
+      const bt = aimsAt(plan.action) && plan.action.target && a ? buildingOf(plan.action.target) : undefined;
+      const t = (aimsAt(plan.action)) && plan.action.target ? (unitView(plan.action.target) ?? (enemyPod(plan.action.target) ? { pos: enemyPod(plan.action.target)!.pos } : bt ? { pos: buildingAim(bt, a!.pos) } : null)) : null;
       if (!a || !t) continue;
       g.strokeStyle = plan.action.type === 'shoot' ? 'rgba(255,207,74,0.8)' : 'rgba(120,220,255,0.7)';
       g.setLineDash([6, 4]);
@@ -2218,7 +2261,9 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'deploy') return DEPLOY_TEXT;
   if (a.type === 'resupply') return SUPPLY_TEXT;
   if (a.type === 'lunge' && !a.target) return `${LUNGE_TEXT} 點地圖上的敵機當目標。`;
-  if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。';
+  if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。也可以點建築，把它當目標打。';
+  const bt = buildingOf(a.target);
+  if (bt && a.type === 'shoot') return `射擊建築 ${bt.id}：${buildingEstimate(u, a.weapon, bt)}。化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，樓頂上的機體跟著掉下來，每掉一層腳受 ${config.COLLAPSE_DAMAGE} 點；打平變成瓦礫。`;
   const t = unitView(a.target);
   if (a.type === 'lunge') return `${t ? lungeTip(u, t) : `突進 ${labelOf(a.target)}`}`;
   return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL}）看不到，所以沒算。`;
@@ -3033,6 +3078,10 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
         const h = w ? hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: EQUIPMENT[w.defId], target: { id: p.id, chassisId: '', pos: p.pos, facing: 0, parts: {}, equipment: [] }, targetSkill: null, relSpeed: null, shooterMelee: view!.state.stance[u.id] === 'melee', cover: lineOfFire(view!.state.obstacles, u.pos, p.pos), targetEvasion: ps.evasion ?? 0 }) : null;
         html += tip(`<button class="${a.target === p.id ? 'on' : ''}" data-target="${p.id}">${esc(p.label.split(' ')[0])} ${esc(enemyPodName(p))}</button>`, `射擊 ${p.label} 的${enemyPodName(p)}：${h ? chanceText(h.chance) : '射程外'}。${p.wired ? '打中就是打那隻手臂。' : '每發命中打掉一支。'}`);
       }
+    // 有敵機站在上面的建築：列出來方便拆（其他建築直接點地圖）
+    if (a.type === 'shoot')
+      for (const o of view!.state.obstacles.filter((x) => x.kind === 'building' && x.levels && enemies.some((t) => t.z && inFootprint(x, t.pos))))
+        html += tip(`<button class="${a.target === o.id ? 'on' : ''}" data-target="${o.id}">建築 ${esc(o.id)}</button>`, `射擊建築 ${o.id}（有敵機站在樓頂）：${buildingEstimate(u, a.weapon, o)}`);
     html += '</div>';
   }
   html += swapControls(u, plan);
@@ -3343,6 +3392,8 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 埋下地雷`;
     case 'mineBlast':
       return `${L(e.unit)} 踩到地雷！`;
+    case 'buildingShot':
+      return `${e.attacker ? L(e.attacker) : '看不到的敵機'} 以${EQUIPMENT[e.weapon]?.name ?? e.weapon}射擊建築 ${e.obstacle}：${e.hits}/${e.shots} 命中${e.amount ? `，${e.amount} 點` : ''}${e.collapsed ? '，整棟打平！' : e.amount ? `，剩 ${e.levels} 層` : ''}`;
     case 'resupply':
       return `${L(e.unit)} 在補給點補滿彈藥與推進劑`;
     case 'barricade':

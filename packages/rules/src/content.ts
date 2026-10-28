@@ -37,7 +37,7 @@ export function scaleContent(pack: ContentPack): ContentPack {
   return p;
 }
 
-export const BUILTIN_VERSION = 'builtin-11';
+export const BUILTIN_VERSION = 'builtin-12';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ammoRounds: true, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;
