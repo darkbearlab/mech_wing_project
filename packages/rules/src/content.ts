@@ -15,7 +15,7 @@ export interface ContentPack {
   rosters: [RosterEntry[], RosterEntry[]];
 }
 
-export const BUILTIN_VERSION = 'builtin-6';
+export const BUILTIN_VERSION = 'builtin-7';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;

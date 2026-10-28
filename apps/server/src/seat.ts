@@ -29,6 +29,7 @@ import {
   wallPenetration,
   climbBlocked,
   climbLimits,
+  indirectFire,
   lungeCheck,
   heightAdvantage,
   parseManeuver,
@@ -145,8 +146,11 @@ function maneuverTable(u: UnitView): string {
 }
 
 /** 射擊的提示：對方的盾擋不擋得到、射擊線、自己是不是正面射界外開火 */
-function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: number | undefined): string {
+function shotTags(u: UnitView, from: Vec, t: UnitView, cover: string, arc: number | undefined, indirect = false): string {
   const tags: string[] = [];
+  if (u.blackout && !indirect) tags.push(`黑視中 −${config.BLACKOUT_SHOT_PENALTY}`);
+  // 曲射、越頂：掩護、高低差、射界、盾牌都沒有作用
+  if (indirect) return `（曲射越頂：不吃掩護與高低差、盾擋不到、打中照頂部攻擊表${t.mark ? '・已標定' : ''}）`;
   if (coveringShield({ ...t, facing: t.facing } as unknown as UnitState, from)) tags.push('對方盾弧內（可能被盾擋）');
   else if (t.equipment.some((e) => EQUIPMENT[e.defId]?.kind === 'shield')) tags.push('盾弧外');
   if (cover === 'field') tags.push(`穿過隕石群 −${config.FIELD_SHOT_PENALTY}`);
@@ -180,7 +184,7 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
       const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never) });
       // 打不到的不列（太多了）；彈藥用完的標出來
       if (!h) continue;
-      rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}`}`);
+      rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc, indirectFire(def))}`}`);
     }
   }
   // 突進／跳劈：砍得到的才列
@@ -342,17 +346,30 @@ function writeCatalog() {
   for (const c of Object.values(CHASSIS)) {
     const parts = Object.entries(c.parts).map(([id, p]) => `${p.name}${p.durability}/${p.weight}${p.role === 'core' ? '核心' : ''}`).join(' ');
     const top = Math.max(...c.dial.map((d) => parseManeuver(d).speed));
-    out.push(`${c.id} ${c.name} ${c.cost ?? 0}｜重${c.weightClass} 瞄${c.aim} 迴避${c.evasion} 半徑${c.radius ?? config.BASE_RADIUS} [${(c.envs ?? ['space', 'gravity']).join(',')}]${c.closeCombat === false ? ' 不能近戰' : ''}｜${parts}｜最高速${top}${c.builtIn?.length ? `｜內建 ${c.builtIn.map((b) => EQUIPMENT[b.defId]?.name).join('、')}` : ''}`);
+    out.push(`${c.id} ${c.name} ${c.cost ?? 0}｜重${c.weightClass} 瞄${c.aim} 迴避${c.evasion} 感測${c.sensorRange ?? config.SENSOR_RANGE} 半徑${c.radius ?? config.BASE_RADIUS} [${(c.envs ?? ['space', 'gravity']).join(',')}]${c.closeCombat === false ? ' 不能近戰' : ''}｜${parts}｜最高速${top}${c.builtIn?.length ? `｜內建 ${c.builtIn.map((b) => EQUIPMENT[b.defId]?.name).join('、')}` : ''}`);
   }
   out.push('', '== 裝備（id 名稱 費用｜傷害×發數 模式｜距離修正 R1/R2/R3｜其他）==');
   for (const e of Object.values(EQUIPMENT)) {
     const r = e.ranges ? `R1 ${e.ranges[1] ?? '—'} R2 ${e.ranges[2] ?? '—'} R3 ${e.ranges[3] ?? '—'} R4 ${e.ranges[4] ?? '—'}` : '';
-    const extra = [e.arc !== undefined ? `射界±${e.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : '', e.pointBlank === false ? '不能零距離' : '', e.meleeDice ? `近戰骰+${e.meleeDice}` : '', e.psycommu ? `感應武器 ${JSON.stringify(e.psycommu)}` : '', e.tags?.length ? e.tags.join(',') : ''].filter(Boolean).join(' ');
+    const fireText = { mortar: '迫擊砲（曲射越頂、沒中會散布）', vls: '垂直飛彈（越頂、導引）', missile: '平射飛彈（導引、要射擊線）' } as const;
+    const extra = [e.fire ? `${fireText[e.fire]}・只能打被標定的目標` : '', e.utility === 'mark' ? `標定器：一次標定 ${e.markCount ?? config.MARK_COUNT} 台` : '', e.deployable ? '展開盾' : '', e.climbBoost ? `攀升 +${e.climbBoost.levels} 層・速度上限 +${e.climbBoost.speed}` : '', e.arc !== undefined ? `射界±${e.arc}°` : '', e.ammo !== undefined ? `彈${e.ammo}` : '', e.pointBlank === false ? '不能零距離' : '', e.meleeDice ? `近戰骰+${e.meleeDice}` : '', e.psycommu ? `感應武器 ${JSON.stringify(e.psycommu)}` : '', e.tags?.length ? e.tags.join(',') : ''].filter(Boolean).join(' ');
     out.push(`${e.id} ${e.name} ${e.cost ?? 0}｜${e.kind}${e.damage ? ` ${e.damage}×${e.shots ?? 1} ${e.mode ?? 'focused'}` : ''}｜${r}｜耐久${e.durability}${extra ? ` ${extra}` : ''}`);
   }
   out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
-  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −隕石群 ${config.FIELD_SHOT_PENALTY} −建築半掩護 ${config.BUILDING_COVER_PENALTY} ＋高打低每層 ${config.HIGH_GROUND_HIT}（最多 ${config.HIGH_GROUND_MAX_LEVELS} 層，命中傷害 +${config.HIGH_GROUND_DAMAGE}）；超過 100 的部分是爆擊`);
+  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −隕石群 ${config.FIELD_SHOT_PENALTY} −建築半掩護 ${config.BUILDING_COVER_PENALTY} ＋高打低每層 ${config.HIGH_GROUND_HIT}（最多 ${config.HIGH_GROUND_MAX_LEVELS} 層；高 ${config.HIGH_GROUND_DAMAGE_FROM} 層以上每發傷害 +${config.HIGH_GROUND_DAMAGE}）＋被標定 +${config.MARK_BONUS} −近戰姿態 ${config.MELEE_STANCE_SHOT_PENALTY} −黑視中 ${config.BLACKOUT_SHOT_PENALTY}；超過 100 的部分是爆擊`);
+  out.push(
+    '',
+    '== 城市戰的規則 ==',
+    `視野：感測距離內、視線沒被建築擋住就看得到（全隊共用）；看得到是雙向的。`,
+    `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下。`,
+    `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,
+    `導引武器（迫擊砲、垂直飛彈、飛彈莢艙）：只能打被標定的目標（沒被標定的，看得到也不能打）；命中只看機器：不算射手技能、沒有技能差懲罰、沒有標定加成、黑視不影響；目標駕駛的閃避照算。迫擊砲與垂直飛彈越過建築、不吃掩護與高低差、沒有射界、盾擋不到，打中照頂部攻擊表（腿 ×0.2，頭、軀幹、背包 ×1.5）。迫擊砲沒打中會偏離 ${config.MORTAR_SCATTER_MIN}～${config.MORTAR_SCATTER_MAX} 格落地，落點 ${config.MORTAR_SPLASH_RADIUS} 格內（底板邊緣）的機體不分敵我受 ${config.MORTAR_SPLASH_DAMAGE} 點。垂直飛彈與飛彈莢艙不吃相對速度的命中懲罰；飛彈莢艙要射擊線。`,
+    `突進（行動 {"type":"lunge","target":".."}）：近戰姿態、手上有近戰武器；目標在正面 ±${config.LUNGE_ARC_DEG}°、底板邊緣 ${config.LUNGE_RANGE} 格內、同一個高度，中間沒被建築擋住。衝到目標身邊照近戰對決結算（對方可盾擋、閃避、反擊），推進劑 −${config.LUNGE_PROPELLANT}、壓力 +${config.LUNGE_STRESS}。`,
+    `跳劈：突進的目標比自己低時；${config.JUMP_SLASH_RANGE} 格內，每落下 1 層傷害 +1（最多 +${config.JUMP_SLASH_MAX_BONUS}），對方不能反擊，打中照頂部攻擊表；落差 ${config.JUMP_SLASH_LEG_FROM} 層以上自己腿部受 1 點。比自己高的目標要先攀升。`,
+    `展開盾（行動 {"type":"deploy","weapon":"展開盾id"}，再一次收起）：正面寬 ${config.BARRIER_WIDTH} 格、高 ${config.BARRIER_LEVELS} 層的盾牆。穿過盾牆的射擊算半掩護 −${config.BUILDING_COVER_PENALTY}，命中一律打在盾上（後面的隊友也受保護）；比盾牆高 ${config.BARRIER_LEVELS} 層以上或曲射越頂的擋不到。展開中只能用速度 ${config.DEPLOYED_MAX_SPEED} 以下的機動，選更快的會自動收起。`,
+    `擦撞：移動路線碰到別的機體（包括隊友）就停下，雙方這回合都不能行動。`,
+  );
   writeFileSync(resolve(dir, 'catalog.txt'), out.join('\n'));
 }
 writeCatalog();

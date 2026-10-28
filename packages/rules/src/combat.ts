@@ -46,7 +46,7 @@ export function relativeAngle(from: { pos: Vec; facing: number }, to: Vec): numb
 }
 
 export interface HitInput {
-  attacker: Positioned & { lockOn?: string | null };
+  attacker: Positioned & { lockOn?: string | null; blackout?: boolean };
   attackerSkill: number;
   weapon: EquipDef;
   target: Positioned;
@@ -124,6 +124,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   }
   if (h.relSpeed !== null) chance += guidedFire(h.weapon) ? Math.max(0, relativeSpeedMod(h.relSpeed)) : relativeSpeedMod(h.relSpeed);
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
+  if (!machine && h.attacker.blackout) chance -= C.BLACKOUT_SHOT_PENALTY;
   if (h.dazzled) chance -= C.DAZZLE_PENALTY;
   if (!indirect) {
     if (h.cover === 'blocked') return null;

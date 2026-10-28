@@ -2833,16 +2833,19 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
   if (!first) return shots.map((s) => `${EQUIPMENT[s.w.defId].name}：${s.why}`).join('／');
   const relSpeed = relativeSpeed(view!.state.velocity, u.id, t.id);
   const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
+  // 只勾了曲射越頂的武器：掩護、高低差都不算
+  const direct = ws.some((w) => !indirectFire(EQUIPMENT[w.defId]));
   const mods = [
     `${bandName(first.band)}`,
+    u.blackout && direct ? `黑視中 −${config.BLACKOUT_SHOT_PENALTY}` : '',
     `相對速度 ${relSpeed.toFixed(1)}`,
-    cover === 'field' ? `碎石 −${config.FIELD_SHOT_PENALTY}` : '',
-    cover === 'smoke' ? `煙霧 −${config.SMOKE_SHOT_PENALTY}` : '',
-    cover === 'cover' ? `${wall ? '盾牆' : '半掩護'} −${config.BUILDING_COVER_PENALTY}${wall ? '（命中都打在盾上）' : ''}` : '',
-    first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE}` : ''}` : '',
+    direct && cover === 'field' ? `碎石 −${config.FIELD_SHOT_PENALTY}` : '',
+    direct && cover === 'smoke' ? `煙霧 −${config.SMOKE_SHOT_PENALTY}` : '',
+    direct && cover === 'cover' ? `${wall ? '盾牆' : '半掩護'} −${config.BUILDING_COVER_PENALTY}${wall ? '（命中都打在盾上）' : ''}` : '',
+    direct && first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE}` : ''}` : '',
     t.mark ? `已標定 +${config.MARK_BONUS}` : '',
     barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
-    coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
+    direct && coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
   ].filter(Boolean);
   const each = shots.map((s) => `${EQUIPMENT[s.w.defId].name} ${s.h ? `約 ${s.h.chance}%${s.h.chance > 100 ? `（爆擊約 ${Math.min(100, s.h.chance - 100)}%）` : ''}` : s.why}`).join('／');
   const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
