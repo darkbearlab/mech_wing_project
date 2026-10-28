@@ -60,11 +60,15 @@ export function buildingHitChance(s: Shooter, skill: number, def: EquipDef, o: O
   return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)) };
 }
 
-/** 對建築造成 raw 點 type 屬性的傷害：打光一層就少一層，打平就換成瓦礫區。回傳打掉幾層 */
-export function damageBuilding(obstacles: Obstacle[], o: Obstacle, raw: number, type: DamageType): { amount: number; lost: number; collapsed: boolean } {
+/**
+ * 對建築造成 raw 點 type 屬性的傷害：打光一層就少一層，每塌一層下面那層有 COLLAPSE_CHAIN 的機率跟著塌（可以一路塌下去）；
+ * 打平就換成瓦礫區。roll 是 0～1 的亂數，回傳傷害、少了幾層（chain 是其中連帶塌掉的）
+ */
+export function damageBuilding(obstacles: Obstacle[], o: Obstacle, raw: number, type: DamageType, roll: () => number = () => 1): { amount: number; lost: number; chain: number; collapsed: boolean } {
   let amount = Math.round(raw * BUILDING_TYPE_MULT[type]);
   const total = amount;
   let lost = 0;
+  let chain = 0;
   while (amount > 0 && o.levels! > 0) {
     const hp = topHp(o);
     if (amount >= hp) {
@@ -72,6 +76,12 @@ export function damageBuilding(obstacles: Obstacle[], o: Obstacle, raw: number, 
       o.levels!--;
       lost++;
       delete o.hp;
+      // 結構受損：下面那層可能跟著塌
+      while (o.levels! > 0 && roll() < C.COLLAPSE_CHAIN) {
+        o.levels!--;
+        lost++;
+        chain++;
+      }
     } else {
       o.hp = hp - amount;
       amount = 0;
@@ -83,7 +93,7 @@ export function damageBuilding(obstacles: Obstacle[], o: Obstacle, raw: number, 
     // 路障打掉就沒了；建築留下一片瓦礫
     if (!o.id.startsWith('bar')) obstacles.push({ id: `rubble-${o.id}`, kind: 'field', x: o.x, y: o.y, r: Math.max(o.hx!, o.hy!) });
   }
-  return { amount: total, lost, collapsed };
+  return { amount: total, lost, chain, collapsed };
 }
 
 /** 樓塌下來：原本站在這棟上面的機體各掉了幾層（掉多少層就傷多少腳） */

@@ -61,6 +61,8 @@ export interface UnitView {
   lockOn?: string | null;
   /** 不適合目前環境：機動盤最高速度減掉這麼多 */
   speedCut?: number;
+  /** 在重力圈：腳斷了就動不了 */
+  grounded?: boolean;
   /** 出擊費用（只看得到自己的；對手的駕駛不明） */
   cost?: number;
   blackout?: boolean;
@@ -116,6 +118,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     status: u.status === 'unconscious' && u.owner !== viewer ? 'disabled' : u.status,
     momentum: u.momentum,
     speedCut: u.speedCut,
+    ...(u.grounded ? { grounded: true } : {}),
     vague: u.status === 'active' && u.stress >= u.maxStress ? 'sluggish' : null,
   };
   if (u.owner !== viewer) return base;

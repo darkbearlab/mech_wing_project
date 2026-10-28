@@ -247,6 +247,8 @@ export type UnitStatus = 'active' | 'destroyed' | 'unconscious' | 'withdrawn';
 export interface UnitState {
   /** 不適合目前環境：機動盤最高速度減掉這麼多 */
   speedCut?: number;
+  /** 在重力圈（或水中）：腳斷了就不能移動也不能轉向 */
+  grounded?: boolean;
   /** 出擊費用（機型＋駕駛＋裝備），擊墜分與旗艦用 */
   cost?: number;
   id: string;
@@ -512,7 +514,7 @@ export type GameEvent =
   | { type: 'mine'; unit: string; at: Vec }
   | { type: 'mineBlast'; unit: string; at: Vec; mine: string }
   /** 射擊建築：打掉一層就 levels 少一，collapsed 是整棟打平（變成瓦礫） */
-  | { type: 'buildingShot'; attacker: string; obstacle: string; weapon: string; shots: number; hits: number; chance: number; amount: number; levels: number; collapsed: boolean }
+  | { type: 'buildingShot'; attacker: string; obstacle: string; weapon: string; shots: number; hits: number; chance: number; amount: number; levels: number; collapsed: boolean; chain?: number }
   /** 在補給點補滿彈藥與推進劑 */
   | { type: 'resupply'; unit: string }
   /** 架路障（obstacle 是新的建築 id） */

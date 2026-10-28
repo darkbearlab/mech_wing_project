@@ -76,6 +76,7 @@ import {
   barragePenalty,
   inBarrage,
   availableManeuvers,
+  immobile,
   coveringShield,
   psycommuOf,
   canPsycommu,
@@ -2263,7 +2264,7 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'lunge' && !a.target) return `${LUNGE_TEXT} 點地圖上的敵機當目標。`;
   if (!a.target) return '點地圖上的敵機當目標（滑鼠移上去會顯示估計命中率）。也可以點建築，把它當目標打。';
   const bt = buildingOf(a.target);
-  if (bt && a.type === 'shoot') return `射擊建築 ${bt.id}：${buildingEstimate(u, a.weapon, bt)}。化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，樓頂上的機體跟著掉下來，每掉一層腳受 ${config.COLLAPSE_DAMAGE} 點；打平變成瓦礫。`;
+  if (bt && a.type === 'shoot') return `射擊建築 ${bt.id}：${buildingEstimate(u, a.weapon, bt)}。化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，而且下面那層有 ${config.COLLAPSE_CHAIN * 100}% 機率跟著塌（可以一路塌下去）；樓頂上的機體跟著掉下來，每掉一層受 ${config.COLLAPSE_DAMAGE} 點（大多打在腳上）；打平變成瓦礫。`;
   const t = unitView(a.target);
   if (a.type === 'lunge') return `${t ? lungeTip(u, t) : `突進 ${labelOf(a.target)}`}`;
   return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL}）看不到，所以沒算。`;
@@ -2654,7 +2655,8 @@ function moveControls(u: UnitView, plan: MovePlan): string {
     })
     .join('');
   html += '</div>';
-  if (m.kind === 'hover') {
+  if (immobile(u)) html += '<div class="row"><span class="small warn">重力圈裡腳部損壞：不能移動也不能轉向，只能原地不動</span></div>';
+  else if (m.kind === 'hover') {
     html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.filter((f) => !isShip(u) || Math.abs(f) <= config.SHIP_TURN_MAX_DEG).map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
   }
   const limiterTip = `限制器解除：這回合最大加減速 +1，壓力 +${config.LIMITER_STRESS}。${m.kind === 'hover' ? '懸停時不能用。' : ''}`;
@@ -3393,7 +3395,7 @@ function describe(e: GameEvent): string | null {
     case 'mineBlast':
       return `${L(e.unit)} 踩到地雷！`;
     case 'buildingShot':
-      return `${e.attacker ? L(e.attacker) : '看不到的敵機'} 以${EQUIPMENT[e.weapon]?.name ?? e.weapon}射擊建築 ${e.obstacle}：${e.hits}/${e.shots} 命中${e.amount ? `，${e.amount} 點` : ''}${e.collapsed ? '，整棟打平！' : e.amount ? `，剩 ${e.levels} 層` : ''}`;
+      return `${e.attacker ? L(e.attacker) : '看不到的敵機'} 以${EQUIPMENT[e.weapon]?.name ?? e.weapon}射擊建築 ${e.obstacle}：${e.hits}/${e.shots} 命中${e.amount ? `，${e.amount} 點` : ''}${e.chain ? `，連帶塌了 ${e.chain} 層` : ''}${e.collapsed ? '，整棟打平！' : e.amount ? `，剩 ${e.levels} 層` : ''}`;
     case 'resupply':
       return `${L(e.unit)} 在補給點補滿彈藥與推進劑`;
     case 'barricade':
