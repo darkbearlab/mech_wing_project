@@ -60,6 +60,8 @@ import {
 const [room = 'claude', seatArg = '1'] = process.argv.slice(2);
 const seat = seatArg === '0' ? 0 : 1;
 const PORT = Number(process.env.MECH_SERVER_PORT ?? 8787);
+/** 對戰伺服器：預設本機；MECH_SERVER=wss://mech-wing-api.darkbearlab.workers.dev 連線上房間 */
+const SERVER = (process.env.MECH_SERVER ?? `ws://localhost:${PORT}`).replace(/\/$/, '');
 const API = process.env.MECH_API ?? 'https://mech-wing-api.darkbearlab.workers.dev';
 const dir = resolve(process.env.INIT_CWD ?? process.cwd(), 'logs', 'seat', `${room}-${seat}`);
 mkdirSync(dir, { recursive: true });
@@ -357,7 +359,7 @@ writeCatalog();
 
 let ws: WebSocket;
 function connect() {
-  ws = new WebSocket(`ws://localhost:${PORT}/ws?room=${encodeURIComponent(room)}&seat=${seat}`);
+  ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${seat}`);
   ws.on('open', () => console.log(`CONNECTED room=${room} seat=${seat} 資料 ${contentVersion()} 資料夾 ${dir}`));
   ws.on('message', (data) => {
     const msg = JSON.parse(String(data)) as ServerMessage;

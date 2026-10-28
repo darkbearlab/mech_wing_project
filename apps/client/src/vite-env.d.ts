@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   /** 內容 API 位址 */
   readonly VITE_CONTENT_API?: string;
+  readonly VITE_ROOM_SERVER?: string;
 }
 
 /** 建置時的 git commit（本機開發是 dev） */
