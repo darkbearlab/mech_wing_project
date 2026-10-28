@@ -29,6 +29,7 @@ import {
   wallPenetration,
   climbBlocked,
   climbLimits,
+  lungeCheck,
   heightAdvantage,
   parseManeuver,
   planCost,
@@ -180,6 +181,11 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
       rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc)}`}`);
     }
   }
+  // 突進／跳劈：砍得到的才列
+  for (const t of enemies) {
+    const r = lungeCheck(view!.state.obstacles, u as unknown as UnitState, t as unknown as UnitState, view!.state.stance[u.id]);
+    if (typeof r !== 'string') rows.push(`lunge → ${t.id}：${r.jump ? `跳劈（落差 ${r.jump} 層，傷害 +${Math.min(r.jump, config.JUMP_SLASH_MAX_BONUS)}，對方不能反擊）` : '突進，砍得到'}`);
+  }
   // 放出去的炮群：從炮群的位置算（炮群本身當作不動）
   for (const e of u.equipment) {
     if (!e.pod) continue;
@@ -242,7 +248,7 @@ function render(v: PlayerView): string {
       move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 0/±45/±90/180，正的是右轉）,"limiter"?:false,"climb"?:true（攀升：速度 ${config.CLIMB_MAX_SPEED} 以下，撞到 ${config.CLIMB_LEVELS} 層以內的牆就爬上樓頂）,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
       ace: `{"t":"moves","moves":{"<王牌 id>":{...同上}}}  要下指令的：${(v.aceUnits ?? []).join(', ')}`,
       pursuit: `{"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}`,
-      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"mark","weapon":"標定器id"}（掃描正面 ±60°、感測距離內的敵機，不用視線，隨機標定 markCount 台；我方看得到它們、命中 +10，持續到超出這台的感測距離；重標會先解除原本的；不暴露位置）|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
+      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"lunge","target":".."}（突進：近戰姿態、手上有近戰武器，正面 ±60°、1.5 格內同高度的敵機；目標比自己低就是跳劈，2 格內、傷害 +落差、對方不能反擊）|{"type":"mark","weapon":"標定器id"}（掃描正面 ±60°、感測距離內的敵機，不用視線，隨機標定 markCount 台；我方看得到它們、命中 +10，持續到超出這台的感測距離；重標會先解除原本的；不暴露位置）|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}},"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
       over: '對戰結束',
     }[v.phase as string] ?? '',
   );
@@ -263,6 +269,8 @@ function eventText(e: GameEvent): string {
       return '';
     case 'actionFail':
       return `${L(e.unit)} 落空：${e.reason}`;
+    case 'lunge':
+      return `${L(e.unit)} ${e.jump ? `從 ${e.jump} 層高跳劈` : '突進'} ${L(e.target)}`;
     case 'mark':
       return `${e.unit ? L(e.unit) : '看不到的敵機'} 標定 ${L(e.target)}（標定方看得到它、命中 +${config.MARK_BONUS}，持續到超出標定機的感測距離）`;
     case 'contact':

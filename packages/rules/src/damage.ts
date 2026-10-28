@@ -15,6 +15,8 @@ export interface Ctx {
   by?: string;
   /** 射擊瞄準的機體：瞄準要害只加在它身上（誤擊到旁邊纏鬥的機體不算） */
   aimAt?: string;
+  /** 從上方打下來的傷害：部位照頂部攻擊表（腿部很難中） */
+  topAttack?: boolean;
   /** 沒辦法瞄準的傷害（撞擊）：瞄準要害不生效 */
   unaimed?: boolean;
   /** 射擊位置（打戰艦時決定比較容易打到哪裡） */
@@ -108,6 +110,8 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
     const aimed = !ctx.unaimed && (!ctx.aimAt || ctx.aimAt === u.id) && !!by && (pilotOf(by).abilities.includes('ship_killer') || pilotOf(by).abilities.includes('called_shot'));
     mult = shipPartMultiplier(u, ctx.unaimed ? undefined : ctx.from, aimed, !!by && isShip(by));
     bonus = 0;
+  } else if (ctx.topAttack) {
+    mult = (p) => (p.kind === 'body' && p.role ? (C.TOP_ATTACK_WEIGHT[p.role] ?? 1) : 1);
   }
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {

@@ -4,6 +4,7 @@ import { inMarkCone, sensorRange } from './vision';
 import { shoot, hitChance, type TurnInfo } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
+import { lungeCheck, meleeClash } from './melee';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
 import { CHASSIS, EQUIPMENT } from './data';
@@ -18,6 +19,7 @@ import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreOb
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
+import { readyMelee } from './unit';
 import { alwaysReady, busyHands, defaultAction, defaultMove, equipAlive, handUsable, heldItem, pilotOf, planCost, rackSide, readyRanged, shotWeapons, swapOrders } from './unit';
 import { settleHeights } from './movement';
 
@@ -538,6 +540,39 @@ function useUtility(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action']
   return false;
 }
 
+/** 突進／跳劈：衝到目標身邊砍一刀（會暴露位置） */
+function doLunge(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'lunge' }>, benched: Set<string>): boolean {
+  const { state } = ctx;
+  const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
+  const target = state.units.find((x) => x.id === action.target);
+  if (!target || target.status !== 'active') return fail('目標已失去戰鬥能力');
+  if (!state.visible[u.owner].includes(target.id)) return fail('看不到目標');
+  const weapon = readyMelee(u);
+  if (weapon && benched.has(weapon.id)) return fail('拿近戰武器的那一側在換武器，不能突進');
+  if (inGrapple(state, target.id)) return fail('目標在纏鬥中，衝不進去');
+  const r = lungeCheck(state.obstacles, u, target, state.turnInfo?.stance[u.id]);
+  if (typeof r === 'string') return fail(r);
+  const from = { ...u.pos };
+  u.pos = r.to;
+  u.facing = Math.atan2(target.pos.y - u.pos.y, target.pos.x - u.pos.x);
+  ctx.events.push({ type: 'lunge', unit: u.id, target: target.id, from, to: { ...r.to }, jump: r.jump });
+  ctx.events.push({ type: 'reposition', unit: u.id, to: { ...r.to } });
+  if (r.jump > 0) {
+    if (target.z) u.z = target.z;
+    else delete u.z;
+    u.momentum = 0;
+    ctx.events.push({ type: 'elevate', t: 1, unit: u.id, z: u.z ?? 0, how: 'drop' });
+  }
+  spendPropellant(ctx, u, C.LUNGE_PROPELLANT);
+  addStress(ctx, u, C.LUNGE_STRESS, r.jump > 0 ? '跳劈' : '突進');
+  meleeClash(ctx, u, target, 1, false, false, r.jump);
+  if (r.jump >= C.JUMP_SLASH_LEG_FROM && u.status === 'active') {
+    const legs = Object.values(u.parts).find((p) => p.role === 'legs' && !p.destroyed);
+    if (legs) damageUnit(ctx, u, 1, 'focused', legs.id);
+  }
+  return true;
+}
+
 /**
  * 標定：掃描正面 ±MARK_ARC_DEG、感測距離內的敵機（不用視線），隨機標定 markCount 台。
  * 被標定的敵機我方一直看得到、射擊命中 +MARK_BONUS，持續到超出標定機的感測距離為止（回合、攻擊都不會消耗）。
@@ -567,6 +602,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   if (action.type === 'none') return false;
   if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
   if (action.type === 'mark') return doMark(ctx, u, action);
+  if (action.type === 'lunge') return doLunge(ctx, u, action, benched);
   // 打到或鎖定的是氣球：氣球破掉，這個動作就浪費了
   // 一起開火的武器：要現在能用，而且不在換武器的那隻手上
   const weapons: EquipState[] = [];
