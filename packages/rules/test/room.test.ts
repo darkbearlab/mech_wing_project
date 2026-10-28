@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import { Room, Rng, aiOrders, pickRosters, DEFAULT_SETTINGS, type PlayerView, type ServerMessage } from '../src/index';
+
+/** 假連線：記下收到的訊息 */
+function socket() {
+  const got: ServerMessage[] = [];
+  return { got, ws: { send: (d: string) => got.push(JSON.parse(d)), close: () => {} }, last: () => [...got].reverse().find((m) => m.t === 'state' || m.t === 'lobby')! };
+}
+
+/** 人類席位：用電腦的判斷，只送自己小隊的機體 */
+function humanOrders(view: PlayerView, rng: Rng) {
+  const all = aiOrders(view, rng) as Record<string, unknown>;
+  if (view.squad === undefined) return all;
+  const mine = new Set(view.state.units.filter((u) => u.owner === view.you && (u.squad ?? 0) === view.squad).map((u) => u.id));
+  return Object.fromEntries(Object.entries(all).filter(([id]) => mine.has(id)));
+}
+
+const msgFor = (view: PlayerView, orders: Record<string, unknown>) =>
+  JSON.stringify(view.phase === 'pursuit' ? { t: 'pursuits', pursuits: orders } : view.phase === 'deploy' ? { t: 'deploy', deploy: orders } : view.phase === 'action' ? { t: 'actions', actions: orders } : { t: 'moves', moves: orders });
+
+/** 人類席位一直下指令到打完 */
+function playOut(room: Room, seats: [ReturnType<typeof socket>, { message(t: string): void }][], rng: Rng) {
+  for (let i = 0; i < 400 && room.match && room.match.phase !== 'over'; i++) {
+    let acted = false;
+    for (const [s, conn] of seats) {
+      const m = s.last();
+      if (m.t !== 'state' || m.view.phase === 'over' || m.view.submitted[m.view.you]) continue;
+      conn.message(msgFor(m.view, humanOrders(m.view, rng)));
+      acted = true;
+    }
+    if (!acted) break;
+  }
+}
+
+describe('房間', () => {
+  it('一方一個席位：和以前一樣打得完', () => {
+    const room = new Room();
+    const a = socket();
+    const b = socket();
+    const ca = room.connect(a.ws, 0);
+    const cb = room.connect(b.ws, '1');
+    ca.message(JSON.stringify({ t: 'setup', rosters: pickRosters(3), settings: DEFAULT_SETTINGS }));
+    expect((a.last() as Extract<ServerMessage, { t: 'state' }>).view.squad).toBeUndefined();
+    playOut(room, [[a, ca], [b, cb]], new Rng(9));
+    expect(room.match!.phase).toBe('over');
+  }, 30_000);
+
+  it('一方分幾個小隊：人指揮自己的小隊，其他小隊交給電腦', () => {
+    const room = new Room();
+    const a = socket();
+    const ca = room.connect(a.ws, '0');
+    const rosters = pickRosters(4);
+    for (const r of rosters) r.forEach((e, i) => (e.squad = i % 2));
+    ca.message(JSON.stringify({ t: 'setup', rosters, settings: DEFAULT_SETTINGS, ai: ['0-1', '1', '1-1'] }));
+    const st = a.last() as Extract<ServerMessage, { t: 'state' }>;
+    expect(st.view.squad).toBe(0);
+    expect(st.seats?.map((s) => [s.key, s.ai])).toEqual([['0', false], ['0-1', true], ['1', true], ['1-1', true]]);
+    // 電腦已經替其他三個小隊送出，只等人
+    expect(st.view.squads).toEqual({ 0: false, 1: true });
+    // 指揮隊友的機體會被擋
+    const teammate = st.view.state.units.find((u) => u.owner === 0 && u.squad === 1)!;
+    ca.message(JSON.stringify({ t: 'moves', moves: { [teammate.id]: { maneuver: 'hover-S-0', stance: 'shoot', facingOffset: 0, limiter: false } } }));
+    expect(a.got.some((m) => m.t === 'error' && m.errors.some((e) => e.includes('不是你指揮的機體')))).toBe(true);
+    playOut(room, [[a, ca]], new Rng(9));
+    expect(room.match!.phase).toBe('over');
+  }, 30_000);
+
+  it('開房：房主定小隊數與電腦小隊，人都加入就開打', () => {
+    const room = new Room();
+    const host = socket();
+    const mate = socket();
+    const guest = socket();
+    const ch = room.connect(host.ws, '0');
+    const cm = room.connect(mate.ws, '0-1');
+    const cg = room.connect(guest.ws, '1');
+    const [ra, rb] = pickRosters(6);
+    const terms = { settings: { ...DEFAULT_SETTINGS, decapitation: false }, scale: 'large', squads: [2, 2], ai: { '1-1': rb.slice(0, 2) } };
+    ch.message(JSON.stringify({ t: 'join', roster: ra.slice(0, 2), terms }));
+    const lobby = host.last() as Extract<ServerMessage, { t: 'lobby' }>;
+    expect(lobby.seats?.map((s) => [s.key, s.joined, s.ai])).toEqual([['0', true, false], ['0-1', false, false], ['1', false, false], ['1-1', true, true]]);
+    cm.message(JSON.stringify({ t: 'join', roster: ra.slice(2, 3) }));
+    expect(room.match).toBeNull();
+    cg.message(JSON.stringify({ t: 'join', roster: rb.slice(2, 3) }));
+    expect([host, mate, guest].flatMap((s) => s.got.filter((m) => m.t === 'error'))).toEqual([]);
+    expect(room.match).not.toBeNull();
+    const units = room.match!.state.units.map((u) => [u.owner, u.squad]);
+    expect(units).toEqual([[0, 0], [0, 0], [0, 1], [1, 0], [1, 1], [1, 1]]);
+    playOut(room, [[host, ch], [mate, cm], [guest, cg]], new Rng(2));
+    expect(room.match!.phase).toBe('over');
+  }, 30_000);
+});

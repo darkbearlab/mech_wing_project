@@ -248,6 +248,8 @@ export interface UnitState {
   cost?: number;
   id: string;
   owner: PlayerId;
+  /** 同一方裡歸哪個小隊指揮；沒寫是 0。視野、勝負都還是照整方算 */
+  squad?: number;
   label: string;
   chassisId: string;
   pilotId: string;

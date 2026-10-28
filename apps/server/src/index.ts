@@ -29,7 +29,7 @@ wss.on('connection', (ws: WebSocket, req) => {
     rooms.set(roomId, room);
   }
   const seatParam = url.searchParams.get('seat');
-  const conn = room.connect({ send: (d) => ws.readyState === ws.OPEN && ws.send(d), close: (c, r) => ws.close(c, r) }, seatParam === 'watch' ? 'watch' : Number(seatParam) === 1 ? 1 : 0);
+  const conn = room.connect({ send: (d) => ws.readyState === ws.OPEN && ws.send(d), close: (c, r) => ws.close(c, r) }, seatParam ?? '0');
   ws.on('message', (data) => conn.message(String(data)));
   ws.on('close', () => conn.close());
 });

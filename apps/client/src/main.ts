@@ -111,7 +111,9 @@ const mode = params.get('mode') ?? (import.meta.env.PROD && !params.has('room') 
 /** 對戰伺服器：開發時是 Vite 轉給本機伺服器；線上是 Cloudflare 的房間；?server= 可以指定 */
 const SERVER = params.get('server') ?? (import.meta.env.PROD ? (import.meta.env.VITE_ROOM_SERVER ?? 'wss://mech-wing-api.darkbearlab.workers.dev') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
 const room = params.get('room') || 'test';
-let seat: PlayerId = params.get('seat') === '1' ? 1 : 0;
+/** 席位：0、1，一方分成幾個小隊時是 0-1、1-2 這類（0 就是 0-0） */
+const seatName = /^[01](-\d{1,2})?$/.test(params.get('seat') ?? '') ? params.get('seat')!.replace(/-0$/, '') : '0';
+let seat: PlayerId = seatName.startsWith('1') ? 1 : 0;
 /** 觀戰（?seat=watch）：雙方都看得到，不能下指令 */
 const watching = params.get('seat') === 'watch';
 
@@ -123,7 +125,7 @@ let deadline: number | null = null;
 let errors: string[] = [];
 
 function connect() {
-  ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${watching ? 'watch' : seat}`);
+  ws = new WebSocket(`${SERVER}/ws?room=${encodeURIComponent(room)}&seat=${watching ? 'watch' : seatName}`);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMessage);
   ws.onclose = (e) => {
     connected = [false, false];
@@ -266,7 +268,7 @@ function showLobby() {
     cover.hidden = false;
     return;
   }
-  if (lobby.joined[seat]) {
+  if (lobbyJoined()) {
     $('lineup').hidden = true;
     cover.innerHTML = `<div><p>已加入房間 <b>${esc(room)}</b>，你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b></p><p class="muted">等待對手選好隊伍加入${lobby.connected[seat === 0 ? 1 : 0] ? '' : '（對手還沒連線）'}…</p></div>`;
     cover.hidden = false;
@@ -283,7 +285,7 @@ function showLobby() {
     {
       side: seat,
       hostPrefs: seat === 1 ? ((lobby.terms?.prefs as LineupSettings | undefined) ?? null) : null,
-      onJoin: (roster, settings, scale, prefs) => sendMsg({ t: 'join', roster, ...(seat === 0 ? { terms: { settings, scale, prefs } } : {}) }),
+      onJoin: (roster, settings, scale, prefs) => sendMsg({ t: 'join', roster, ...(seatName === '0' ? { terms: { settings, scale, prefs } } : {}) }),
     },
   );
 }
@@ -314,7 +316,7 @@ function onMessage(msg: ServerMessage) {
   } else if (msg.t === 'error') {
     errors = msg.errors;
     // 還沒開打：多半是加入房間被退回，重開選隊畫面並把原因寫在狀態列
-    if (lobby && !lobby.joined[seat]) {
+    if (lobby && !lobbyJoined()) {
       lineupOpenedFor = -1;
       showLobby();
       $('status').textContent = msg.errors.join('；');
@@ -473,11 +475,15 @@ function applyView(v: PlayerView) {
   if (!selected || !v.state.units.some((u) => u.id === selected)) selected = ownUnits().find((u) => u.status === 'active')?.id ?? null;
   // 王牌移動、追擊：自動選第一台要下指令的機體
   const sel = selected ? unitView(selected) : undefined;
-  if ((v.phase === 'ace' || v.phase === 'pursuit') && (!sel || sel.owner !== v.you || !needsOrder(sel))) selected = ownUnits().find((u) => needsOrder(u))?.id ?? selected;
+  if ((v.phase === 'ace' || v.phase === 'pursuit') && (!sel || !commands(sel) || !needsOrder(sel))) selected = ownUnits().find((u) => needsOrder(u))?.id ?? selected;
   renderAll();
 }
 
-const ownUnits = () => (view ? view.state.units.filter((u) => u.owner === view!.you) : []);
+/** 這個席位指揮的機體（分小隊時隊友的機體看得到、不能下令） */
+const commands = (u: UnitView) => !!view && u.owner === view.you && (view.squad === undefined || (u.squad ?? 0) === view.squad);
+const ownUnits = () => (view ? view.state.units.filter(commands) : []);
+/** 開房模式：自己這個席位加入了沒 */
+const lobbyJoined = () => (lobby?.seats ? !!lobby.seats.find((s) => s.key === seatName)?.joined : !!lobby?.joined[seat]);
 const unitView = (id: string) => view?.state.units.find((u) => u.id === id);
 const labelOf = (id: string) => unitView(id)?.label ?? show?.prevUnits.find((u) => u.id === id)?.label ?? podLabel(id) ?? id;
 
@@ -659,7 +665,7 @@ attachCameraControls(canvas, cam, {
   grab(sx, sy) {
     if (!view || show || view.phase !== 'deploy' || view.submitted[view.you]) return false;
     const hit = unitAt(sx, sy);
-    if (!hit || hit.owner !== view.you || !deployDrafts[hit.id]) return false;
+    if (!hit || !commands(hit) || !deployDrafts[hit.id]) return false;
     dragging = hit.id;
     selected = hit.id;
     renderAll();
@@ -695,7 +701,7 @@ attachCameraControls(canvas, cam, {
       return;
     }
     // 煙霧彈、氣球：點地圖（或點機體）選落點
-    if (view && !show && view.phase === 'action' && sel?.owner === view.you && plan && (plan.action.type === 'smoke' || plan.action.type === 'decoy') && !view.submitted[view.you]) {
+    if (view && !show && view.phase === 'action' && sel && commands(sel) && plan && (plan.action.type === 'smoke' || plan.action.type === 'decoy') && !view.submitted[view.you]) {
       const w = hit ? hit.pos : cam.unproject(sx, sy);
       if (w) {
         plan.action.at = { x: Math.round(w.x * 10) / 10, y: Math.round(w.y * 10) / 10 };
@@ -705,7 +711,7 @@ attachCameraControls(canvas, cam, {
       return;
     }
     // 點到看得到的敵方炮群：當射擊目標
-    if (view && !show && view.phase === 'action' && sel?.owner === view.you && plan?.action.type === 'shoot' && !view.submitted[view.you]) {
+    if (view && !show && view.phase === 'action' && sel && commands(sel) && plan?.action.type === 'shoot' && !view.submitted[view.you]) {
       const w = cam.unproject(sx, sy);
       const p = w && (view.state.enemyPods ?? []).find((x) => Math.hypot(x.pos.x - w.x, x.pos.y - w.y) < 0.8);
       if (p && !hit) {
@@ -714,7 +720,7 @@ attachCameraControls(canvas, cam, {
       }
     }
     if (!view || !hit || show) return;
-    if (view.phase === 'action' && sel?.owner === view.you && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !hit.hidden && !view.submitted[view.you]) {
+    if (view.phase === 'action' && sel && commands(sel) && plan && plan.action.type !== 'none' && hit.owner !== view.you && hit.status === 'active' && !hit.hidden && !view.submitted[view.you]) {
       setTarget(sel.id, hit.id);
       return;
     }
@@ -1971,7 +1977,7 @@ function renderStatus() {
       : local.opponent === 'ai' || local.opponent === 'aiA'
         ? `你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>，${SIDE((1 - seat) as PlayerId)} 方由電腦操作`
         : `同機輪流　現在是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>`
-    : `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b> <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${SIDE(other)} 方視窗</a>`;
+    : `房間 <b>${esc(room)}</b>　你是 <b style="color:${color(seat)}">${SIDE(seat)} 方</b>${view?.squad !== undefined ? `第 ${view.squad} 小隊（只指揮自己小隊的機體）` : ''} <a href="?room=${encodeURIComponent(room)}&seat=${other}" target="_blank">開啟${SIDE(other)} 方視窗</a>`;
   if (!view) {
     $('status').textContent = lobby ? '開房：雙方各自選好隊伍加入，到齊就開打' : '連線中…';
     return;
@@ -2423,7 +2429,7 @@ function resultText(): string {
 function controlsHtml(u: UnitView | undefined): string {
   if (watching) return '';
   if (replayNow || show || !u || view!.phase === 'over' || local?.opponent === 'aivai') return '';
-  if (u.owner !== view!.you || u.status !== 'active' || view!.submitted[view!.you] || !needsOrder(u)) return '';
+  if (!commands(u) || u.status !== 'active' || view!.submitted[view!.you] || !needsOrder(u)) return '';
   if (view!.phase === 'pursuit') return pursuitControls(u);
   if (view!.phase === 'deploy') return deployControls(u);
   return view!.phase === 'move' || view!.phase === 'ace' ? moveControls(u, moveDrafts[u.id]) : actionControls(u, actionDrafts[u.id]);
@@ -2945,7 +2951,7 @@ function actionControls(u: UnitView, plan: ActionPlan): string {
 }
 
 function bindControls(u: UnitView | undefined) {
-  if (!u || u.owner !== view!.you) return;
+  if (!u || !commands(u)) return;
   const ctr = $('controls');
   const move = moveDrafts[u.id];
   const plan = actionDrafts[u.id];

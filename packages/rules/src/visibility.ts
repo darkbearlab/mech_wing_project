@@ -28,6 +28,8 @@ import type { EquipState, GameEvent, GameState, GrappleState, Obstacle, PartStat
 export interface UnitView {
   id: string;
   owner: PlayerId;
+  /** 自己這一方的機體歸哪個小隊（敵機不顯示） */
+  squad?: number;
   label: string;
   chassisId: string;
   pos: Vec;
@@ -98,6 +100,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
   const base: UnitView = {
     id: u.id,
     owner: u.owner,
+    ...(u.squad !== undefined && u.owner === viewer ? { squad: u.squad } : {}),
     label: u.label,
     chassisId: u.chassisId,
     pos: { ...u.pos },
