@@ -1,4 +1,4 @@
-import { SCREEN_MAX_SPEED, CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_OFFSETS, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
+import { SCREEN_MAX_SPEED, CLIMB_LEVELS, CLIMB_MAX_SPEED, CLIMB_PROPELLANT, FACING_STEP_DEG, G_FREE_DV, LIMITER_STRESS, PACK_BROKEN_ACCEL, SHIP_TURN_MAX_DEG, SLIDE_MAX_MOMENTUM, SLIDE2_MIN_ACCEL } from './config';
 import { closeCombatOf, handOfPart, handPart, minSpeedOf, roleLost } from './body';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { parseManeuver, type ManeuverSpec } from './maneuvers';
@@ -298,7 +298,7 @@ export function validateMove(u: UnitState, plan: MovePlan, grappled: boolean, wo
   }
   if (!['shoot', 'melee'].includes(plan.stance)) errors.push(`${u.label}：姿態不正確`);
   else if (plan.stance === 'melee' && !closeCombatOf(u)) errors.push(`${u.label}：這台機體只能選射擊姿態`);
-  if (!(FACING_OFFSETS as readonly number[]).includes(plan.facingOffset)) errors.push(`${u.label}：轉身角度不正確`);
+  if (!wholeDegrees(plan.facingOffset) || Math.abs(plan.facingOffset) > 180) errors.push(`${u.label}：轉身角度要是 −180～180 的整數度`);
   else if (CHASSIS[u.chassisId]?.crew === 'ship' && Math.abs(plan.facingOffset) > SHIP_TURN_MAX_DEG) errors.push(`${u.label}：戰艦原地轉身最多 ${SHIP_TURN_MAX_DEG}°`);
   else if (plan.facingOffset !== 0 && !grappled && parseManeuver(plan.maneuver).kind !== 'hover') errors.push(`${u.label}：只有懸停時可以轉身`);
   return errors;
@@ -371,6 +371,9 @@ export function screenBlocked(u: Gear, plan: Pick<MovePlan, 'maneuver' | 'smoke'
   if (moveSpeed(plan) > SCREEN_MAX_SPEED) return `速度 ${SCREEN_MAX_SPEED} 以下才能放煙幕（太快會衝出煙幕）`;
   return null;
 }
+
+/** 角度（度）是 FACING_STEP_DEG 的整數倍 */
+export const wholeDegrees = (deg: number): boolean => Number.isFinite(deg) && Math.abs(deg / FACING_STEP_DEG - Math.round(deg / FACING_STEP_DEG)) < 1e-6;
 
 export function defaultMove(u: UnitState): MovePlan {
   return { maneuver: cruiseManeuver(u), stance: 'shoot', facingOffset: 0, limiter: false };

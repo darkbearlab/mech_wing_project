@@ -81,6 +81,10 @@ import {
   availableManeuvers,
   immobile,
   forecastMoves,
+  jumpJetOf,
+  jumpCost,
+  coastEnd,
+  landingHeight,
   exposed,
   flightFire,
   needsMark,
@@ -214,6 +218,8 @@ let pursuitDrafts: Record<string, PursuitPlan | null> = {};
 let deployDrafts: Record<string, DeployPlan> = {};
 /** 部署時正在拖的機體 */
 let dragging: string | null = null;
+/** 正在拖曳面向把手的機體 */
+let faceDrag: string | null = null;
 
 const QUARTER = Math.PI / 4;
 const snapFacing = (f: number) => Math.round(f / QUARTER) * QUARTER;
@@ -708,6 +714,29 @@ function unitAt(sx: number, sy: number): UnitView | undefined {
 /** 行動步驟：已選裝備的本方機體點敵機＝設定目標；其他情況點機體＝選取查看 */
 attachCameraControls(canvas, cam, {
   grab(sx, sy) {
+    // 面向把手：選取中的機體前方的小圓點，拖曳轉向
+    const sel = selected ? unitView(selected) : undefined;
+    const h = sel ? facingHandle(sel) : null;
+    if (sel && h) {
+      const p = pr(h.knob.x, h.knob.y, UNIT_Z);
+      if (p.visible && Math.hypot(p.x - sx, p.y - sy) < 14) {
+        faceDrag = sel.id;
+        return true;
+      }
+    }
+    // 噴射：在落點範圍裡按下＝選落點，接著拖曳＝面向
+    const jp = sel ? moveDrafts[sel.id] : undefined;
+    if (sel && jp?.jump && commands(sel) && !view?.submitted[view.you]) {
+      const w = cam.unproject(sx, sy);
+      const from = coastEnd(sel);
+      if (w && Math.hypot(w.x - from.x, w.y - from.y) <= config.JUMP_RANGE) {
+        jp.jump.to = { x: Math.round(w.x * 10) / 10, y: Math.round(w.y * 10) / 10 };
+        faceDrag = sel.id;
+        touched.add(sel.id);
+        renderPanel();
+        return true;
+      }
+    }
     if (!view || show || view.phase !== 'deploy' || view.submitted[view.you]) return false;
     const hit = unitAt(sx, sy);
     if (!hit || !commands(hit) || !deployDrafts[hit.id]) return false;
@@ -717,6 +746,17 @@ attachCameraControls(canvas, cam, {
     return true;
   },
   dragTo(sx, sy) {
+    if (faceDrag) {
+      const u = unitView(faceDrag);
+      const h = u ? facingHandle(u) : null;
+      const w = cam.unproject(sx, sy);
+      if (h && w && Math.hypot(w.x - h.center.x, w.y - h.center.y) > 0.05) {
+        h.set(Math.round(Math.atan2(w.y - h.center.y, w.x - h.center.x) / DEG));
+        touched.add(faceDrag);
+        renderPanel();
+      }
+      return;
+    }
     const d = dragging ? deployDrafts[dragging] : undefined;
     const w = cam.unproject(sx, sy);
     if (!d || !w) return;
@@ -727,6 +767,7 @@ attachCameraControls(canvas, cam, {
   drop() {
     if (dragging) touched.add(dragging);
     dragging = null;
+    faceDrag = null;
     renderAll();
   },
   onClick(sx, sy) {
@@ -797,7 +838,10 @@ function drawFrame(now: number) {
   if (!view) return;
   drawObjectives();
   if (!show) {
-    if (view.phase === 'deploy') drawDeployZones();
+    if (view.phase === 'deploy') {
+      drawDeployZones();
+      drawFacingHandle();
+    }
     else {
       drawBarrages();
       drawRanges();
@@ -1955,8 +1999,108 @@ function drawInbound() {
   }
 }
 
+const DEG = Math.PI / 180;
+
+/** 選取中的機體能不能拖曳轉向：部署、懸停原地轉身、噴射的落點；回傳中心、目前面向、把手位置與設定函式（度） */
+function facingHandle(u: UnitView): { center: Vec; facing: number; knob: Vec; set: (deg: number) => void } | null {
+  if (!view || show || view.submitted[view.you] || !commands(u)) return null;
+  const knobAt = (c: Vec, f: number) => ({ x: c.x + Math.cos(f) * (radiusOf(u) * 1.5 + 0.5), y: c.y + Math.sin(f) * (radiusOf(u) * 1.5 + 0.5) });
+  if (view.phase === 'deploy') {
+    const d = deployDrafts[u.id];
+    if (!d) return null;
+    return { center: { x: d.x, y: d.y }, facing: d.facing, knob: knobAt(d, d.facing), set: (deg) => (d.facing = deg * DEG) };
+  }
+  if (view.phase !== 'move' && view.phase !== 'ace') return null;
+  const plan = moveDrafts[u.id];
+  if (!plan || plan.defer || inGrapple(u.id) || immobile(u)) return null;
+  if (plan.jump) {
+    const j = plan.jump;
+    return { center: j.to, facing: j.facing * DEG, knob: knobAt(j.to, j.facing * DEG), set: (deg) => (j.facing = deg) };
+  }
+  if (parseManeuver(plan.maneuver).kind !== 'hover') return null;
+  const f = u.facing + plan.facingOffset * DEG;
+  const limit = isShip(u) ? config.SHIP_TURN_MAX_DEG : 180;
+  return {
+    center: u.pos,
+    facing: f,
+    knob: knobAt(u.pos, f),
+    set: (deg) => (plan.facingOffset = Math.max(-limit, Math.min(limit, Math.round(Math.atan2(Math.sin(deg * DEG - u.facing), Math.cos(deg * DEG - u.facing)) / DEG)))),
+  };
+}
+
+// 開發時方便從主控台檢查把手的位置
+if (import.meta.env.DEV) (window as unknown as { __mw: unknown }).__mw = { facingHandle: (id: string) => { const u = unitView(id); return u ? facingHandle(u) : null; }, project: (x: number, y: number, z = 0) => pr(x, y, z), drafts: () => ({ moveDrafts, deployDrafts }) };
+
+function drawFacingHandle() {
+  const u = selected ? unitView(selected) : undefined;
+  const h = u ? facingHandle(u) : null;
+  if (!h) return;
+  g.strokeStyle = 'rgba(255,214,120,0.95)';
+  g.lineWidth = 2;
+  polyWorld([
+    [h.center.x, h.center.y, UNIT_Z],
+    [h.knob.x, h.knob.y, UNIT_Z],
+  ]);
+  g.stroke();
+  g.lineWidth = 1;
+  const p = pr(h.knob.x, h.knob.y, UNIT_Z);
+  if (p.visible) dotAt(p, faceDrag ? 8 : 6, 'rgba(255,214,120,0.95)');
+}
+
+/** 噴射：滑完動能的軌跡、落點範圍（選取中的才畫）、落點與面向 */
+function drawJumpPlans() {
+  if (!view || show || (view.phase !== 'move' && view.phase !== 'ace')) return;
+  for (const [id, plan] of Object.entries(moveDrafts)) {
+    const u = unitView(id);
+    if (!u || !plan.jump) continue;
+    const from = coastEnd(u);
+    const sel = id === selected;
+    g.strokeStyle = color(u.owner, sel ? 0.9 : 0.45);
+    g.lineWidth = 2;
+    polyWorld([
+      [u.pos.x, u.pos.y, UNIT_Z],
+      [from.x, from.y, UNIT_Z],
+    ]);
+    g.stroke();
+    if (sel) {
+      g.strokeStyle = 'rgba(239,159,39,0.9)';
+      g.setLineDash([5, 4]);
+      ringWorld(from.x, from.y, config.JUMP_RANGE, UNIT_Z);
+      g.stroke();
+      g.setLineDash([]);
+    }
+    const to = plan.jump.to;
+    const z = landingHeight(view.state.obstacles, u, to);
+    const ok = z !== null && Math.hypot(to.x - from.x, to.y - from.y) <= config.JUMP_RANGE + 1e-6;
+    g.strokeStyle = ok ? 'rgba(239,159,39,0.95)' : 'rgba(240,80,80,0.95)';
+    const pts: [number, number, number][] = [];
+    for (let i = 0; i <= 12; i++) {
+      const k = i / 12;
+      pts.push([from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k, UNIT_Z + (z ?? 0) * k + 1.2 * 4 * k * (1 - k)]);
+    }
+    g.setLineDash([6, 4]);
+    polyWorld(pts);
+    g.stroke();
+    g.setLineDash([]);
+    ringWorld(to.x, to.y, radiusOf(u), z ?? 0);
+    g.stroke();
+    g.lineWidth = 1;
+    if (z) {
+      const c = pr(to.x, to.y, z);
+      if (c.visible) {
+        g.fillStyle = 'rgba(239,159,39,0.95)';
+        g.font = '11px sans-serif';
+        g.textAlign = 'center';
+        g.fillText(`樓頂 ${z} 層`, c.x, c.y - 12);
+      }
+    }
+  }
+}
+
 function drawPreviews() {
   drawPodPlans();
+  drawJumpPlans();
+  drawFacingHandle();
   drawMoveWarnings();
   drawSmokePreview();
   drawInbound();
@@ -1980,7 +2124,7 @@ function drawPreviews() {
   if (view?.phase === 'move' || view?.phase === 'ace') {
     for (const [id, plan] of Object.entries(moveDrafts)) {
       const u = unitView(id);
-      if (!u || inGrapple(id) || plan.defer) continue;
+      if (!u || inGrapple(id) || plan.defer || plan.jump) continue;
       if (hoverManeuver?.unit === id) drawPath(u, { ...plan, maneuver: hoverManeuver.maneuver, facingOffset: 0 }, 'rgba(255,255,255,0.95)', true);
       else drawPath(u, plan, color(u.owner, id === selected ? 0.9 : 0.45), id === selected);
     }
@@ -2761,8 +2905,16 @@ function moveControls(u: UnitView, plan: MovePlan): string {
   const cost = planCost(u, plan);
   // 擱置時版面不變、只把機動與姿態淡掉，按鈕才不會跑離游標
   let html = `<div class="ctrlRow${plan.defer ? ' deferred' : ''}"><div>`;
-  html += `<div class="sec">動能 ${signed(u.momentum)} → ${signed(m.endMomentum)}：<b style="color:var(--text)">${m.name}</b>　推 −${cost.propellant}　壓 +${cost.stress}</div>`;
-  html += dialHtml(u, plan);
+  const jet = jumpJetOf(u as unknown as UnitState);
+  if (jet) html += `<div class="row"><button class="${plan.jump ? '' : 'on'}" data-jump="0">機動盤</button><button class="${plan.jump ? 'on' : ''}" data-jump="1">噴射</button></div>`;
+  if (plan.jump) {
+    const env = view!.state.settings.environment ?? 'space';
+    html += `<div class="sec">噴射：推 −${jumpCost(u, env)}　壓 +${env === 'space' ? config.JUMP_STRESS_SPACE : config.JUMP_STRESS_GRAVITY}${env === 'space' ? '　動能保留' : `　落地射擊 −${config.JUMP_LANDING_PENALTY}`}</div>`;
+    html += `<div class="small muted">點落點範圍選落點、拖曳決定面向（${Math.round(plan.jump.facing)}°）</div>`;
+  } else {
+    html += `<div class="sec">動能 ${signed(u.momentum)} → ${signed(m.endMomentum)}：<b style="color:var(--text)">${m.name}</b>　推 −${cost.propellant}　壓 +${cost.stress}</div>`;
+    html += dialHtml(u, plan);
+  }
   html += '</div><div>';
   html += '<div class="sec">姿態</div><div class="row">';
   const slow = moveSpeed(plan) <= config.SLOW_MAX_SPEED;
@@ -2774,8 +2926,8 @@ function moveControls(u: UnitView, plan: MovePlan): string {
     .join('');
   html += '</div>';
   if (immobile(u)) html += '<div class="row"><span class="small warn">重力圈裡腳部損壞：不能移動也不能轉向，只能原地不動</span></div>';
-  else if (m.kind === 'hover') {
-    html += `<div class="row"><span class="small muted">原地轉身</span><select data-f="facingOffset">${config.FACING_OFFSETS.filter((f) => !isShip(u) || Math.abs(f) <= config.SHIP_TURN_MAX_DEG).map((f) => `<option value="${f}" ${plan.facingOffset === f ? 'selected' : ''}>${f === 0 ? '不轉' : `${f > 0 ? '右' : '左'} ${Math.abs(f)}°`}</option>`).join('')}</select></div>`;
+  else if (m.kind === 'hover' && !plan.jump) {
+    html += `<div class="row"><span class="small muted">原地轉身 ${plan.facingOffset === 0 ? '不轉' : `${plan.facingOffset > 0 ? '右' : '左'} ${Math.abs(plan.facingOffset)}°`}・拖曳把手調整</span></div>`;
   }
   // 預測：這個機動會撞到什麼（敵機怎麼走看不到，不算）
   for (const w of moveWarnings().filter((x) => x.unit === u.id)) html += `<div class="row"><span class="small warn">⚠ 預測${esc(warningText(w, (id) => labelOf(id).split(' ')[0]))}</span></div>`;
@@ -2802,7 +2954,9 @@ function moveControls(u: UnitView, plan: MovePlan): string {
 現在不能用：${screenWhy}` : ''}`,
       )
     : '';
-  html += `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${climbBtn}${smokeBtn}${purgeBtn}${deferBtn}</div>`;
+  html += plan.jump
+    ? `<div class="row">${smokeBtn}${purgeBtn}</div>`
+    : `<div class="row">${tip(`<button class="${plan.limiter ? 'on' : ''}" data-limiter="1" ${m.kind === 'hover' ? 'data-off="1"' : ''}>限制器解除</button>`, limiterTip)}${climbBtn}${smokeBtn}${purgeBtn}${deferBtn}</div>`;
   if (view!.state.inbound.some((x) => x.target === u.id)) html += `<div class="row"><span class="small warn">⚠ 有彈藥飛向這台，下回合移動結束後命中${screens.length ? '（可以放煙幕甩掉）' : ''}</span></div>`;
   const guiding = view!.state.inbound.find((x) => x.attacker === u.id && EQUIPMENT[x.defId]?.fire === 'atgm');
   if (guiding) html += `<div class="row"><span class="small warn">導引反戰車飛彈中：這回合速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、${labelOf(guiding.target).split(' ')[0]} 要留在正面射界、看得到，不然落空</span></div>`;
@@ -2901,21 +3055,11 @@ function podActionControls(u: UnitView, plan: ActionPlan): string {
 /** 部署：朝向（以你面對敵方的方向為上）與起始動能 */
 function deployControls(u: UnitView): string {
   const d = deployDrafts[u.id];
-  const dirs: [string, number, number][] = [['↖', -1, 1], ['↑', 0, 1], ['↗', 1, 1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, -1], ['↓', 0, -1], ['↘', 1, -1]];
-  const grid = dirs
-    .map(([g, dx, dy]) => {
-      if (!g) return '<span></span>';
-      // 照目前的視角：箭頭指哪個方向，機頭在畫面上就朝哪個方向
-      const f = snapFacing(cam.screenToGroundAngle(dx, dy));
-      const on = Math.abs(Math.atan2(Math.sin(f - d.facing), Math.cos(f - d.facing))) < 0.01;
-      return tip(`<button class="${on ? 'on' : ''}" data-face="${f}">${g}</button>`, '機頭朝向（照目前畫面的方向；旋轉視角後箭頭也跟著轉）');
-    })
-    .join('');
   const [lo, hi] = momentumRange(u);
   const moms = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
     .map((m) => tip(`<button class="${d.momentum === m ? 'on' : ''}" data-mom="${m}">${m}</button>`, `起始動能 ${m}：開戰第一回合的速度。快一點衝得快，但要停下來比較費推進劑。${lo > 0 ? '戰機不能低於最低速度。' : ''}`))
     .join('');
-  return `<div class="sec">朝向</div><div class="faceGrid">${grid}</div><div class="sec">起始動能</div><div class="row">${moms}</div>`;
+  return `<div class="sec">朝向 ${Math.round(d.facing / DEG)}°・拖曳把手調整</div><div class="sec">起始動能</div><div class="row">${moms}</div>`;
 }
 
 /** 追擊步驟：列出能追擊的目標 × 武器，或放棄 */
@@ -3095,7 +3239,7 @@ function weaponShot(u: UnitView, w: EquipState, t: UnitView): { h: NonNullable<R
   if (!indirect && def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
   if (def.pointBlank === false && rangeBand(u, t) === 0) return { h: null, why: '太近' };
   const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
-  const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage });
+  const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage, landing: view!.state.jumped.includes(u.id) });
   return { h, why: h ? '' : '射程外' };
 }
 
@@ -3118,6 +3262,7 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     `${bandName(first.band)}`,
     u.blackout && direct ? `黑視中 −${config.BLACKOUT_SHOT_PENALTY}` : '',
     view!.state.stance[u.id] === 'melee' ? `近戰姿態 −${config.MELEE_STANCE_SHOT_PENALTY}` : '',
+    view!.state.jumped.includes(u.id) ? `落地 −${config.JUMP_LANDING_PENALTY}` : '',
     `相對速度 ${relSpeed.toFixed(1)}`,
     ...(direct ? coverParts(cover).map((c) => `${c.label} −${c.penalty}${c.label === '盾牆' ? '（命中都打在盾上）' : ''}`) : []),
     direct && first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%` : ''}` : '',
@@ -3240,6 +3385,7 @@ function bindControls(u: UnitView | undefined) {
     b.onclick = () => {
       if (b.dataset.off) return;
       move.maneuver = b.dataset.m!;
+      delete move.jump;
       if (parseManeuver(move.maneuver).kind === 'hover') move.limiter = false;
       else move.facingOffset = 0;
       if (move.climb && climbBlocked(u as unknown as UnitState, move)) move.climb = false;
@@ -3257,7 +3403,6 @@ function bindControls(u: UnitView | undefined) {
       }),
   );
   ctr.querySelectorAll<HTMLButtonElement>('button[data-purge]').forEach((b) => (b.onclick = () => ((move.purge = !move.purge), changed())));
-  ctr.querySelectorAll<HTMLButtonElement>('button[data-face]').forEach((b) => (b.onclick = () => ((deployDrafts[u.id].facing = Number(b.dataset.face)), changed())));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-mom]').forEach((b) => (b.onclick = () => ((deployDrafts[u.id].momentum = Number(b.dataset.mom)), changed())));
   ctr.querySelectorAll<HTMLButtonElement>('button[data-limiter]').forEach((b) => {
     b.onclick = () => {
@@ -3271,6 +3416,18 @@ function bindControls(u: UnitView | undefined) {
     b.onclick = () => {
       if (b.dataset.off) return;
       move.climb = !move.climb || undefined;
+      changed();
+    };
+  });
+  ctr.querySelectorAll<HTMLButtonElement>('button[data-jump]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.jump === '1' && !move.jump) {
+        move.jump = { to: coastEnd(u), facing: Math.round(u.facing / DEG) };
+        move.facingOffset = 0;
+        move.limiter = false;
+        delete move.climb;
+        move.defer = false;
+      } else if (b.dataset.jump === '0') delete move.jump;
       changed();
     };
   });
@@ -3528,6 +3685,8 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} 拋棄外裝甲`;
     case 'smoke':
       return `${e.unit ? L(e.unit) : '看不到的敵機'} ${e.screen ? '放出煙幕（留到這回合結束）' : '丟出煙霧彈'}`;
+    case 'jump':
+      return `${L(e.unit)} 噴射到新位置`;
     case 'launch':
       return `${L(e.attacker)} 發射${EQUIPMENT[e.weapon]?.name ?? e.weapon} ×${e.shots} → ${L(e.target)}，下回合移動結束後命中`;
     case 'inboundLost':

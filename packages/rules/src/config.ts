@@ -60,8 +60,8 @@ export const ROSTER_MODE: 'default' | 'random' | 'mirror' = 'random';
 export const RANGE_LIMITS = { r0: 0.2, r1: 3, r2: 6, r3: 10, r4: 20 } as const;
 
 // 機動
-/** 懸停時可原地轉身的角度（不另外消耗推進劑） */
-export const FACING_OFFSETS = [0, 45, -45, 90, -90, 180] as const;
+/** 面向一律以 1° 為刻度（部署、懸停原地轉身、噴射後的面向）；懸停轉身 −180～180°，不另外消耗推進劑 */
+export const FACING_STEP_DEG = 1;
 /** 限制器解除：最大加減速 +1，壓力 +LIMITER_STRESS */
 export const LIMITER_STRESS = 2;
 /** 開場時各機的動能 */

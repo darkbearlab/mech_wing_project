@@ -69,4 +69,14 @@ describe('垂直噴射器', () => {
     h.propellant = jumpCost(h, 'gravity') - 1;
     expect(validateMove(h, plan({ maneuver: 'hover-S-0', jump: { to: { x: 4, y: 10 }, facing: 180 } }), false, st).join()).toContain('推進劑不足');
   });
+
+  it('面向以 1° 為刻度：懸停轉身 37° 可以、37.5° 不行；噴射面向也一樣', () => {
+    const st = world('space');
+    const u = st.units[0];
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', facingOffset: 37 }), false, st)).toEqual([]);
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', facingOffset: 37.5 }), false, st).join()).toContain('整數度');
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', facingOffset: 190 }), false, st).join()).toContain('整數度');
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', jump: { to: { x: 5, y: 10.5 }, facing: 133 } }), false, st)).toEqual([]);
+    expect(validateMove(u, plan({ maneuver: 'hover-S-0', jump: { to: { x: 5, y: 10.5 }, facing: 13.2 } }), false, st).join()).toContain('整數度');
+  });
 });

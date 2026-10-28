@@ -21,7 +21,7 @@ import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreOb
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
-import { moveSpeed, readyMelee, screenBlocked } from './unit';
+import { moveSpeed, readyMelee, screenBlocked, wholeDegrees } from './unit';
 import { applyJumps, coastManeuver } from './jump';
 import { alwaysReady, busyHands, defaultAction, defaultMove, equipAlive, handUsable, heldItem, pilotOf, planCost, rackSide, readyRanged, shotWeapons, swapOrders } from './unit';
 import { settleHeights } from './movement';
@@ -525,8 +525,7 @@ export function validateDeploy(state: GameState, player: PlayerId, plans: Player
     else if (state.obstacles.some((o) => o.kind === 'rock' && Math.hypot(d.x - o.x, d.y - o.y) < o.r + r)) errors.push(`${u.label}：壓到大隕石`);
     else if (state.obstacles.some((o) => o.kind === 'building' && wallPenetration(o, d, r) > 0)) errors.push(`${u.label}：壓到建築`);
     else if (placed.some((q) => Math.hypot(q.d.x - d.x, q.d.y - d.y) < q.r + r + 0.1)) errors.push(`${u.label}：和隊友重疊`);
-    const step = Math.round(d.facing / (45 * DEG));
-    if (Math.abs(d.facing - step * 45 * DEG) > 1e-6) errors.push(`${u.label}：朝向要是 45° 的倍數`);
+    if (!wholeDegrees(d.facing / DEG)) errors.push(`${u.label}：朝向要是整數度`);
     const min = minSpeedOf(u);
     if (!Number.isInteger(d.momentum) || d.momentum < Math.min(min, 2) || d.momentum > Math.max(2, min)) errors.push(`${u.label}：起始動能要在 ${Math.min(min, 2)}–${Math.max(2, min)}`);
     placed.push({ id: u.id, d, r });

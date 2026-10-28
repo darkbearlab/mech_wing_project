@@ -20,7 +20,7 @@ import { buildPath } from './movement';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
 import { BUILDING_TYPE_MULT, buildingHitChance } from './demolition';
 import { inFootprint } from './terrain';
-import { ATGM_GUIDE_MAX_SPEED, SCREEN_MAX_SPEED, SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { ATGM_GUIDE_MAX_SPEED, SCREEN_MAX_SPEED, SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
@@ -707,7 +707,8 @@ function planMoves(view: PlayerView, rng: Rng, step: 'move' | 'ace'): PlayerMove
     // 懸停時轉身面向最近的敵人（重力圈裡腳斷了轉不了）
     if (best.m.kind === 'hover' && target && !immobile(u)) {
       const want = angleOf(sub(target.pos, u.pos));
-      plan.facingOffset = [...FACING_OFFSETS].filter((f) => !isShip(u) || Math.abs(f) <= SHIP_TURN_MAX_DEG).sort((a, b) => Math.abs(angleDiff(want, u.facing + a * DEG)) - Math.abs(angleDiff(want, u.facing + b * DEG)))[0];
+      const turn = Math.round(angleDiff(want, u.facing) / DEG);
+      plan.facingOffset = isShip(u) ? Math.max(-SHIP_TURN_MAX_DEG, Math.min(SHIP_TURN_MAX_DEG, turn)) : turn;
     }
     // 拿刀且敵人在 8 格內就近戰；沒拿刀、附近有拿刀的敵人、而且這回合走得慢，有機會改近戰姿態站穩承受衝擊（重機比較愛用）
     const swordsman = enemies.some((e) => heldOf(e, 'melee').length && edge(u.pos, e.pos) < 8);

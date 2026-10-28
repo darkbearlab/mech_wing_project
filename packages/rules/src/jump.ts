@@ -7,7 +7,7 @@ import { DEG, dist } from './geometry';
 import { worldPose } from './maneuvers';
 import { buildPath } from './movement';
 import { supportAt, wallPenetration } from './terrain';
-import { equipAlive } from './unit';
+import { equipAlive, wholeDegrees } from './unit';
 import type { EquipState, GameEvent, MovePlan, Obstacle, PartState, UnitState, Vec } from './types';
 
 type Gear = { parts: Record<string, PartState>; equipment: EquipState[] };
@@ -57,7 +57,7 @@ export function jumpBlocked(u: Jumper, plan: Pick<MovePlan, 'jump'>, world?: { o
   const env = world?.environment ?? 'space';
   if (env !== 'space' && roleLost(u, 'legs')) return '重力圈裡腳部損壞，不能起跳';
   if ((CHASSIS[u.chassisId]?.minSpeed ?? 0) > 0 || CHASSIS[u.chassisId]?.crew === 'ship') return '這台機體不能用垂直噴射器';
-  if (!Number.isFinite(j.facing) || Math.round(j.facing / 45) * 45 !== j.facing) return '噴射後的面向要是 45° 的倍數';
+  if (!wholeDegrees(j.facing)) return '噴射後的面向要是整數度';
   const cost = jumpCost(u, env);
   if ((u.propellant ?? 0) < cost) return `推進劑不足（要 ${cost}）`;
   if (!j.to || !Number.isFinite(j.to.x) || !Number.isFinite(j.to.y)) return '落點不正確';
