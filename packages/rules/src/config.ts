@@ -123,9 +123,8 @@ export const MELEE_STANCE_SHOT_PENALTY = 20;
 export const OFF_FRONT_DEG = 45;
 export const OFF_FRONT_PENALTY = 20;
 export const LOCK_BONUS = 20;
-/** 標定：友軍對被標定的敵機射擊命中加成；持續這回合和下一回合 */
+/** 標定：友軍對被標定的敵機射擊命中加成；持續到標定機看不到它為止，不疊加 */
 export const MARK_BONUS = 10;
-export const MARK_TURNS = 2;
 
 // ---- 側移與環境 ----
 /** 側移只能在動能 ±這個值以內使用 */

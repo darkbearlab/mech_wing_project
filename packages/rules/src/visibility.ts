@@ -2,7 +2,8 @@ import { dist } from './geometry';
 import { segmentHitsCircle } from './terrain';
 import * as C from './config';
 import { DEFAULT_SETTINGS, flagshipOf, killScoreOf, newObjectives, type BattleSettings, type ObjectiveState, type WinReason } from './objectives';
-import { radiusOf } from './body';
+import { radiusOf, roleLost } from './body';
+import { equipAlive } from './unit';
 import { canSee, sensorRange } from './vision';
 import { podSeen } from './psycommu';
 import { EQUIPMENT } from './data';
@@ -32,8 +33,8 @@ export interface UnitView {
   pos: Vec;
   /** 高度（層），地面沒寫 */
   z?: number;
-  /** 被敵方標定（雙方都知道） */
-  mark?: { until: number };
+  /** 被敵方標定（雙方都知道；被標定的一方看不到 by） */
+  mark?: { by?: string };
   facing: number;
   parts: Record<string, PartState>;
   equipment: EquipState[];
@@ -101,7 +102,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
     chassisId: u.chassisId,
     pos: { ...u.pos },
     ...(u.z ? { z: u.z } : {}),
-    ...(u.mark ? { mark: { ...u.mark } } : {}),
+    ...(u.mark ? { mark: u.owner === viewer ? {} : { ...u.mark } } : {}),
     facing: u.facing,
     parts: structuredClone(u.parts),
     // 內藏武器第一次拿出來之前，對手看不到
@@ -117,12 +118,12 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
 
 /** 依目前位置重算雙方看得到哪些敵機，並更新最後目擊紀錄。revealed：這一步開火或鎖定而暴露位置的機體 */
 export function updateSight(state: GameState, revealed: Set<string> = new Set()): void {
+  checkMarks(state);
   const obscured: [string[], string[]] = [[], []];
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
-      // 被標定的敵機不用視線也看得到
-      (e) => e.owner !== p && (revealed.has(e.id) || (!!e.mark && e.status === 'active') || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
+      (e) => e.owner !== p && (revealed.has(e.id) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
@@ -130,6 +131,22 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
     for (const e of seen) if (!revealed.has(e.id) && !e.mark && smokeHides(state, eyes, e.pos, radiusOf(e))) obscured[p].push(e.id);
   }
   state.obscured = obscured;
+}
+
+/** 標定機失去戰鬥能力、標定器或頭部壞了、超出感測距離、視線被擋住：標定解除 */
+export function checkMarks(state: GameState): void {
+  for (const t of state.units) {
+    if (!t.mark) continue;
+    const by = state.units.find((x) => x.id === t.mark!.by);
+    const ok =
+      t.status === 'active' &&
+      !!by &&
+      by.status === 'active' &&
+      !roleLost(by, 'sensor') &&
+      by.equipment.some((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(by, e)) &&
+      canSee(state.obstacles, by.pos, sensorRange(by), t.pos, radiusOf(by) + radiusOf(t), by.z, t.z);
+    if (!ok) delete t.mark;
+  }
 }
 
 /** 從這些機體看過去，p 位置的東西是不是都隔著煙霧（又沒有近到認得出來） */

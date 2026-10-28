@@ -800,7 +800,9 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const designator = u.equipment.find((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(u, e));
     const markable = (t: UnitView | null) =>
       !!t && !t.mark && !t.hidden && !roleLost(u, 'sensor') && canSee(view.state.obstacles, u.pos, sensorRange(u), t.pos, radiusOf(u) + radiusOf(t), u.z, t.z);
-    const markTarget = designator ? ([focus, near, ...enemies].find(markable) ?? null) : null;
+    // 已經照著一台就不換：標定會一直持續到看不到為止
+    const holding = enemies.some((t) => t.mark?.by === u.id);
+    const markTarget = designator && !holding ? ([focus, near, ...enemies].find(markable) ?? null) : null;
     const allies = view.state.units.some((x) => x.owner === view.you && x.id !== u.id && x.status === 'active');
     if (markTarget && allies && (!shot || shot.chance < MARK_SHOT)) {
       plan.action = { type: 'mark', weapon: designator!.id, target: markTarget.id };
