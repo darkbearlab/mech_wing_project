@@ -73,6 +73,34 @@ describe('房間', () => {
     expect(saved.at(-1)!.notes!.at(-1)).toMatchObject({ seat: 1, phase: 'over', text: '打得不錯' });
   }, 30_000);
 
+  it('房間重啟：照存下的進度接著打到結束', () => {
+    const saved: { rec: BattleRecord; live: boolean }[] = [];
+    const room = new Room(0, () => {}, (rec, live) => saved.push({ rec, live }), 'restore-test');
+    const a = socket();
+    const b = socket();
+    const ca = room.connect(a.ws, 0);
+    const cb = room.connect(b.ws, '1');
+    ca.message(JSON.stringify({ t: 'setup', rosters: pickRosters(6), settings: DEFAULT_SETTINGS }));
+    // 打幾步就「重啟」
+    const rng = new Rng(4);
+    for (let i = 0; i < 9; i++)
+      for (const [s, c] of [[a, ca], [b, cb]] as const) {
+        const m = s.last() as Extract<ServerMessage, { t: 'state' }>;
+        if (!m.view.submitted[m.view.you]) c.message(msgFor(m.view, aiOrders(m.view, rng) as Record<string, unknown>));
+      }
+    const live = saved.filter((x) => x.live).at(-1)!.rec;
+    expect(live.steps.length).toBeGreaterThan(0);
+    const room2 = new Room(0, () => {}, () => {}, 'restore-test');
+    expect(room2.restore(live)).toBe(true);
+    expect(room2.match!.resolvedCount).toBeGreaterThan(0);
+    const a2 = socket();
+    const b2 = socket();
+    const ca2 = room2.connect(a2.ws, 0);
+    const cb2 = room2.connect(b2.ws, '1');
+    playOut(room2, [[a2, ca2], [b2, cb2]], new Rng(5));
+    expect(room2.match!.phase).toBe('over');
+  }, 30_000);
+
   it('一方分幾個小隊：人指揮自己的小隊，其他小隊交給電腦', () => {
     const room = new Room();
     const a = socket();

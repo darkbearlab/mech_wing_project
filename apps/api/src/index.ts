@@ -34,8 +34,17 @@ export class MatchRoom extends DurableObject<Env> {
   /** 這個房間存過的紀錄（種子＋開始時間 → battles 的 id） */
   private saved = new Map<string, number>();
   private saving: Promise<void> = Promise.resolve();
+  /** 房間重啟前還在打的那一場（存在房間自己的儲存區，重啟後接著打） */
+  private live: { rec: BattleRecord; id?: number } | null = null;
 
-  private store(rec: BattleRecord) {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    void ctx.blockConcurrencyWhile(async () => {
+      this.live = (await ctx.storage.get<{ rec: BattleRecord; id?: number }>('live')) ?? null;
+    });
+  }
+
+  private store(rec: BattleRecord, inProgress: boolean) {
     const key = `${rec.seed}-${rec.startedAt}`;
     this.saving = this.saving
       .then(async () => {
@@ -50,6 +59,9 @@ export class MatchRoom extends DurableObject<Env> {
             .first<{ id: number }>();
           if (row) this.saved.set(key, row.id);
         }
+        // 還沒打完的存進房間的儲存區，房間重啟後接著打；打完就清掉
+        if (inProgress) await this.ctx.storage.put('live', { rec, id: this.saved.get(key) });
+        else await this.ctx.storage.delete('live');
       })
       .catch((e) => console.error('save battle failed', e));
     this.ctx.waitUntil(this.saving);
@@ -57,7 +69,15 @@ export class MatchRoom extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
-    this.room ??= new Room(0, () => {}, (rec) => this.store(rec), url.searchParams.get('room') ?? undefined);
+    if (!this.room) {
+      this.room = new Room(0, (text) => console.log(text), (rec, inProgress) => this.store(rec, inProgress), url.searchParams.get('room') ?? undefined);
+      const live = this.live;
+      this.live = null;
+      if (live && live.rec.winner === null) {
+        if (live.id) this.saved.set(`${live.rec.seed}-${live.rec.startedAt}`, live.id);
+        if (this.room.restore(live.rec)) console.log(`restored ${live.rec.room} turn ${live.rec.turns}`);
+      }
+    }
     const seatParam = url.searchParams.get('seat');
     const seat = seatParam ?? '0';
     const { 0: client, 1: server } = new WebSocketPair();

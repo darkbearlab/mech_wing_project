@@ -47,6 +47,8 @@ export interface BattleRecord {
   room?: string;
   /** 玩家留下的話 */
   notes?: BattleNote[];
+  /** 伺服器房間裡交給電腦的席位（房間重啟後接著打要用） */
+  aiSeats?: string[];
   startedAt: string;
   steps: BattleStep[];
   /** 結束時的狀態；中途重開的對戰 winner 是 null */
