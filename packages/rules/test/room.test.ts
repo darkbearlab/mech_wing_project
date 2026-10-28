@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Room, Rng, aiOrders, pickRosters, DEFAULT_SETTINGS, type PlayerView, type ServerMessage } from '../src/index';
+import { Room, Rng, aiOrders, pickRosters, replayRecord, DEFAULT_SETTINGS, type BattleRecord, type PlayerView, type ServerMessage } from '../src/index';
 
 /** 假連線：記下收到的訊息 */
 function socket() {
@@ -43,6 +43,31 @@ describe('房間', () => {
     expect((a.last() as Extract<ServerMessage, { t: 'state' }>).view.squad).toBeUndefined();
     playOut(room, [[a, ca], [b, cb]], new Rng(9));
     expect(room.match!.phase).toBe('over');
+  }, 30_000);
+
+  it('對戰紀錄：結束時存下種子、陣容、每一步指令與留言；照紀錄重播結果一樣，結束後的留言會再存一次', () => {
+    const saved: BattleRecord[] = [];
+    const room = new Room(0, () => {}, (r) => saved.push(r), 'rec-test');
+    const a = socket();
+    const b = socket();
+    const ca = room.connect(a.ws, 0);
+    const cb = room.connect(b.ws, '1');
+    ca.message(JSON.stringify({ t: 'setup', rosters: pickRosters(5), settings: DEFAULT_SETTINGS }));
+    // 第一步帶一段話
+    const v = (a.last() as Extract<ServerMessage, { t: 'state' }>).view;
+    ca.message(JSON.stringify({ ...JSON.parse(msgFor(v, aiOrders(v, new Rng(3)) as Record<string, unknown>)), note: '先觀察對手' }));
+    playOut(room, [[a, ca], [b, cb]], new Rng(9));
+    expect(room.match!.phase).toBe('over');
+    expect(saved).toHaveLength(1);
+    const rec = saved[0];
+    expect(rec.room).toBe('rec-test');
+    expect(rec.notes).toEqual([{ seat: 0, turn: 1, phase: v.phase, text: '先觀察對手' }]);
+    const r = replayRecord(rec);
+    expect(r.errors).toEqual([]);
+    expect(r.match.state.winner).toBe(room.match!.state.winner);
+    cb.message(JSON.stringify({ t: 'note', text: '打得不錯' }));
+    expect(saved).toHaveLength(2);
+    expect(saved[1].notes!.at(-1)).toMatchObject({ seat: 1, phase: 'over', text: '打得不錯' });
   }, 30_000);
 
   it('一方分幾個小隊：人指揮自己的小隊，其他小隊交給電腦', () => {

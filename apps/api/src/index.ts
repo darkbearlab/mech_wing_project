@@ -9,7 +9,7 @@
 //   POST   /draft/import       用整個資料包取代草稿（需管理金鑰）
 //   POST   /publish            檢查草稿後發佈成新版本（需管理金鑰）；body { note?, bump?: 'patch' | 'minor' | 'major' }
 //   POST   /battles            上傳一場對戰紀錄（不用金鑰；只留最近 MAX_BATTLES 場）
-//   GET    /battles            對戰紀錄列表（需管理金鑰）；?limit=
+//   GET    /battles            對戰紀錄列表（需管理金鑰）；?limit=；伺服器房間打完的對戰也會自動存進來（含玩家留言）
 //   GET    /battles/:id        一場對戰的完整紀錄（需管理金鑰）
 //   GET    /ws?room=&seat=     對戰房間（WebSocket；一個房間一個 Durable Object，seat 是 0、1、小隊席位 0-1 這類，或 watch）
 // 版本號是「大.小.修」（例如 0.1.4）；最早的 v1…v5 已改名為 0.1.0…0.1.4
@@ -26,13 +26,39 @@ export interface Env {
 
 /**
  * 對戰房間：和本機伺服器共用 @mech/rules 的 Room。對戰只放在記憶體裡（還有人連著就不會被收掉）；
- * 所有人都斷線一段時間後房間會被回收，進行中的對戰就沒了
+ * 所有人都斷線一段時間後房間會被回收，進行中的對戰就沒了。
+ * 每一場結束（或打到一半重開）時把對戰紀錄存進 battles；結束後又有留言就更新同一筆
  */
 export class MatchRoom extends DurableObject<Env> {
-  private room = new Room(0);
+  private room: Room | null = null;
+  /** 這個房間存過的紀錄（種子＋開始時間 → battles 的 id） */
+  private saved = new Map<string, number>();
+  private saving: Promise<void> = Promise.resolve();
+
+  private store(rec: BattleRecord) {
+    const key = `${rec.seed}-${rec.startedAt}`;
+    this.saving = this.saving
+      .then(async () => {
+        const text = JSON.stringify(rec);
+        if (text.length > MAX_RECORD_BYTES) throw new Error(`紀錄太大（${text.length}）`);
+        const winner = rec.winner === null ? null : rec.winner === 'draw' ? 'draw' : 'AB'[rec.winner];
+        const id = this.saved.get(key);
+        if (id) await this.env.DB.prepare('UPDATE battles SET winner = ?, turns = ?, data = ? WHERE id = ?').bind(winner, rec.turns, text, id).run();
+        else {
+          const row = await this.env.DB.prepare('INSERT INTO battles (content_version, opponent, winner, turns, data) VALUES (?, ?, ?, ?, ?) RETURNING id')
+            .bind(rec.contentVersion, `room:${rec.room ?? ''}`, winner, rec.turns, text)
+            .first<{ id: number }>();
+          if (row) this.saved.set(key, row.id);
+        }
+      })
+      .catch((e) => console.error('save battle failed', e));
+    this.ctx.waitUntil(this.saving);
+  }
 
   async fetch(req: Request): Promise<Response> {
-    const seatParam = new URL(req.url).searchParams.get('seat');
+    const url = new URL(req.url);
+    this.room ??= new Room(0, () => {}, (rec) => this.store(rec), url.searchParams.get('room') ?? undefined);
+    const seatParam = url.searchParams.get('seat');
     const seat = seatParam ?? '0';
     const { 0: client, 1: server } = new WebSocketPair();
     server.accept();
@@ -212,7 +238,12 @@ async function handle(req: Request, env: Env): Promise<Response> {
   if (parts[0] === 'battles') {
     if (parts.length === 1) {
       const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 50));
-      const { results } = await env.DB.prepare('SELECT id, created_at, content_version, opponent, winner, turns FROM battles ORDER BY id DESC LIMIT ?').bind(limit).all();
+      // room：伺服器房間打的才有；notes：留言數（代理對戰會留）
+      const { results } = await env.DB.prepare(
+        "SELECT id, created_at, content_version, opponent, winner, turns, json_extract(data, '$.room') AS room, json_array_length(json_extract(data, '$.notes')) AS notes FROM battles ORDER BY id DESC LIMIT ?",
+      )
+        .bind(limit)
+        .all();
       return json(results);
     }
     const row = await env.DB.prepare('SELECT data FROM battles WHERE id = ?').bind(Number(parts[1])).first<{ data: string }>();

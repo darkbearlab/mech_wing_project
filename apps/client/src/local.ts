@@ -86,7 +86,7 @@ export class LocalGame {
 
   /** 處理指令；回傳下一個該拿裝置的席位，送出失敗則回傳 null */
   submit(seat: PlayerId, msg: ClientMessage): PlayerId | null {
-    if (msg.t === 'setup' || msg.t === 'join') return null;
+    if (msg.t === 'setup' || msg.t === 'join' || msg.t === 'note') return null;
     if (msg.t === 'reset') {
       // 打到一半重開也上傳，卡住而放棄的對局最值得檢討
       this.upload();

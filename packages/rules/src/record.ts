@@ -15,6 +15,19 @@ export interface BattleStep {
   orders: PlayerMoves | PlayerActions | PlayerPursuits | PlayerDeploy;
 }
 
+/** 玩家（多半是代理）留下的一段話：這一步的觀察與決策理由，或對戰結束後的感想；對戰中只存在伺服器，對手看不到 */
+export interface BattleNote {
+  seat: PlayerId;
+  squad?: number;
+  turn: number;
+  /** 送出哪一步的指令時寫的；over 是對戰結束後 */
+  phase: TurnPhase | 'over';
+  text: string;
+}
+
+/** 一段話最多幾個字 */
+export const MAX_NOTE_CHARS = 1200;
+
 export interface BattleRecord {
   format: 1;
   seed: number;
@@ -30,6 +43,10 @@ export interface BattleRecord {
   seats: ['human' | 'ai', 'human' | 'ai'];
   /** 客戶端版本（git commit），重播結果對不上時用來判斷是不是規則改過 */
   build?: string;
+  /** 在哪個對戰房間打的（伺服器房間的紀錄才有） */
+  room?: string;
+  /** 玩家留下的話 */
+  notes?: BattleNote[];
   startedAt: string;
   steps: BattleStep[];
   /** 結束時的狀態；中途重開的對戰 winner 是 null */

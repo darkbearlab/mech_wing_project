@@ -23,10 +23,13 @@ export interface SeatInfo {
 
 /** moves 也用在王牌移動步驟（只需要擱置的機體） */
 export type ClientMessage =
-  | { t: 'moves'; moves: PlayerMoves }
-  | { t: 'pursuits'; pursuits: PlayerPursuits }
-  | { t: 'deploy'; deploy: PlayerDeploy }
-  | { t: 'actions'; actions: PlayerActions }
+  /** note：這一步的觀察與決策理由（存進對戰紀錄，對手看不到） */
+  | { t: 'moves'; moves: PlayerMoves; note?: string }
+  | { t: 'pursuits'; pursuits: PlayerPursuits; note?: string }
+  | { t: 'deploy'; deploy: PlayerDeploy; note?: string }
+  | { t: 'actions'; actions: PlayerActions; note?: string }
+  /** 隨時留一段話（對戰結束後的感想也用這個） */
+  | { t: 'note'; text: string }
   | { t: 'reset' }
   /** 連線房間：用指定的陣容與勝利條件重開一場 */
   | { t: 'setup'; rosters: [RosterEntry[], RosterEntry[]]; settings: BattleSettings; ai?: string[] }

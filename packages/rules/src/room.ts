@@ -6,12 +6,14 @@
 import { aiOrders } from './ai';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { Match, ordersBySquad, squadsOf, type Orders } from './match';
+import { contentVersion } from './content';
+import { MAX_NOTE_CHARS, type BattleRecord, type BattleStep } from './record';
 import { lineupProblems, squadShare, type BattleSettings } from './objectives';
 import type { ClientMessage, RoomTerms, SeatInfo, ServerMessage } from './protocol';
 import { Rng } from './rng';
 import { createGame } from './setup';
 import type { RosterEntry } from './data';
-import type { PlayerId } from './types';
+import type { PlayerId, TurnPhase } from './types';
 
 /** 一條連線：只要能送字串、能關掉 */
 export interface RoomSocket {
@@ -64,14 +66,60 @@ export class Room {
   /** 電腦指揮的小隊（席位名稱） */
   aiSeats = new Set<string>();
   private aiRng = new Rng(1);
+  /** 這一場的對戰紀錄（種子、陣容、每一步的指令與留言）；結束時交給 onRecord 存起來 */
+  record: BattleRecord | null = null;
+  private recordDone = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   deadline: number | null = null;
 
-  /** turnSeconds：每一步的時限（0 = 不計時）；log：連線、開打的紀錄 */
+  /**
+   * turnSeconds：每一步的時限（0 = 不計時）；log：連線、開打的紀錄；
+   * onRecord：對戰結束（或中途重開）時存紀錄，結束後又有人留言時再呼叫一次；name：房間名稱（寫進紀錄）
+   */
   constructor(
     private readonly turnSeconds = 0,
     private readonly log: (text: string) => void = () => {},
+    private readonly onRecord: (rec: BattleRecord) => void = () => {},
+    private readonly name?: string,
   ) {}
+
+  /** 送出一步並記進紀錄 */
+  private submit(side: PlayerId, squad: number | undefined, phase: TurnPhase, orders: BattleStep['orders']): string[] {
+    const m = this.match!;
+    const errors =
+      phase === 'move' || phase === 'ace'
+        ? m.submitMoves(side, orders as never, squad)
+        : phase === 'pursuit'
+          ? m.submitPursuits(side, orders as never, squad)
+          : phase === 'deploy'
+            ? m.submitDeploy(side, orders as never, squad)
+            : m.submitActions(side, orders as never, squad);
+    if (!errors.length && this.record) this.record.steps.push({ seat: side, ...(squad === undefined ? {} : { squad }), phase, orders: structuredClone(orders) });
+    return errors;
+  }
+
+  private addNote(seat: Seat, phase: TurnPhase | 'over', text: unknown, turn = this.match?.state.turn ?? 0) {
+    if (!this.record || typeof text !== 'string' || !text.trim()) return;
+    const squad = this.squadFor(seat);
+    (this.record.notes ??= []).push({ seat: seat.side, ...(squad === undefined ? {} : { squad }), turn, phase, text: text.trim().slice(0, MAX_NOTE_CHARS) });
+  }
+
+  /** 對戰結束、或打到一半重開：把紀錄交出去（結束後再有留言就再交一次） */
+  private saveRecord(force = false) {
+    const m = this.match;
+    if (!m || !this.record || !this.record.steps.length) return;
+    const over = m.phase === 'over';
+    if (!over && !force) return;
+    if (over && this.recordDone && !force) return;
+    this.recordDone = over;
+    this.record.winner = m.state.winner;
+    this.record.turns = m.state.turn;
+    try {
+      this.onRecord(structuredClone(this.record));
+    } catch (e) {
+      this.log(`save record failed: ${(e as Error).message}`);
+    }
+  }
 
   /** 新連線：回傳收到訊息、斷線時要呼叫的函式 */
   connect(ws: RoomSocket, seatParam: RoomSeat): { message(text: string): void; close(): void } {
@@ -98,8 +146,25 @@ export class Room {
 
   /** 開一場：rosters 的 squad 決定小隊；ai 是電腦指揮的席位 */
   private start(rosters: [RosterEntry[], RosterEntry[]], settings: BattleSettings | undefined, ai: string[]) {
+    // 上一場打到一半：先存起來
+    if (this.match && this.match.phase !== 'over') this.saveRecord(true);
     const seed = seedOf();
     this.match = new Match(seed, createGame(seed, rosters, settings));
+    this.recordDone = false;
+    this.record = {
+      format: 1,
+      seed,
+      contentVersion: contentVersion(),
+      rosters: structuredClone(rosters),
+      ...(settings ? { settings: structuredClone(settings) } : {}),
+      seats: [ai.some((k) => k.startsWith('0')) ? 'ai' : 'human', ai.some((k) => k.startsWith('1')) ? 'ai' : 'human'],
+      ...(this.name ? { room: this.name } : {}),
+      startedAt: new Date().toISOString(),
+      steps: [],
+      notes: [],
+      winner: null,
+      turns: 1,
+    };
     this.aiRng = new Rng((seed ^ 0xa5a5a5a5) >>> 0);
     this.aiSeats = new Set(ai.map((k) => parseSeat(k)).flatMap((s) => (s === 'watch' ? [] : [seatKey(s.side, s.squad)])));
     this.game++;
@@ -119,6 +184,7 @@ export class Room {
       try {
         if (msg.t === 'setup') this.start(msg.rosters, msg.settings, msg.ai ?? []);
         else {
+          if (this.match && this.match.phase !== 'over') this.saveRecord(true);
           this.match = null;
           this.lobby.rosters = {};
           this.aiSeats.clear();
@@ -141,6 +207,12 @@ export class Room {
       this.broadcastState();
       return;
     }
+    // 留言：隨時都可以（結束後的感想也是）；對戰已經結束就再存一次紀錄
+    if (msg.t === 'note') {
+      this.addNote(seat, this.match?.phase === 'over' ? 'over' : (this.match?.phase ?? 'over'), msg.text);
+      if (this.match?.phase === 'over') this.saveRecord(true);
+      return;
+    }
     if (!this.match) {
       send(ws, { t: 'error', errors: ['還沒開打：雙方都選好隊伍加入後才開始'] });
       return;
@@ -151,13 +223,16 @@ export class Room {
     }
     const prev = this.match.resolvedCount;
     const phase = this.match.phase;
+    const turn = this.match.state.turn;
     const squad = this.squadFor(seat);
     let errors: string[] = [];
-    if (msg.t === 'moves') errors = this.match.submitMoves(seat.side, msg.moves, squad);
-    else if (msg.t === 'deploy') errors = this.match.submitDeploy(seat.side, msg.deploy, squad);
-    else if (msg.t === 'pursuits') errors = this.match.submitPursuits(seat.side, msg.pursuits, squad);
-    else if (msg.t === 'actions') errors = this.match.submitActions(seat.side, msg.actions, squad);
+    if (phase === 'over') errors = ['對戰已結束'];
+    else if (msg.t === 'moves') errors = this.submit(seat.side, squad, phase, msg.moves);
+    else if (msg.t === 'deploy') errors = this.submit(seat.side, squad, phase, msg.deploy);
+    else if (msg.t === 'pursuits') errors = this.submit(seat.side, squad, phase, msg.pursuits);
+    else if (msg.t === 'actions') errors = this.submit(seat.side, squad, phase, msg.actions);
     if (errors.length) send(ws, { t: 'error', errors });
+    else if ('note' in msg) this.addNote(seat, phase, msg.note, turn);
     this.runAi();
     this.afterChange(prev, phase);
   }
@@ -255,15 +330,7 @@ export class Room {
           if (m.resolvedCount !== step) break;
           const squad = squadsOf(m.state, side).length > 1 ? s : undefined;
           const orders = parts[s] ?? {};
-          const ph = m.phase;
-          const errors =
-            ph === 'move' || ph === 'ace'
-              ? m.submitMoves(side, orders as never, squad)
-              : ph === 'pursuit'
-                ? m.submitPursuits(side, orders as never, squad)
-                : ph === 'deploy'
-                  ? m.submitDeploy(side, orders as never, squad)
-                  : m.submitActions(side, orders as never, squad);
+          const errors = this.submit(side, squad, m.phase as TurnPhase, orders);
           if (errors.length) {
             // 不該發生；當作沒事做，免得卡住整場
             this.log(`ai ${seatKey(side, s)} ${errors.join('；')}`);
@@ -327,6 +394,7 @@ export class Room {
     }
     if (this.match.resolvedCount !== prevResolved || this.match.phase !== prevPhase) this.armTimer();
     this.broadcastState();
+    this.saveRecord();
   }
 
   private armTimer() {

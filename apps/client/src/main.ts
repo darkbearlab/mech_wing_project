@@ -81,6 +81,7 @@ import {
   availableManeuvers,
   immobile,
   forecastMoves,
+  contentVersion,
   jumpJetOf,
   jumpCost,
   coastEnd,
@@ -125,6 +126,7 @@ import { loadContent } from './content';
 import { lobbyUpdate, openLineup, seatLabel, type LineupSettings } from './lineup';
 import { openMenu, type Side } from './menu';
 import { LocalGame, type Opponent } from './local';
+import { RecordPlayer, listBattles, loadBattle, setAdminKey } from './replay';
 import { mechSilhouette } from './silhouette';
 import { SHOT_FLIGHT, SHOT_GAP, SHOT_DELAY, buildBeats, moveProgress, shotLandTime, type Beat } from './show';
 
@@ -139,8 +141,11 @@ const room = params.get('room') || 'test';
 /** 席位：0、1，一方分成幾個小隊時是 0-1、1-2 這類（0 就是 0-0） */
 const seatName = /^[01](-\d{1,2})?$/.test(params.get('seat') ?? '') ? params.get('seat')!.replace(/-0$/, '') : '0';
 let seat: PlayerId = seatName.startsWith('1') ? 1 : 0;
-/** 觀戰（?seat=watch）：雙方都看得到，不能下指令 */
-const watching = params.get('seat') === 'watch';
+/** 對戰紀錄：?replays 是清單，?replay=編號 重播那一場 */
+const recordId = Number(params.get('replay')) || null;
+const recordList = params.has('replays');
+/** 觀戰（?seat=watch）與重播紀錄：雙方都看得到，不能下指令 */
+const watching = params.get('seat') === 'watch' || recordId !== null;
 
 let ws: WebSocket;
 let local: LocalGame | null = null;
@@ -2349,7 +2354,9 @@ function renderAll() {
 
 function renderStatus() {
   const other = seat === 0 ? 1 : 0;
-  $('seatLinks').innerHTML = local
+  $('seatLinks').innerHTML = recordId
+    ? `重播紀錄 <b>#${recordId}</b>（雙方都看得到）`
+    : local
     ? local.opponent === 'aivai'
       ? '觀戰中（從 A 方視角）'
       : local.opponent === 'ai' || local.opponent === 'aiA'
@@ -2475,7 +2482,7 @@ function renderPanel() {
         ? ''
         : PHASE_HINT[view.phase];
   const incoming = view.state.inbound.filter((x) => x.owner !== view!.you && unitView(x.target)?.owner === view!.you);
-  $('alertBar').textContent = show || view.phase === 'over' ? '' : incoming.map((x) => `⚠ 來襲警告：${labelOf(x.attacker).split(' ')[0]} 的${EQUIPMENT[x.defId]?.name ?? x.defId} ×${x.shots} 飛向 ${labelOf(x.target).split(' ')[0]}，下回合移動結束後${EQUIPMENT[x.defId]?.fire === 'atgm' ? '命中；發射端看不到、瞄不住就落空' : '落下；標定失效就落空'}`).join('\n');
+  $('alertBar').textContent = show || watching || view.phase === 'over' ? '' : incoming.map((x) => `⚠ 來襲警告：${labelOf(x.attacker).split(' ')[0]} 的${EQUIPMENT[x.defId]?.name ?? x.defId} ×${x.shots} 飛向 ${labelOf(x.target).split(' ')[0]}，下回合移動結束後${EQUIPMENT[x.defId]?.fire === 'atgm' ? '命中；發射端看不到、瞄不住就落空' : '落下；標定失效就落空'}`).join('\n');
   const u = selected ? unitView(selected) : undefined;
   $('info').innerHTML = u ? infoHtml(u) : '';
   $('infoCard').hidden = !u;
@@ -3904,9 +3911,9 @@ function setHelp(open: boolean) {
 $('helpBtn').onclick = () => setHelp(true);
 $('helpClose').onclick = () => setHelp(false);
 try {
-  if (!localStorage.getItem(HELP_KEY)) setHelp(true);
+  if (!localStorage.getItem(HELP_KEY) && !recordId && !recordList) setHelp(true);
 } catch {
-  setHelp(true);
+  if (!recordId && !recordList) setHelp(true);
 }
 
 // 開發用：在主控台用 __mech.local() 取得本機對戰（正式建置不會有）
@@ -3915,7 +3922,130 @@ if (import.meta.env.DEV) (window as unknown as { __mech: object }).__mech = { lo
 // 關掉分頁時，打到一半的對局也上傳紀錄
 addEventListener('pagehide', () => local?.upload());
 
-if (mode === 'local') {
+// ---------- 對戰紀錄：清單與重播 ----------
+
+let player: RecordPlayer | null = null;
+let recordAuto = false;
+const SIDE_NAME = ['A 方', 'B 方'];
+
+/** 讀不到（沒有金鑰或金鑰不對）：在畫面中間請使用者輸入管理金鑰 */
+function keyForm(message: string, retry: () => void) {
+  const cover = $('cover');
+  cover.hidden = false;
+  cover.innerHTML = `<div class="recBox"><p>${esc(message)}</p><p class="muted small">對戰紀錄要用管理金鑰才看得到（和機庫編輯器同一把）。</p>
+    <div class="row"><input id="recKey" type="password" placeholder="管理金鑰" style="flex:1"><button class="primary" id="recKeyBtn">確定</button></div>
+    <p><a href="./">‹ 主選單</a></p></div>`;
+  $('recKeyBtn').onclick = () => {
+    const key = ($('recKey') as HTMLInputElement).value.trim();
+    if (!key) return;
+    setAdminKey(key);
+    retry();
+  };
+}
+
+async function showRecordList() {
+  const cover = $('cover');
+  cover.hidden = false;
+  cover.innerHTML = '<div class="recBox"><p>讀取對戰紀錄…</p></div>';
+  try {
+    const rows = await listBattles();
+    const win = (w: string | null) => (w === 'A' ? 'A 勝' : w === 'B' ? 'B 勝' : w === 'draw' ? '平手' : '未完');
+    const body = rows
+      .map((r) => `<tr><td><a href="?replay=${r.id}">#${r.id}</a></td><td>${esc(r.created_at)}</td><td>${esc(r.room ?? r.opponent)}</td><td>${win(r.winner)}</td><td>${r.turns}</td><td>${r.notes ?? 0}</td><td class="muted">${esc(r.content_version)}</td></tr>`)
+      .join('');
+    cover.innerHTML = `<div class="recBox recWide"><div class="mnHead"><a href="./">‹ 主選單</a><b>對戰紀錄（最近 ${rows.length} 場）</b></div>
+      <table class="recTable"><tr><th>編號</th><th>時間（UTC）</th><th>房間／對手</th><th>結果</th><th>回合</th><th>留言</th><th>資料</th></tr>${body}</table></div>`;
+  } catch (e) {
+    keyForm((e as Error).message, () => void showRecordList());
+  }
+}
+
+async function openRecord(id: number) {
+  const cover = $('cover');
+  cover.hidden = false;
+  cover.innerHTML = '<div class="recBox"><p>讀取紀錄…</p></div>';
+  try {
+    const rec = await loadBattle(id);
+    // 紀錄用的資料版本和現在的不一樣：發佈過的版本可以抓回來，內建的舊版就只能照現在的規則重播
+    if (rec.contentVersion !== contentVersion() && !rec.contentVersion.startsWith('builtin')) await loadContent(rec.contentVersion);
+    player = new RecordPlayer(rec, onMessage);
+    cover.hidden = true;
+    player.begin();
+    mountRecordBar();
+  } catch (e) {
+    keyForm((e as Error).message, () => void openRecord(id));
+  }
+}
+
+function recordStep(dir: 'first' | 'prev' | 'next') {
+  if (!player) return;
+  if (dir === 'next') {
+    if (show) skipShow();
+    player.next();
+  } else {
+    stopShow();
+    pendingView = null;
+    player.seek(dir === 'first' ? 0 : player.shown - 1);
+  }
+  renderRecordBar();
+}
+
+function mountRecordBar() {
+  const bar = document.createElement('div');
+  bar.id = 'recordBar';
+  bar.innerHTML = `<a href="?replays">‹ 清單</a><button data-rec="first">⏮</button><button data-rec="prev">◀ 上一步</button><button data-rec="next">下一步 ▶</button><button data-rec="auto">自動播放</button><span id="recLabel"></span>`;
+  const notes = document.createElement('div');
+  notes.id = 'notesBox';
+  $('stage').append(bar, notes);
+  bar.onclick = (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (!b) return;
+    if (b.dataset.rec === 'auto') {
+      recordAuto = !recordAuto;
+      renderRecordBar();
+    } else recordStep(b.dataset.rec as 'first' | 'prev' | 'next');
+  };
+  // 自動播放：演出播完就接下一步
+  setInterval(() => {
+    if (!player || !recordAuto || show) return;
+    if (player.shown >= player.frames.length) recordAuto = false;
+    else player.next();
+    renderRecordBar();
+  }, 700);
+  renderRecordBar();
+}
+
+function noteHtml(n: { seat: PlayerId; squad?: number; text: string }) {
+  return `<div class="note"><b class="${n.seat === 0 ? 'mine' : ''}">${SIDE_NAME[n.seat]}${n.squad ? `第 ${n.squad} 小隊` : ''}</b><div>${esc(n.text)}</div></div>`;
+}
+
+function renderRecordBar() {
+  if (!player) return;
+  const f = player.current;
+  const total = player.frames.length;
+  $('recLabel').textContent = `${f ? `第 ${f.turn} 回合・${PHASE_NAME[f.phase]}` : '開場'}（${player.shown}/${total}）${player.rec.room ? `・房間 ${player.rec.room}` : ''}`;
+  const auto = document.querySelector<HTMLButtonElement>('#recordBar [data-rec="auto"]');
+  if (auto) auto.classList.toggle('on', recordAuto);
+  const now = player.notesNow();
+  const next = player.notesNext();
+  const nf = player.frames[player.shown];
+  let html = player.errors.length ? `<div class="warn small">重播和紀錄對不上（規則可能改過）：${esc(player.errors.join('；'))}</div>` : '';
+  html += `<div class="sec">${f ? `這一步（第 ${f.turn} 回合・${PHASE_NAME[f.phase]}）的想法` : '開場'}</div>${now.map(noteHtml).join('') || '<div class="muted small">沒有留言</div>'}`;
+  const over = player.notesOver();
+  if (over.length) html += `<div class="sec">結束後的感想</div>${over.map(noteHtml).join('')}`;
+  if (nf) html += `<div class="sec">下一步（第 ${nf.turn} 回合・${PHASE_NAME[nf.phase]}）的打算</div>${next.map(noteHtml).join('') || '<div class="muted small">沒有留言</div>'}`;
+  $('notesBox').innerHTML = html;
+}
+
+if (recordList || recordId) {
+  void loadContent(null).then(({ version, note }) => {
+    const tag = $('contentTag');
+    tag.textContent = `資料 ${version}`;
+    tag.title = note;
+    if (recordId) void openRecord(recordId);
+    else void showRecordList();
+  });
+} else if (mode === 'local') {
   // 預設用原創內建資料；?content=latest 抓線上最新版（封存的鋼彈資料），?content=0.1.4 指定版本
   void loadContent(params.get('content')).then(({ version, note }) => {
     const tag = $('contentTag');
