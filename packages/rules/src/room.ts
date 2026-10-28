@@ -394,7 +394,9 @@ export class Room {
     }
     if (this.match.resolvedCount !== prevResolved || this.match.phase !== prevPhase) this.armTimer();
     this.broadcastState();
-    this.saveRecord();
+    // 每打完一回合也存一次（伺服器的房間可能被回收，打到一半的紀錄才不會整場不見）；結束時再存最終的
+    if (this.match.resolvedCount !== prevResolved && this.match.phase === 'move') this.saveRecord(true);
+    else this.saveRecord();
   }
 
   private armTimer() {

@@ -691,9 +691,10 @@ function resupply(ctx: Ctx, u: UnitState): boolean {
   if (!ctx.state.settings?.supply) return fail('這一場沒有補給點');
   if (dist(u.pos, supplyPoint(u.owner)) > C.SUPPLY_RADIUS || u.z) return fail('不在自己的補給點上');
   if (u.momentum !== 0) return fail('要停下來（動能 0）才能補給');
+  // 煙幕彈發射器一場只能用一次，補給不補
   for (const e of u.equipment) {
     const max = EQUIPMENT[e.defId].ammo;
-    if (max !== undefined && equipAlive(u, e)) e.ammo = max;
+    if (max !== undefined && equipAlive(u, e) && EQUIPMENT[e.defId].utility !== 'screen') e.ammo = max;
   }
   u.propellant = u.maxPropellant;
   ctx.events.push({ type: 'resupply', unit: u.id });
