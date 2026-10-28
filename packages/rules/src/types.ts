@@ -10,6 +10,10 @@ export type RangeBand = 0 | 1 | 2 | 3 | 4;
 export type Technique = 'cleave' | 'thrust' | 'entangle';
 export type GrappleChoice = Technique | 'disengage';
 export type DamageMode = 'focused' | 'scattered';
+/** 傷害屬性：kinetic 動能（實彈、實體刀、撞擊）、energy 能量（光束）、chemical 化學能（爆炸物） */
+export type DamageType = 'kinetic' | 'energy' | 'chemical';
+/** 裝甲：composite 複合（擋動能、怕化學能）、reflective 反射（擋能量、怕動能）、ceramic 陶瓷（擋化學能、怕能量） */
+export type ArmorType = 'composite' | 'reflective' | 'ceramic';
 /** 人形範本的部位 id；其他機型可以自訂部位 id */
 export type BodyPartId = string;
 /**
@@ -70,6 +74,10 @@ export interface EquipDef {
   fire?: 'mortar' | 'vls' | 'missile';
   /** 展開盾：可以在機體正面展開成一道矮牆 */
   deployable?: boolean;
+  /** 武器的傷害屬性（沒寫照動能） */
+  damageType?: DamageType;
+  /** 盾牌、外裝甲的裝甲種類（沒寫的裝備不受屬性影響） */
+  armorType?: ArmorType;
   mount?: EquipMount;
   /** 固定射界的半角（度），射界外打不到；沒有就照手持規則（正面外 −20） */
   arc?: number;
@@ -129,6 +137,8 @@ export type ManeuverKind = 'straight' | 'bank' | 'turn' | 'arc' | 'kturn' | 'hov
 export interface ChassisDef {
   id: string;
   name: string;
+  /** 機體部位的裝甲種類（一個機型只有一種；沒寫的不受屬性影響） */
+  armorType?: ArmorType;
   weightClass: number;
   propellant: number;
   /** 每回合免費的速度變化量 */
@@ -458,7 +468,8 @@ export type GameEvent =
       caught: boolean;
     }
   | { type: 'shot'; attacker: string; target: string; weapon: string; band: RangeBand; shots: number; hits: number; blocked: number; chance?: number; pursuit?: boolean; crits?: number; strays?: number; pod?: string; from?: Vec }
-  | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean }
+  /** typed：屬性相剋（weak 打在弱點上加傷、resist 被抵抗減傷） */
+  | { type: 'damage'; unit: string; part: string; amount: number; destroyed: boolean; typed?: 'weak' | 'resist' }
   | { type: 'knockback'; unit: string; to: Vec; facing: number }
   | { type: 'stress'; unit: string; amount: number; total: number; reason: string }
   | { type: 'propellant'; unit: string; amount: number; total: number }

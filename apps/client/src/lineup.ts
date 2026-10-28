@@ -1,6 +1,8 @@
 // 出擊準備：開戰前選雙方陣容（機型、駕駛、配裝）、隊伍規模（預算）、勝利條件與對手，帶進本機對戰。
 // 開房模式只選自己這一方：房主（A 方）決定對戰條件，客人照房主的條件選隊。
 import {
+  ARMOR_NAMES,
+  DAMAGE_TYPE_NAMES,
   CHASSIS,
   DEFAULT_ROSTERS,
   EQUIPMENT,
@@ -115,11 +117,12 @@ function equipBrief(id: string): string {
   const d = EQUIPMENT[id];
   const parts: string[] = [];
   if (d.kind === 'ranged') {
-    parts.push(`${d.damage}×${d.shots ?? 1}`);
+    parts.push(`${DAMAGE_TYPE_NAMES[d.damageType ?? 'kinetic']} ${d.damage}×${d.shots ?? 1}`);
     parts.push(([1, 2, 3, 4] as const).filter((b) => d.ranges?.[b] !== undefined).map((b) => `${BAND[b]} ${d.ranges![b]! >= 0 ? '+' : ''}${d.ranges![b]}`).join(' '));
     if (d.arc !== undefined) parts.push(`射界 ±${d.arc}°`);
     if (d.ammo !== undefined) parts.push(`彈 ${d.ammo}`);
-  } else if (d.kind === 'melee') parts.push(`近戰 ${d.damage}`);
+  } else if (d.kind === 'melee') parts.push(`近戰 ${DAMAGE_TYPE_NAMES[d.damageType ?? 'kinetic']} ${d.damage}`);
+  if (d.armorType) parts.push(ARMOR_NAMES[d.armorType]);
   else if (d.kind === 'shield') parts.push(`盾 耐久 ${d.durability}`);
   else if (d.kind === 'tank') parts.push(`推進劑 +${d.fuel ?? 0}`);
   else if (d.kind === 'armor') parts.push('外裝甲');
@@ -293,7 +296,7 @@ export function openLineup(opponent: Opponent, onStart: (rosters: Rosters, oppon
             (cur < 0 && curMine < 0 ? `<option value="cur" selected>${esc(gearLabel(u.equipment))}</option>` : '');
           return `<div class="luSlot">
             <b ${i === flag ? 'class="crown" title="旗艦：被擊墜就輸（斬首）"' : ''}>${i === flag ? '♛' : `${SIDES[s]}${i + 1}`}</b>
-            <select data-s="${s}" data-i="${i}" data-f="chassis">${Object.values(CHASSIS).map((c) => `<option value="${esc(c.id)}" ${c.id === u.chassis ? 'selected' : ''}>${esc(c.name)}（${c.cost ?? 0}）${(c.envs ?? ['space', 'gravity']).includes(set.environment) ? '' : '・不適合'}</option>`).join('')}</select>
+            <select data-s="${s}" data-i="${i}" data-f="chassis">${Object.values(CHASSIS).map((c) => `<option value="${esc(c.id)}" ${c.id === u.chassis ? 'selected' : ''}>${esc(c.name)}（${c.cost ?? 0}${c.armorType ? `・${ARMOR_NAMES[c.armorType].replace('裝甲', '')}` : ''}）${(c.envs ?? ['space', 'gravity']).includes(set.environment) ? '' : '・不適合'}</option>`).join('')}</select>
             <select data-s="${s}" data-i="${i}" data-f="pilot">${Object.values(PILOTS).map((p) => `<option value="${esc(p.id)}" ${p.id === u.pilot ? 'selected' : ''}>${esc(p.name)}（技能 ${p.skill}・${p.cost ?? 0}）</option>`).join('')}</select>
             <span class="cost" title="機型＋駕駛＋裝備">${costs[i]}</span>
             <button class="x" data-s="${s}" data-i="${i}" data-act="remove" title="移除這台" ${rosters[s].length <= 1 ? 'disabled' : ''}>×</button>

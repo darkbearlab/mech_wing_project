@@ -109,6 +109,8 @@ function aimShare(view: PlayerView, t: UnitView): number {
 const hitValue = (chance: number) => (Math.min(chance, 100) / 100) * (1 + Math.max(0, Math.min(100, chance - 100)) / 100);
 /** 命中率低於這個就先鎖定，不浪費這回合 */
 const LOW_SHOT = 22;
+/** 照煞車距離滑行後，離地圖邊緣至少要留這麼多 */
+const COAST_MARGIN = 2.5;
 /** 近戰機：自己射擊命中率低於這個，砍得到就改成突進 */
 const LUNGE_SHOT = 60;
 /** 拿著展開盾：自己這發命中率低於這個就改成展開盾牆 */
@@ -299,9 +301,19 @@ function scoreManeuver(u0: UnitView, m: ManeuverSpec, team: TeamPlan, rng: Rng, 
   const facing = endPose.facing;
   const endMomentum = crashAt < 0 ? m.endMomentum : minSpeedOf(u);
   const margin = 1.2;
-  if (pos.x < margin || pos.y < margin || pos.x > MAP_SIZE - margin || pos.y > MAP_SIZE - margin) return { score: -1000, end: pos, facing, track };
+  // 太靠邊：越靠外越差，開出地圖最差（已經貼著邊的時候，至少選留在地圖裡的）
+  const inset = Math.min(pos.x, pos.y, MAP_SIZE - pos.x, MAP_SIZE - pos.y);
+  if (inset < margin) return { score: -1000 - (margin - inset) * 100 - (inset < 0 ? 5000 : 0), end: pos, facing, track };
   // 攀升多花推進劑：沒有好處就不爬
   let score = climb ? -0.5 : 0;
+  // 帶著動能衝向地圖邊緣：照最大減速算煞車距離，之後煞不住就先扣分（腳壞了只能直走的機體最容易被自己的動能帶出去）
+  const decel = Math.max(1, CHASSIS[u.chassisId]?.maxAccel ?? 1);
+  let stopping = 0;
+  for (let v = Math.abs(endMomentum); v > 0; v -= decel) stopping += v;
+  const heading = endMomentum >= 0 ? 1 : -1;
+  const coast = { x: pos.x + Math.cos(facing) * stopping * heading, y: pos.y + Math.sin(facing) * stopping * heading };
+  const coastInset = Math.min(coast.x, coast.y, MAP_SIZE - coast.x, MAP_SIZE - coast.y);
+  if (coastInset < COAST_MARGIN) score -= (COAST_MARGIN - coastInset) * 40 + (coastInset < 0 ? 300 : 0);
   if (crashAt >= 0) score -= 12 + Math.max(0, Math.round(path.length) - ROCK_SAFE_SPEED) * 8;
   // 高速穿過隕石群可能被碎石打中
   if (m.speed > DEBRIS_SAFE_SPEED && samplePath(path, 8).some((p) => insideField(team.obstacles, p))) score -= (m.speed - DEBRIS_SAFE_SPEED) * 1.5;

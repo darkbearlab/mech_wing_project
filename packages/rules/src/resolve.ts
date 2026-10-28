@@ -339,7 +339,7 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
       if (u.status !== 'active' || isShip(u) || !inBarrage(s, u.pos, radiusOf(u))) continue;
       if (rng.d100() > C.BARRAGE_HIT_CHANCE) continue;
       ctx.events.push({ type: 'barrage', ship: s.id, unit: u.id });
-      dealtBy(ctx, s, () => damageUnit(ctx, u, 1, 'scattered'), false);
+      dealtBy(ctx, s, () => damageUnit(ctx, u, C.DAMAGE_SCALE, 'scattered'), false);
     }
   }
 
@@ -595,7 +595,7 @@ function doLunge(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], {
   meleeClash(ctx, u, target, 1, false, false, r.jump);
   if (r.jump >= C.JUMP_SLASH_LEG_FROM && u.status === 'active') {
     const legs = Object.values(u.parts).find((p) => p.role === 'legs' && !p.destroyed);
-    if (legs) damageUnit(ctx, u, 1, 'focused', legs.id);
+    if (legs) damageUnit(ctx, u, C.DAMAGE_SCALE, 'focused', legs.id);
   }
   return true;
 }

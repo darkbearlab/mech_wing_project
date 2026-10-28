@@ -1,5 +1,5 @@
 import * as C from './config';
-import { bodyWeight, damageUnit, dealtBy, shotBy, type Ctx } from './damage';
+import { bodyWeight, damageUnit, dealtBy, shotBy, typed, type Ctx } from './damage';
 import { grapplePool } from './grapple';
 import { lineOfFire, type Cover } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
@@ -217,7 +217,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     const prev = ctx.topAttack;
     ctx.topAttack = indirect;
     try {
-      fn();
+      typed(ctx, def.damageType ?? 'kinetic', fn);
     } finally {
       ctx.topAttack = prev;
     }
@@ -247,10 +247,10 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
       // 盾牆擋在中間：一律打在盾上
       blocked++;
       const holder = wall.unit;
-      pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, holder, dmg, 'focused', wall.equip.id, overflow)));
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, holder, dmg, 'focused', wall.equip.id, overflow))));
     } else if (shield && ctx.rng.d100() <= blockChance(victim)) {
       blocked++;
-      pending.push(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow)));
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow))));
     } else {
       pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', undefined, overflow))));
     }
@@ -264,7 +264,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   else for (const p of pending) p();
   // 零距離開火可能傷到自己的武器；內建武器沒有自己的部位，傷到宿主
   const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;
-  if (!opts.pod && h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, 1, 'focused', selfPart);
+  if (!opts.pod && h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, C.DAMAGE_SCALE, 'focused', selfPart);
   return true;
 }
 
@@ -272,7 +272,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
 function mortarBlast(ctx: Ctx, attacker: UnitState, at: Vec): void {
   const hit = ctx.state.units.filter((u) => u.status === 'active' && dist(u.pos, at) - radiusOf(u) <= C.MORTAR_SPLASH_RADIUS);
   ctx.events.push({ type: 'blast', by: attacker.id, at: { ...at }, units: hit.map((u) => u.id) });
-  for (const u of hit) dealtBy(ctx, attacker, () => damageUnit(ctx, u, C.MORTAR_SPLASH_DAMAGE, 'focused'));
+  for (const u of hit) dealtBy(ctx, attacker, () => typed(ctx, 'chemical', () => damageUnit(ctx, u, C.MORTAR_SPLASH_DAMAGE, 'focused')));
 }
 
 export type AngleClass = 'front' | 'side' | 'back';

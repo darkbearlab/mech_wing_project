@@ -1,4 +1,7 @@
 import {
+  ARMOR_NAMES,
+  DAMAGE_TYPE_NAMES,
+  matchupText,
   barrierBetween,
   barrierOf,
   indirectFire,
@@ -834,7 +837,8 @@ function drawFloat(at: Vec, text: string, colour: string, p: number, line = 0) {
 function damageText(e: Extract<GameEvent, { type: 'damage' }>): [string, string] {
   const part = partName(e.unit, e.part);
   if (!e.amount) return [`${part} 失效`, '#ff8080'];
-  return [`-${e.amount} ${part}${e.destroyed ? ' 破壞！' : ''}`, e.destroyed ? '#ff5d5d' : '#ffb347'];
+  const tag = e.typed === 'weak' ? ' 弱點！' : e.typed === 'resist' ? ' 抵抗' : '';
+  return [`-${e.amount} ${part}${tag}${e.destroyed ? ' 破壞！' : ''}`, e.destroyed ? '#ff5d5d' : e.typed === 'weak' ? '#ff7a3d' : e.typed === 'resist' ? '#a8c8e8' : '#ffb347'];
 }
 
 function drawDamageFloats(events: GameEvent[], from: number, elapsed: number, over: Map<string, Disp>) {
@@ -2375,7 +2379,7 @@ function infoHtml(u: UnitView): string {
   if (u.unknown) return `<div class="uname" style="color:#b4b2a9">不明機體</div><div class="small muted">隔著煙霧認不出是什麼，可能是真的機體，也可能是欺敵氣球。靠近 ${config.SMOKE_ID_RANGE} 格內、或它開火時才認得出來。</div>`;
   const ch = CHASSIS[u.chassisId];
   const mine = u.owner === view!.you;
-  let html = `<div class="uname" style="color:${color(u.owner)}">${esc(u.label)} <span class="muted small">${esc(ch.name.replace(/^X-\d+ /, ''))}・重量級 ${ch.weightClass}</span></div>`;
+  let html = `<div class="uname" style="color:${color(u.owner)}">${esc(u.label)} <span class="muted small">${esc(ch.name.replace(/^X-\d+ /, ''))}・重量級 ${ch.weightClass}${ch.armorType ? `・${ARMOR_NAMES[ch.armorType]}` : ''}</span></div>`;
   if (mine && u.pilotId) {
     const p = PILOTS[u.pilotId];
     const tags = [p.abilities.includes('quick_draw') ? '快速拔刀' : '', p.abilities.includes('ace_move') ? '王牌移動' : '', p.abilities.includes('called_shot') ? '瞄準要害' : '', p.abilities.includes('brawler') ? '擅長肉搏' : '', p.abilities.includes('newtype') ? `新人類・${NT_SENSE_NAME[p.ntSense ?? 'sensitive']}` : ''].filter(Boolean);
@@ -2846,6 +2850,7 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     t.mark ? `已標定 +${config.MARK_BONUS}` : '',
     barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
     direct && coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
+    ...[...new Set(ws.map((w) => matchupText(CHASSIS[t.chassisId]?.armorType, EQUIPMENT[w.defId].damageType ?? 'kinetic')).filter(Boolean))],
   ].filter(Boolean);
   const each = shots.map((s) => `${EQUIPMENT[s.w.defId].name} ${s.h ? `約 ${s.h.chance}%${s.h.chance > 100 ? `（爆擊約 ${Math.min(100, s.h.chance - 100)}%）` : ''}` : s.why}`).join('／');
   const danger = dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險：目標在纏鬥中，可能打到纏住它的機體' : '';
@@ -2883,7 +2888,7 @@ function optionTip(u: UnitView, o: EquipOption): string {
     eq.ammo !== undefined ? `剩 ${eq.ammo} 次` : '',
     def.tags?.includes('volatile') ? '被打壞可能引爆' : '',
   ].filter(Boolean).join('；');
-  return `${def.name}（${mountText}）：每發 ${def.damage} 傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${extra ? extra + '。' : ''}${melee}勾選的武器全部打同一個目標。`;
+  return `${def.name}（${mountText}）：每發 ${def.damage} ${DAMAGE_TYPE_NAMES[def.damageType ?? 'kinetic']}傷害${(def.shots ?? 1) > 1 ? `，一次 ${def.shots} 發` : ''}。適性距離：${best ? BAND_LONG[best] : '—'}（距離修正 ${ranges}）。${extra ? extra + '。' : ''}${melee}勾選的武器全部打同一個目標。`;
 }
 
 function actionControls(u: UnitView, plan: ActionPlan): string {
@@ -3252,7 +3257,7 @@ function describe(e: GameEvent): string | null {
       if (e.pod) return `${L(e.attacker)} 指揮${(() => { const f = podById(e.pod, true); return f ? podName(f.u, f.e) : '炮群'; })()}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}`;
       return `${e.pursuit ? '追擊！' : ''}${L(e.attacker)} 以${EQUIPMENT[e.weapon].name}射擊 ${L(e.target)}（${bandName(e.band)}${e.chance !== undefined ? `，命中率 ${e.chance}%` : ''}）：${e.hits}/${e.shots} 命中${e.crits ? `（爆擊 ${e.crits}）` : ''}${e.blocked ? `，盾擋 ${e.blocked}` : ''}${e.strays ? `，誤擊 ${e.strays}` : ''}`;
     case 'damage':
-      return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
+      return e.amount ? `${L(e.unit)} ${partName(e.unit, e.part)} 受 ${e.amount} 點傷害${e.typed === 'weak' ? '（打在弱點上）' : e.typed === 'resist' ? '（被裝甲抵抗）' : ''}${e.destroyed ? '，破壞！' : ''}` : `${L(e.unit)} ${partName(e.unit, e.part)} 失效`;
     case 'knockback':
       return `${L(e.unit)} 被撞開，姿勢失控`;
     case 'stress':

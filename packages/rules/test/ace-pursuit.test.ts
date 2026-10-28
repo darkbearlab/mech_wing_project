@@ -184,7 +184,7 @@ describe('新人類擊墜壓力', () => {
     ]);
     const [k, v] = s.units as [UnitState, UnitState];
     const ctx: Ctx = { state: s, rng: new Rng(1), events: [] };
-    dealtBy(ctx, k, () => damageUnit(ctx, v, 99, 'focused', corePart(v)));
+    dealtBy(ctx, k, () => damageUnit(ctx, v, 999, 'focused', corePart(v)));
     const st = ctx.events.find((e) => e.type === 'status');
     return { stress: k.stress, max: k.maxStress, by: st?.type === 'status' ? st.by : undefined };
   }

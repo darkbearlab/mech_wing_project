@@ -27,3 +27,4 @@ export { Rng } from './rng';
 export type * from './protocol';
 export * from './loadout';
 export * from './room';
+export { ARMOR_NAMES, DAMAGE_TYPE_NAMES, matchupText, typeMultiplier } from './damage';

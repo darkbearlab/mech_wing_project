@@ -5,7 +5,7 @@
 import * as C from './config';
 import { radiusOf } from './body';
 import { hitChance, shoot, type TurnInfo } from './combat';
-import { addStress, damageUnit, dealtBy, type Ctx } from './damage';
+import { addStress, damageUnit, typed, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
 import { lineOfFire } from './terrain';
@@ -197,7 +197,7 @@ export function shootPod(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: 
     if (ctx.rng.d100() > h.chance) continue;
     hits++;
     if (ps.wired) {
-      dealtBy(ctx, attacker, () => damageUnit(ctx, mother, def.damage ?? 1, 'focused', e.host));
+      dealtBy(ctx, attacker, () => typed(ctx, def.damageType ?? 'kinetic', () => damageUnit(ctx, mother, def.damage ?? C.DAMAGE_SCALE, 'focused', e.host)));
       if (!equipAlive(mother, e)) loseBits(ctx, mother, e, attacker.id);
     } else {
       e.bits = bitsLeft(e) - 1;
