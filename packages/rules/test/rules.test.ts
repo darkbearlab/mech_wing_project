@@ -536,7 +536,8 @@ describe('整場模擬', () => {
         expect(st.turn).toBeLessThanOrEqual(12);
       }
     }
-  });
+    // 整場模擬比較慢（CI 的機器更慢）
+  }, 30_000);
 });
 
 describe('勝負與 AI', () => {
@@ -570,7 +571,8 @@ describe('勝負與 AI', () => {
       }
       expect(m.phase).toBe('over');
     }
-  });
+    // 整場模擬比較慢（CI 的機器更慢）
+  }, 30_000);
 });
 
 describe('地形與視野', () => {
