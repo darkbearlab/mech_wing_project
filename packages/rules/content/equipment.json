@@ -15,14 +15,14 @@
     },
     "cost": 3,
     "damageType": "energy",
-    "ammo": 10
+    "ammo": 15
   },
   "machine_gun": {
     "id": "machine_gun",
     "name": "機槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 30,
+    "durability": 40,
     "damage": 10,
     "shots": 4,
     "mode": "scattered",
@@ -32,14 +32,14 @@
     },
     "cost": 1,
     "damageType": "kinetic",
-    "ammo": 32
+    "ammo": 64
   },
   "sniper": {
     "id": "sniper",
     "name": "狙擊步槍",
     "kind": "ranged",
     "weight": 2,
-    "durability": 30,
+    "durability": 40,
     "damage": 40,
     "shots": 1,
     "mode": "focused",
@@ -49,14 +49,14 @@
     },
     "cost": 3,
     "damageType": "kinetic",
-    "ammo": 6
+    "ammo": 8
   },
   "bazooka": {
     "id": "bazooka",
     "name": "火箭砲",
     "kind": "ranged",
     "weight": 2,
-    "durability": 30,
+    "durability": 40,
     "damage": 50,
     "shots": 1,
     "mode": "focused",
@@ -66,7 +66,7 @@
     },
     "cost": 3,
     "damageType": "chemical",
-    "ammo": 4
+    "ammo": 6
   },
   "beam_saber": {
     "id": "beam_saber",
@@ -94,7 +94,7 @@
     "name": "熱能斧",
     "kind": "melee",
     "weight": 1,
-    "durability": 20,
+    "durability": 30,
     "damage": 40,
     "mode": "focused",
     "meleeDice": 1,
@@ -160,7 +160,7 @@
     "kind": "ranged",
     "mount": "mounted",
     "weight": 2,
-    "durability": 30,
+    "durability": 40,
     "damage": 40,
     "shots": 1,
     "mode": "focused",
@@ -172,7 +172,7 @@
     "pointBlank": false,
     "cost": 2,
     "damageType": "kinetic",
-    "ammo": 8
+    "ammo": 12
   },
   "back_beam": {
     "id": "back_beam",
@@ -191,7 +191,7 @@
     "pointBlank": false,
     "cost": 4,
     "damageType": "energy",
-    "ammo": 5
+    "ammo": 8
   },
   "missile_pod": {
     "id": "missile_pod",
@@ -208,7 +208,7 @@
       "3": 5
     },
     "arc": 60,
-    "ammo": 4,
+    "ammo": 8,
     "tags": [
       "volatile"
     ],
@@ -269,7 +269,7 @@
     },
     "cost": 1,
     "damageType": "kinetic",
-    "ammo": 24
+    "ammo": 48
   },
   "arm_saber": {
     "id": "arm_saber",
@@ -347,10 +347,10 @@
     "mount": "mounted",
     "fire": "mortar",
     "weight": 2,
-    "durability": 30,
+    "durability": 40,
     "damage": 20,
     "shots": 1,
-    "ammo": 4,
+    "ammo": 6,
     "pointBlank": false,
     "ranges": {
       "2": -15,
@@ -370,7 +370,7 @@
     "durability": 30,
     "damage": 20,
     "shots": 2,
-    "ammo": 4,
+    "ammo": 8,
     "pointBlank": false,
     "ranges": {
       "2": 0,
