@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as C from '../src/config';
 import { DEFAULT_CONTENT, scaleContent } from '../src/content';
 import { CHASSIS, EQUIPMENT } from '../src/data';
-import { damageUnit, typeMultiplier, typed, type Ctx } from '../src/damage';
+import { damageUnit, directionWeight, typeMultiplier, typed, type Ctx } from '../src/damage';
 import { Rng } from '../src/rng';
 import { makeState, rifleX00 } from './helpers';
 
@@ -52,5 +52,23 @@ describe('傷害屬性與裝甲', () => {
     expect(p.equipment.beam_rifle.damage).toBe(3 * C.DAMAGE_SCALE);
     expect(p.chassis['X-00'].parts.torso.durability).toBe(10 * C.DAMAGE_SCALE);
     expect(scaleContent(DEFAULT_CONTENT)).toBe(DEFAULT_CONTENT);
+  });
+});
+
+describe('攻擊方向的部位權重', () => {
+  const unit = () => makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 0 }]).units[0];
+  const weightOf = (u: ReturnType<typeof unit>, from: { x: number; y: number }, part: string) => directionWeight(u, from)(u.parts[part]);
+
+  it('正面打不太到背包、多打軀幹；背後容易打到背包；側面多打靠近的那隻手', () => {
+    const u = unit();
+    // 朝 +x：前方是 x 大，背後是 x 小；y 大是順時針那一側（右手邊）
+    expect(weightOf(u, { x: 15, y: 10 }, 'pack')).toBe(C.HIT_DIRECTION_WEIGHT.front.propulsion);
+    expect(weightOf(u, { x: 15, y: 10 }, 'torso')).toBe(C.HIT_DIRECTION_WEIGHT.front.core);
+    expect(weightOf(u, { x: 5, y: 10 }, 'pack')).toBe(C.HIT_DIRECTION_WEIGHT.back.propulsion);
+    expect(weightOf(u, { x: 10, y: 15 }, 'rarm')).toBe(C.HIT_DIRECTION_WEIGHT.side.near);
+    expect(weightOf(u, { x: 10, y: 15 }, 'larm')).toBe(C.HIT_DIRECTION_WEIGHT.side.far);
+    // 手上拿的武器照那隻手
+    const rifle = u.equipment.find((e) => e.location === 'right')!;
+    expect(weightOf(u, { x: 10, y: 15 }, rifle.id)).toBe(C.HIT_DIRECTION_WEIGHT.side.near);
   });
 });
