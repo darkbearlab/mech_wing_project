@@ -67,6 +67,14 @@ export interface HitInput {
   barrage?: number;
 }
 
+/** 扣掉這次要打的發數，回傳實際打得出去的發數（沒有彈數的武器不扣） */
+export function spendRounds(weapon: EquipState, want: number): number {
+  if (weapon.ammo === undefined) return want;
+  const n = Math.min(want, weapon.ammo);
+  weapon.ammo -= n;
+  return n;
+}
+
 /** 曲射、越頂的武器：不用射擊線、不吃掩護與高低差、沒有射界，打中照頂部攻擊表，盾擋不到 */
 export const indirectFire = (d: EquipDef): boolean => d.fire === 'mortar' || d.fire === 'vls';
 /** 有導引的飛彈：相對速度的命中懲罰不算 */
@@ -203,9 +211,10 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
   });
   if (!h) return false;
-  if (weapon.ammo !== undefined) weapon.ammo--;
+  // 彈藥以發計：打出幾發扣幾發，剩的不夠一輪就只打剩下的
+  const shots = spendRounds(weapon, opts.shots ?? def.shots ?? 1);
+  if (shots <= 0) return false;
   if (attacker.lockOn === target.id) attacker.lockOn = null;
-  const shots = opts.shots ?? def.shots ?? 1;
   const overflow = !!def.tags?.includes('overflow');
   let hits = 0;
   let blocked = 0;

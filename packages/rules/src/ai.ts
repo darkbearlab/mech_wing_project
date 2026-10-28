@@ -18,14 +18,14 @@ import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneu
 import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
-import { BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
+import { SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
 import { tailing } from './pursuit';
 import { inMarkCone } from './vision';
 import { lungeCheck } from './melee';
 import { isShip } from './ship';
-import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone } from './objectives';
+import { CONTROL_RADIUS, GOAL_RADIUS, controlPoints, deployZone, goalZone, supplyPoint } from './objectives';
 import type { Technique, ActionPlan, EquipDef, EquipState, PlayerDeploy, PlayerId, PlayerPursuits, GrappleChoice, Hand, MovePlan, Obstacle, PlayerActions, PlayerMoves, Stance, UnitState, Vec } from './types';
 import { armorOf, availableManeuvers, climbBlocked, climbLimits, cruiseManeuver, equipAlive, handUsable, maneuverCost, moveSpeed, rackSide, readyRanged } from './unit';
 import type { PlayerView } from './match';
@@ -121,6 +121,23 @@ const MARK_SHOT = 45;
 /** 工兵：自己這發命中率低於這個值、敵人在 ENGINEER_NEAR 格內時，往敵人的方向埋雷或架路障 */
 const ENGINEER_SHOT = 35;
 const ENGINEER_NEAR = 10;
+/** 補給：射擊武器剩的彈藥、推進劑低於這個比例就回補給點 */
+const SUPPLY_LOW = 0.25;
+
+/** 射擊武器剩下的彈藥比例（沒有彈數限制的不算；沒有射擊武器是 1） */
+function ammoLeft(u: UnitView): number {
+  let left = 0;
+  let max = 0;
+  for (const e of u.equipment) {
+    const def = EQUIPMENT[e.defId];
+    if (def.kind !== 'ranged' || def.ammo === undefined || !equipAlive(u, e)) continue;
+    left += e.ammo ?? def.ammo;
+    max += def.ammo;
+  }
+  return max ? left / max : 1;
+}
+/** 彈藥或推進劑快用完了 */
+const lowSupply = (u: UnitView): boolean => ammoLeft(u) < SUPPLY_LOW || (u.propellant ?? 1) < (u.maxPropellant ?? 1) * SUPPLY_LOW;
 /** 判斷鎖定距離用的假武器（和規則結算鎖定時一樣） */
 const LOCK_PROBE: EquipDef = { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } };
 
@@ -472,11 +489,13 @@ function assignObjectives(view: PlayerView, own: UnitView[]): TeamPlan['objectiv
   const s = view.state.settings;
   const enemy = (1 - view.you) as PlayerId;
   const free = own.filter((u) => !(s.decapitation && view.state.flagship[view.you] === u.id) && !view.state.grapples.some((g) => g.a === u.id || g.b === u.id));
+  // 彈藥或推進劑快用完：先回自己的補給點停下來
+  if (s.supply) for (const u of own) if (lowSupply(u) && !view.state.grapples.some((g) => g.a === u.id || g.b === u.id)) out.set(u.id, { pos: supplyPoint(view.you), r: SUPPLY_RADIUS * 0.6, stop: true });
   if (s.goal) {
     const zone = goalZone(enemy);
     // 已經在圈裡停著的先留著，其餘挑快的、離得近的
     const holder = view.state.objectives.goalHold[view.you]?.unit;
-    const runners = [...free].sort((a, b) => (b.id === holder ? 99 : 0) - (a.id === holder ? 99 : 0) || CHASSIS[b.chassisId].maxAccel - CHASSIS[a.chassisId].maxAccel || dist(a.pos, zone) - dist(b.pos, zone));
+    const runners = [...free].filter((u) => !out.has(u.id)).sort((a, b) => (b.id === holder ? 99 : 0) - (a.id === holder ? 99 : 0) || CHASSIS[b.chassisId].maxAccel - CHASSIS[a.chassisId].maxAccel || dist(a.pos, zone) - dist(b.pos, zone));
     for (const u of runners.slice(0, own.length >= 5 ? 2 : 1)) out.set(u.id, { pos: zone, r: GOAL_RADIUS, stop: true });
   }
   if (s.control) {
@@ -860,7 +879,12 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       .map((t) => ({ t, r: lungeCheck(view.state.obstacles, u as unknown as UnitState, t as unknown as UnitState, view.state.stance[u.id]) }))
       .flatMap((x) => (typeof x.r === 'string' ? [] : [{ t: x.t, score: (x.t === focus ? 2 : 1) + x.r.jump + hurtOf(x.t) }]))
       .sort((a, b) => b.score - a.score)[0];
-    if (lunge && (!shot || shot.chance < LUNGE_SHOT)) {
+    // 補給：停在自己的補給點上，缺彈藥或推進劑（而且這發不太好打）就補
+    const atSupply = !!view.state.settings.supply && !u.z && u.momentum === 0 && dist(u.pos, supplyPoint(view.you)) <= SUPPLY_RADIUS;
+    const wants = ammoLeft(u) < 0.7 || (u.propellant ?? 1) < (u.maxPropellant ?? 1) * 0.7;
+    if (atSupply && wants && (!shot || shot.chance < MARK_SHOT || lowSupply(u))) {
+      plan.action = { type: 'resupply' };
+    } else if (lunge && (!shot || shot.chance < LUNGE_SHOT)) {
       plan.action = { type: 'lunge', target: lunge.t.id };
     } else if (designator && !holding && markable && allies && (!shot || shot.chance < MARK_SHOT || guidedAllies)) {
       plan.action = { type: 'mark', weapon: designator.id };

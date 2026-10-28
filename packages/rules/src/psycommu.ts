@@ -4,7 +4,7 @@
 // 線控炮群（吉翁克的有線臂）：手臂本身就是炮群；指揮不佔行動，本體可以同時開火（壓力再 +1）；被打中是打那隻手臂。
 import * as C from './config';
 import { radiusOf } from './body';
-import { hitChance, shoot, type TurnInfo } from './combat';
+import { hitChance, shoot, spendRounds, type TurnInfo } from './combat';
 import { addStress, damageUnit, typed, dealtBy, type Ctx } from './damage';
 import { EQUIPMENT } from './data';
 import { add, dist, normalize, scale, sub } from './geometry';
@@ -190,8 +190,7 @@ export function shootPod(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: 
     targetEvasion: ps.evasion ?? 0,
   });
   if (!h) return false;
-  if (weapon.ammo !== undefined) weapon.ammo--;
-  const shots = def.shots ?? 1;
+  const shots = spendRounds(weapon, def.shots ?? 1);
   let hits = 0;
   for (let i = 0; i < shots && e.pod; i++) {
     if (ctx.rng.d100() > h.chance) continue;

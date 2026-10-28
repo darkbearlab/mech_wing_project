@@ -15,13 +15,18 @@ export interface ContentPack {
   rosters: [RosterEntry[], RosterEntry[]];
   /** 傷害刻度（耐久與傷害「舊的 1 點」等於多少）；沒寫的是舊格式 1，載入時放大到 DAMAGE_SCALE */
   damageScale?: number;
+  /** 射擊武器的 ammo 以「發」計；沒寫的是舊格式（以「次」計），載入時乘上每次的發數 */
+  ammoRounds?: boolean;
 }
 
-/** 把耐久與傷害換成目前的刻度（DAMAGE_SCALE）；已經是就原樣回傳 */
+/** 把耐久與傷害換成目前的刻度（DAMAGE_SCALE）、彈藥換成以發計；已經是就原樣回傳 */
 export function scaleContent(pack: ContentPack): ContentPack {
   const k = DAMAGE_SCALE / (pack.damageScale ?? 1);
-  if (k === 1) return pack;
+  if (k === 1 && pack.ammoRounds) return pack;
   const p = structuredClone(pack);
+  if (!p.ammoRounds) for (const e of Object.values(p.equipment)) if (e.kind === 'ranged' && e.ammo !== undefined) e.ammo *= e.shots ?? 1;
+  p.ammoRounds = true;
+  if (k === 1) return p;
   for (const c of Object.values(p.chassis)) for (const part of Object.values(c.parts)) part.durability = Math.round(part.durability * k);
   for (const e of Object.values(p.equipment)) {
     e.durability = Math.round(e.durability * k);
@@ -32,8 +37,8 @@ export function scaleContent(pack: ContentPack): ContentPack {
   return p;
 }
 
-export const BUILTIN_VERSION = 'builtin-10';
-export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ...BUILTIN_CONTENT };
+export const BUILTIN_VERSION = 'builtin-11';
+export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ammoRounds: true, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;
 export const contentVersion = (): string => active;

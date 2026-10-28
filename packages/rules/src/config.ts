@@ -163,6 +163,10 @@ export const MARK_ARC_DEG = 60;
 /** 標定器沒寫 markCount 時一次標定幾台 */
 export const MARK_COUNT = 2;
 
+// ---- 補給點（暫定值） ----
+/** 補給點的半徑：機體中心在這個距離內、動能 0 才能補給 */
+export const SUPPLY_RADIUS = 1.5;
+
 // ---- 電子干擾、反輻射飛彈、工兵（暫定值） ----
 /** 電子干擾的範圍（干擾機中心到機體中心的距離） */
 export const ECM_RADIUS = 4;
