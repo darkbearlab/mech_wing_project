@@ -18,7 +18,7 @@ describe('傷害屬性與裝甲', () => {
     expect(typeMultiplier(undefined, 'energy')).toBe(1);
   });
 
-  it('機械外露：耐久剩三分之一以下的機體部位，抵抗的屬性也算弱點；武器不算', () => {
+  it('結構外露：耐久剩三分之一以下的機體部位，抵抗的屬性也算弱點；武器不算', () => {
     // X-00 軀幹 100、複合裝甲擋動能
     const st = makeState([{ entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 }]);
     const u = st.units[0];
