@@ -22,6 +22,15 @@ function park(s: GameState) {
 }
 
 describe('費用與陣容', () => {
+  it('自由組裝：裝備要放得進掛點；照配裝選項以外的組合也可以', () => {
+    const ok: RosterEntry = { chassis: 'X-04', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['atgm', 'mount', 'torso'], ['atgm', 'mount', 'torso'], ['vls', 'mount', 'pack'], ['smoke_discharger', 'mount', 'legs']] };
+    expect(lineupProblems([ok], 'expanded', { decapitation: false })).toEqual([]);
+    const tooMany: RosterEntry = { ...ok, equipment: [...ok.equipment, ['jump_jet', 'mount', 'pack']] };
+    expect(lineupProblems([tooMany], 'expanded', { decapitation: false }).join()).toContain('放不進掛點');
+    const shieldRack: RosterEntry = { chassis: 'X-00', pilot: 'veteran', equipment: [['shield', 'stowed']] };
+    expect(lineupProblems([shieldRack], 'expanded', { decapitation: false }).join()).toContain('放不進掛點');
+  });
+
   it('費用＝機型＋駕駛＋帶的裝備；標準裝備不算', () => {
     const e: RosterEntry = { chassis: 'X-00', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['shield', 'left']] };
     expect(entryCost(e)).toBe(6 + 3 + 3 + 1);
