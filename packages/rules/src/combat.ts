@@ -7,6 +7,7 @@ import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec
 import { radiusOf, roleLost } from './body';
 import { activeShields, chassisOf, equipDef, pilotOf, armorOf } from './unit';
 import { barragePenalty, bridgeLost, isShip } from './ship';
+import { ecmOf } from './ecm';
 
 export interface Positioned {
   id: string;
@@ -69,7 +70,7 @@ export interface HitInput {
 /** 曲射、越頂的武器：不用射擊線、不吃掩護與高低差、沒有射界，打中照頂部攻擊表，盾擋不到 */
 export const indirectFire = (d: EquipDef): boolean => d.fire === 'mortar' || d.fire === 'vls';
 /** 有導引的飛彈：相對速度的命中懲罰不算 */
-export const guidedFire = (d: EquipDef): boolean => d.fire === 'vls' || d.fire === 'missile';
+export const guidedFire = (d: EquipDef): boolean => d.fire === 'vls' || d.fire === 'missile' || d.fire === 'antiRadiation';
 
 /** 展開中的盾牆：機體正面、寬 BARRIER_WIDTH 的線段 */
 export function barrierOf(u: Positioned & { status?: string }): { a: Vec; b: Vec; equip: EquipState } | null {
@@ -97,8 +98,9 @@ export function barrierBetween<T extends Positioned & { status?: string }>(units
 }
 
 export function hitChance(h: HitInput): { band: RangeBand; chance: number; high: number } | null {
-  // 導引武器只能打被標定的目標（有視線也一樣）
-  if (h.weapon.fire && !h.target.mark) return null;
+  // 反輻射飛彈只打開著電子干擾的機體；其他導引武器只能打被標定的目標（有視線也一樣）
+  const antiRadiation = h.weapon.fire === 'antiRadiation';
+  if (antiRadiation ? !ecmOf(h.target) : h.weapon.fire && !h.target.mark) return null;
   const indirect = indirectFire(h.weapon);
   const machine = !!h.weapon.fire;
   const band = rangeBand(h.attacker, h.target);
@@ -137,6 +139,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   if (!indirect && h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (!indirect && h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   if (!machine && h.target.mark) chance += C.MARK_BONUS;
+  if (antiRadiation) chance += C.ARM_HIT_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
   if (h.barrage) chance -= h.barrage;
@@ -253,7 +256,9 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
       blocked++;
       pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, 'focused', shield, overflow))));
     } else {
-      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', undefined, overflow))));
+      // 反輻射飛彈循著干擾電波打在干擾器上
+      const homing = def.fire === 'antiRadiation' ? ecmOf(victim)?.id : undefined;
+      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', homing, overflow))));
     }
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}), ...(opts.pod ? { pod: opts.pod, from: { ...opts.from! } } : {}) });

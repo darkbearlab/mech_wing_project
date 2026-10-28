@@ -378,5 +378,61 @@
     "durability": 80,
     "cost": 2,
     "armorType": "reflective"
+  },
+  "ecm_pod": {
+    "id": "ecm_pod",
+    "name": "電子干擾器",
+    "kind": "utility",
+    "utility": "ecm",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 20,
+    "cost": 2
+  },
+  "arm_missile": {
+    "id": "arm_missile",
+    "name": "反輻射飛彈",
+    "kind": "ranged",
+    "mount": "mounted",
+    "fire": "antiRadiation",
+    "weight": 1,
+    "durability": 10,
+    "damage": 30,
+    "shots": 1,
+    "mode": "focused",
+    "ammo": 2,
+    "ranges": {
+      "2": 0,
+      "3": 0
+    },
+    "arc": 60,
+    "pointBlank": false,
+    "tags": [
+      "volatile"
+    ],
+    "cost": 2,
+    "damageType": "chemical"
+  },
+  "mine_layer": {
+    "id": "mine_layer",
+    "name": "佈雷器",
+    "kind": "utility",
+    "utility": "mine",
+    "mount": "mounted",
+    "weight": 1,
+    "durability": 20,
+    "ammo": 3,
+    "cost": 1
+  },
+  "barricade_kit": {
+    "id": "barricade_kit",
+    "name": "路障組",
+    "kind": "utility",
+    "utility": "barricade",
+    "mount": "mounted",
+    "weight": 2,
+    "durability": 20,
+    "ammo": 2,
+    "cost": 1
   }
 }

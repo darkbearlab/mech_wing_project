@@ -63,15 +63,18 @@ export interface EquipDef {
   evasionPenalty?: number;
   accelPenalty?: number;
   lockWeapons?: boolean;
-  /** 戰術道具（kind utility）：smoke 煙霧彈、decoy 欺敵氣球；用 ammo 表示數量 */
-  utility?: 'smoke' | 'decoy' | 'mark';
+  /**
+   * 戰術道具（kind utility）：smoke 煙霧彈、decoy 欺敵氣球、mark 標定器、ecm 電子干擾器（一直開著）、
+   * mine 佈雷器、barricade 路障；會用完的用 ammo 表示數量
+   */
+  utility?: 'smoke' | 'decoy' | 'mark' | 'ecm' | 'mine' | 'barricade';
   /** 標定器：一次標定前方幾台敵機（隨機挑） */
   markCount?: number;
   /**
    * 導引武器：mortar 迫擊砲（曲射越頂，沒打中會散布、炸到落點附近）、vls 垂直飛彈（越頂）、missile 平射飛彈（要射擊線）。
    * 都只能打被標定的目標，命中只看機器：不算射手駕駛的技能、沒有標定加成（目標駕駛的閃避照算）
    */
-  fire?: 'mortar' | 'vls' | 'missile';
+  fire?: 'mortar' | 'vls' | 'missile' | 'antiRadiation';
   /** 展開盾：可以在機體正面展開成一道矮牆 */
   deployable?: boolean;
   /** 武器的傷害屬性（沒寫照動能） */
@@ -290,6 +293,14 @@ export interface Obstacle {
   until?: number;
 }
 
+/** 地雷：敵方的地面機體移動經過就引爆（自己這一方不會觸發） */
+export interface Mine {
+  id: string;
+  owner: PlayerId;
+  x: number;
+  y: number;
+}
+
 /** 欺敵氣球：外觀照放的那台機體；在煙霧裡對手分不出真假，出了煙霧就是氣球 */
 export interface Decoy {
   id: string;
@@ -365,6 +376,8 @@ export interface GameState {
   objectives?: ObjectiveState;
   /** 欺敵氣球 */
   decoys?: Decoy[];
+  /** 埋在地上的地雷 */
+  mines?: Mine[];
   /** 還沒進場的增援 */
   reserves?: Reserve[];
   /** 各方看得到但分不出是什麼的機體（隔著煙霧） */
@@ -387,7 +400,10 @@ export type Action =
   | { type: 'mark'; weapon: string }
   /** 丟煙霧彈、放欺敵氣球：at 是落點 */
   | { type: 'smoke'; weapon: string; at: Vec }
-  | { type: 'decoy'; weapon: string; at: Vec };
+  | { type: 'decoy'; weapon: string; at: Vec }
+  /** 埋地雷、架路障：at 是位置（路障橫擋在自己和 at 之間的方向上） */
+  | { type: 'mine'; weapon: string; at: Vec }
+  | { type: 'barricade'; weapon: string; at: Vec };
 
 /** 第一步：移動（纏鬥中的機體不移動） */
 export interface MovePlan {
@@ -488,6 +504,11 @@ export type GameEvent =
   | { type: 'podHit'; unit: string; equip: string; by: string; bits: number }
   | { type: 'smoke'; unit: string; at: Vec; r: number }
   | { type: 'decoy'; unit: string; decoy: string }
+  /** 埋地雷（對手看不到）；引爆 */
+  | { type: 'mine'; unit: string; at: Vec }
+  | { type: 'mineBlast'; unit: string; at: Vec; mine: string }
+  /** 架路障（obstacle 是新的建築 id） */
+  | { type: 'barricade'; unit: string; obstacle: string }
   | { type: 'decoyPop'; decoy: string; by?: string; reason: string }
   | { type: 'arrive'; unit: string }
   | { type: 'phase'; phase: TurnPhase }
