@@ -278,6 +278,10 @@ export function filterEvents(events: GameEvent[], state: GameState, viewer: Play
       case 'resupply':
         if (known(e.unit)) out.push(e);
         break;
+      case 'buildingShot':
+        // 建築被打大家都看得到；看不到的射手不知道是誰
+        out.push(known(e.attacker) ? e : { ...e, attacker: '', chance: 0 });
+        break;
       case 'mark':
         // 被標定的一方知道自己被照到，但看不到的話不知道是誰
         out.push(known(e.unit) ? e : { ...e, unit: '' });

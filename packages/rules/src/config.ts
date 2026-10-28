@@ -163,6 +163,15 @@ export const MARK_ARC_DEG = 60;
 /** 標定器沒寫 markCount 時一次標定幾台 */
 export const MARK_COUNT = 2;
 
+// ---- 破壞建築（暫定值） ----
+/** 建築一層樓的耐久；路障一層 */
+export const BUILDING_LEVEL_HP = 200;
+export const BARRICADE_HP = 100;
+/** 打建築：不會閃，命中 +這麼多 */
+export const BUILDING_TARGET_BONUS = 30;
+/** 樓塌下來：站在上面的機體每掉一層，腳受這麼多傷害 */
+export const COLLAPSE_DAMAGE = 20;
+
 // ---- 補給點（暫定值） ----
 /** 補給點的半徑：機體中心在這個距離內、動能 0 才能補給 */
 export const SUPPLY_RADIUS = 1.5;

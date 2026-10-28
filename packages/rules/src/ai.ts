@@ -18,6 +18,8 @@ import { parseManeuver, samplePath, worldPose, type ManeuverSpec } from './maneu
 import { lineOfFire, wallPenetration } from './terrain';
 import { buildPath } from './movement';
 import { barricadeSpotOk, barricadeWall, jammed, mineSpotOk } from './ecm';
+import { BUILDING_TYPE_MULT, buildingHitChance } from './demolition';
+import { inFootprint } from './terrain';
 import { SUPPLY_RADIUS, BARRICADE_RANGE, MINE_LAY_RANGE, DEPLOYED_MAX_SPEED, JUMP_SLASH_MAX_BONUS, JUMP_SLASH_RANGE, LUNGE_ARC_DEG, LUNGE_RANGE, DEBRIS_SAFE_SPEED, MAP_SIZE, FACING_OFFSETS, ROCK_SAFE_SPEED, SLOW_MAX_SPEED, COUNTER_DICE, SHIP_TURN_MAX_DEG } from './config';
 import { insideField } from './terrain';
 import type { Rng } from './rng';
@@ -121,6 +123,9 @@ const MARK_SHOT = 45;
 /** 工兵：自己這發命中率低於這個值、敵人在 ENGINEER_NEAR 格內時，往敵人的方向埋雷或架路障 */
 const ENGINEER_SHOT = 35;
 const ENGINEER_NEAR = 10;
+/** 拆樓：自己這發命中率低於這個值才考慮打敵機腳下的建築；一次期望拆掉的耐久至少要這麼多 */
+const DEMOLISH_SHOT = 35;
+const DEMOLISH_MIN = 30;
 /** 補給：射擊武器剩的彈藥、推進劑低於這個比例就回補給點 */
 const SUPPLY_LOW = 0.25;
 
@@ -872,6 +877,20 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const mineAt = mineKit ? toward(MINE_LAY_RANGE * 0.8, (at) => mineSpotOk(view.state.obstacles, at)) : null;
     const wallAt = wallKit ? toward(BARRICADE_RANGE * 0.6, (at) => !barricadeSpotOk(view.state.obstacles, units, barricadeWall(u.pos, at, ''))) : null;
     const engineer = d < ENGINEER_NEAR && (!shot || shot.chance < ENGINEER_SHOT);
+    // 拆樓：敵機站在樓頂上、自己這發不好打時，改打它腳下那棟（拆得最快的武器）
+    let demolish: { weapon: EquipState; building: Obstacle; value: number } | null = null;
+    if (!shot || shot.chance < DEMOLISH_SHOT) {
+      const perches = view.state.obstacles.filter((o) => o.kind === 'building' && o.levels && enemies.some((t) => t.z && t.z === o.levels && inFootprint(o, t.pos)));
+      for (const o of perches)
+        for (const w of readyRanged(u as unknown as UnitState)) {
+          const def = EQUIPMENT[w.defId];
+          if (w.ammo !== undefined && w.ammo <= 0) continue;
+          const h = buildingHitChance(u, skill, def, o, view.state.obstacles, CHASSIS[u.chassisId].aim, view.state.stance[u.id] === 'melee');
+          if (!h) continue;
+          const value = (h.chance / 100) * (def.shots ?? 1) * (def.damage ?? 0) * BUILDING_TYPE_MULT[def.damageType ?? 'kinetic'];
+          if (!demolish || value > demolish.value) demolish = { weapon: w, building: o, value };
+        }
+    }
     // 突進／跳劈：近戰姿態、手上有近戰武器，砍得到就砍（槍不太好打時）；集火目標、跳劈優先
     const inClinch = (id: string) => view.state.grapples.some((g) => g.a === id || g.b === id);
     const lunge = enemies
@@ -897,6 +916,8 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     } else if (engineer && mineKit && mineAt) {
       // 地雷：埋在敵人過來的路上
       plan.action = { type: 'mine', weapon: mineKit.id, at: mineAt };
+    } else if (demolish && demolish.value >= DEMOLISH_MIN) {
+      plan.action = { type: 'shoot', weapon: demolish.weapon.id, target: demolish.building.id };
     } else if (shot && shot.chance < LOW_SHOT && lockTarget && u.lockOn !== shot.target.id) {
       // 命中率太低就先鎖定：這發大概打不中，鎖定後下一發 +LOCK_BONUS
       plan.action = { type: 'lock', target: lockTarget.id };
@@ -911,7 +932,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
     const gun = stowedOf(u, 'ranged')[0];
     if (canHold(u) && !heldOf(u, 'melee').length && melee && d < 7) plan.swaps = { [drawHand(u, shot?.weapon.id, melee.id)]: melee.id };
     else if (canHold(u) && !heldOf(u, 'ranged').length && !heldOf(u, 'melee').length && gun) plan.swaps = { [drawHand(u, undefined, gun.id)]: gun.id };
-    if (plan.action.type === 'shoot') {
+    if (plan.action.type === 'shoot' && shot && plan.action.target === shot.target.id) {
       // 同一個目標：其他打得到的武器一起開火（換武器那隻手上的除外）
       const t = shot!.target;
       const benched = new Set(Object.keys(plan.swaps ?? {}).map((h) => u.equipment.find((e) => e.location === h)?.id));

@@ -22,6 +22,11 @@ import {
   contentVersion,
   controlPoints,
   supplyPoint,
+  buildingHitChance,
+  topHp,
+  levelHp,
+  BUILDING_TYPE_MULT,
+  inFootprint,
   deployZone,
   dialOf,
   goalZone,
@@ -185,6 +190,18 @@ function threatLine(u: UnitView, foes: UnitView[]): string {
 }
 
 /** 行動步驟：每件能開火的武器對每台看得到的敵機的估計命中率 */
+/** 有敵機站在樓頂的建築：各武器打那棟的命中率與每發拆掉的耐久 */
+function perchTable(u: UnitView, enemies: UnitView[]): string {
+  const rows: string[] = [];
+  for (const o of view!.state.obstacles.filter((x) => x.kind === 'building' && x.levels && enemies.some((t) => t.z && inFootprint(x, t.pos))))
+    for (const w of readyRanged(u)) {
+      const def = EQUIPMENT[w.defId];
+      const h = buildingHitChance(u, PILOTS[u.pilotId!].skill, def, o, view!.state.obstacles, CHASSIS[u.chassisId].aim, view!.state.stance[u.id] === 'melee');
+      if (h) rows.push(`    ${w.id} ${def.name} → 建築 ${o.id}（${o.levels}層，頂層 ${topHp(o)}/${levelHp(o)}）：約 ${h.chance}%，每發 ${Math.round((def.damage ?? 0) * BUILDING_TYPE_MULT[def.damageType ?? 'kinetic'])} 點`);
+    }
+  return rows.length ? `\n  拆樓（敵機站在樓頂的建築）：\n${rows.join('\n')}` : '';
+}
+
 function shotTable(u: UnitView, enemies: UnitView[]): string {
   const rows: string[] = [];
   for (const w of readyRanged(u)) {
@@ -235,7 +252,7 @@ function render(v: PlayerView): string {
   if (set.supply) out.push(`補給點（半徑 ${config.SUPPLY_RADIUS}，停在自己的上面、動能 0，用 {"type":"resupply"} 補滿彈藥、道具與推進劑）A ${pt(supplyPoint(0))}、B ${pt(supplyPoint(1))}`);
   out.push(`障礙 ${s.obstacles.filter((o) => o.kind !== 'building').map((o) => `${o.kind}${pt(o)}r${f1(o.r)}${o.until ? `到T${o.until}` : ''}`).join(' ') || '無'}`);
   const blds = s.obstacles.filter((o) => o.kind === 'building');
-  if (blds.length) out.push(`建築（id 中心 x範圍×y範圍 層數；1 層約一台機體高，擋移動、射擊與視線，樓頂可站人）${blds.map((o) => `${o.id}${pt(o)} x${f1(o.x - o.hx!)}–${f1(o.x + o.hx!)} y${f1(o.y - o.hy!)}–${f1(o.y + o.hy!)} ${o.levels}層`).join('；')}`);
+  if (blds.length) out.push(`建築（id 中心 x範圍×y範圍 層數；1 層約一台機體高，擋移動、射擊與視線，樓頂可站人；可以把 id 當射擊目標拆樓）${blds.map((o) => `${o.id}${pt(o)} x${f1(o.x - o.hx!)}–${f1(o.x + o.hx!)} y${f1(o.y - o.hy!)}–${f1(o.y + o.hy!)} ${o.levels}層${o.hp !== undefined ? `（頂層耐久 ${o.hp}/${levelHp(o)}）` : ''}`).join('；')}`);
   if (s.balloons.length) out.push(`氣球 ${s.balloons.map((b) => `${side(b.owner)}${pt(b.pos)}`).join(' ')}`);
   if (s.mines.length) out.push(`地雷（我方的，加上我方機體 ${config.MINE_DETECT_RANGE} 格內發現的敵方地雷）${s.mines.map((m) => `${side(m.owner)}${pt(m)}`).join(' ')}`);
   const jammers = s.units.filter((u) => ecmOf(u as never) && !u.hidden);
@@ -253,7 +270,7 @@ function render(v: PlayerView): string {
     if (v.phase === 'action') {
       if (s.bumped.includes(u.id)) out.push('  本回合擦撞，不能行動');
       else if (grappled) out.push(`  纏鬥手法可選：${grappleOptions(u as unknown as UnitState).join(', ')}`);
-      else out.push(`  估計命中率：\n${shotTable(u, seen) || '    （沒有能打的）'}`);
+      else out.push(`  估計命中率：\n${shotTable(u, seen) || '    （沒有能打的）'}${perchTable(u, seen)}`);
     }
     if (v.phase === 'pursuit' && v.pursuit?.[u.id]?.length) out.push(`  追擊選項：${v.pursuit[u.id].map((o) => `${o.weapon}→${o.target} ${o.chance}%`).join('；')}`);
   }
@@ -308,6 +325,8 @@ function eventText(e: GameEvent): string {
       return `${L(e.unit)} 在 ${pt(e.at)} 踩到地雷`;
     case 'resupply':
       return `${L(e.unit)} 在補給點補滿彈藥與推進劑`;
+    case 'buildingShot':
+      return `${e.attacker ? L(e.attacker) : '看不到的敵機'} 以${EQUIPMENT[e.weapon]?.name ?? e.weapon}射擊建築 ${e.obstacle}：${e.hits}/${e.shots} 命中${e.amount ? ` ${e.amount} 點` : ''}${e.collapsed ? '，整棟打平變成瓦礫' : e.amount ? `，剩 ${e.levels} 層` : ''}`;
     case 'barricade':
       return `${L(e.unit)} 架起路障 ${e.obstacle}`;
     case 'mark':
@@ -398,6 +417,7 @@ function writeCatalog() {
     `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下。`,
     `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,
     `電子干擾器：一直開著（干擾器被打壞或機體退場才停）；半徑 ${config.ECM_RADIUS} 格內同一方的機體（含自己）標定不到，也標定不了別人；已被標定的機體走進範圍，標定就失效。反輻射飛彈只打開著干擾器的機體：要射擊線、看得到，不用標定，命中只看機器、另外 +${config.ARM_HIT_BONUS}，打中就打在干擾器上。`,
+    `拆樓：射擊的目標可以填建築 id（明確選它才會打到，流彈不會）。建築不會閃，命中只看射手 +${config.BUILDING_TARGET_BONUS}；導引武器打不了建築，要射擊線。每層耐久 ${config.BUILDING_LEVEL_HP}（路障 ${config.BARRICADE_HP}），傷害倍率化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，樓頂上的機體跟著掉下來，每掉一層腳受 ${config.COLLAPSE_DAMAGE} 點；整棟打平變成瓦礫區（像隕石群：穿過射擊命中下降）。`,
     `彈藥：射擊武器的彈數以「發」計，每次射擊扣掉真正打出去的發數，剩的不夠一輪就只打剩下的（目錄的「彈N」）。開房勾選補給點時，雙方後方各一個補給點，停在自己的補給點上（動能 0、地面）用掉動作就補滿彈藥、道具與推進劑。`,
     `地雷：佈雷器在底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上埋雷，對手看不到（對方機體 ${config.MINE_DETECT_RANGE} 格內才看得到）；敵方的地面機體移動經過就引爆，${config.MINE_DAMAGE} 點化學能傷害打在腳上（樓頂上、會飛的不會踩到；自己這一方不會觸發）。路障：${config.BARRICADE_RANGE} 格內架一道長 ${config.BARRICADE_HALF_LENGTH * 2}、高 1 層的矮牆，和建築一樣擋移動、射擊與視線。`,
     `導引武器（迫擊砲、垂直飛彈、飛彈莢艙）：只能打被標定的目標（沒被標定的，看得到也不能打）；命中只看機器：不算射手技能、沒有技能差懲罰、沒有標定加成、黑視不影響；目標駕駛的閃避照算。迫擊砲與垂直飛彈越過建築、不吃掩護與高低差、沒有射界、盾擋不到，打中照頂部攻擊表（腿 ×0.2，頭、軀幹、背包 ×1.5）。迫擊砲沒打中會偏離 ${config.MORTAR_SCATTER_MIN}～${config.MORTAR_SCATTER_MAX} 格落地，落點 ${config.MORTAR_SPLASH_RADIUS} 格內（底板邊緣）的機體不分敵我受 ${config.MORTAR_SPLASH_DAMAGE} 點。垂直飛彈與飛彈莢艙不吃相對速度的命中懲罰；飛彈莢艙要射擊線。`,
