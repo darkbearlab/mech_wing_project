@@ -49,6 +49,9 @@ import {
   wallPenetration,
   climbBlocked,
   climbLimits,
+  maxSpeedChange,
+  inMarkCone,
+  roleLost,
   ARMOR_NAMES,
   DAMAGE_TYPE_NAMES,
   matchupText,
@@ -153,7 +156,7 @@ function unitLine(u: UnitView): string {
   const ch = CHASSIS[u.chassisId];
   const p = u.pilotId ? PILOTS[u.pilotId] : undefined;
   const status = u.status !== 'active' ? ` 【${u.status}】` : u.hidden ? ` 【看不到，最後目擊 T${u.seenTurn}】` : u.unknown ? ' 【煙霧中不明】' : u.located ? ' 【只知道位置（干擾電波）：只有迫擊砲、反輻射飛彈打得到】' : '';
-  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${ch?.armorType ? `・${ARMOR_NAMES[ch.armorType]}` : ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ((ch?.minSpeed ?? 0) > 0 ? ` 飛行高度${u.z}層` : ` 高度${u.z}層（樓頂）`) : ''}${u.equipment.some((e) => e.deployed) ? ' 盾牆展開中' : ''}${u.mark ? ` 被標定${u.mark.by ? `（${u.mark.by} 照射中）` : ''}` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
+  let s = `${u.id} ${u.label} ${ch?.name ?? ''}${ch?.armorType ? `・${ARMOR_NAMES[ch.armorType]}` : ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ((ch?.minSpeed ?? 0) > 0 ? ` 飛行高度${u.z}層` : ` 高度${u.z}層（樓頂）`) : ''}${u.equipment.some((e) => e.deployed) ? ' 盾牆展開中' : ''}${u.mark ? ` 被標定${u.mark.by ? `（${u.mark.by} 照射中）` : ''}` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum}${u.owner === view?.you && u.pilotId ? `（每回合最多變 ${maxSpeedChange(u as never)}）` : ''} 半徑 ${radiusOf(u)}${u.owner === view?.you && u.pilotId && (ch?.minSpeed ?? 0) === 0 ? ` 攀升最多 ${climbLimits(u as never).levels} 層` : ''}`;
   if (p) s += `\n  駕駛 ${p.name} 技能${p.skill}${p.abilities.length ? ` [${p.abilities.join(',')}]` : ''} 壓力 ${u.stress}/${u.maxStress}${u.blackout ? ' 黑視' : ''} 推進劑 ${u.propellant}/${u.maxPropellant}${u.lockOn ? ` 鎖定 ${u.lockOn}` : ''}`;
   else if (u.vague) s += `  （${u.vague}）`;
   s += `\n  部位 ${partsText(u)}\n  裝備 ${gearText(u)}`;
@@ -174,7 +177,7 @@ function maneuverTable(u: UnitView): string {
     const wall = w?.kind === 'wall' ? view!.state.obstacles.find((o) => o.id === w.with) : undefined;
     const canClimb = wall && !climbBlocked(u as unknown as UnitState, { maneuver: id }) && wall.levels! - (u.z ?? 0) <= climbLimits(u as unknown as UnitState).levels;
     const out = end.pos.x < 0 || end.pos.y < 0 || end.pos.x > config.MAP_SIZE || end.pos.y > config.MAP_SIZE;
-    rows.push(`${id}→${pt(end.pos)}${out ? ' ⚠開出地圖（脫離戰場）' : ''}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠撞隕石' : ''}${wall ? ` ⚠撞${wall.id}(${wall.levels}層)${canClimb ? '，攀升可上樓頂' : ''}` : ''}`);
+    rows.push(`${id}→${pt(end.pos)}${out ? ' ⚠開出地圖（脫離戰場）' : ''}∠${deg(end.facing)} v${parseManeuver(id).endMomentum}${c.propellant ? ` 推${c.propellant}` : ''}${c.stress ? ` 壓${c.stress}` : ''}${hit ? ' ⚠路徑撞隕石' : ''}${wall ? ` ⚠撞${wall.id}(${wall.levels}層)${canClimb ? '，攀升可上樓頂' : ''}` : ''}`);
   }
   return `    ${rows.join('；')}`;
 }
@@ -237,6 +240,13 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
       rows.push(`${w.id} ${def.name} → ${t.id}：${w.ammo === 0 ? '彈藥耗盡' : `${bandName(h.band)} 約 ${h.chance}%${shotTags(u, u.pos, t, cover, def.arc, indirectFire(def), flightFire(def) && !indirectFire(def))}${vs ? `【${vs}】` : ''}`}`);
     }
   }
+  // 標定：掃描範圍內看得到的敵機（實際不用視線，隨機挑）
+  if (!roleLost(u as never, 'sensor'))
+    for (const e of u.equipment) {
+      if (EQUIPMENT[e.defId].utility !== 'mark' || e.ammo === 0) continue;
+      const inCone = enemies.filter((t) => !t.mark && inMarkCone(u as never, t.pos, radiusOf(u) + radiusOf(t))).map((t) => t.id);
+      rows.push(`mark ${e.id} 標定：${jammed(view!.state.units as never, u as never) ? '在我方干擾範圍內，標定不了' : `範圍內 [${inCone.join(',') || '看得到的沒有'}]（隨機 ${EQUIPMENT[e.defId].markCount ?? config.MARK_COUNT} 台）`}`);
+    }
   // 突進／跳劈：砍得到的才列
   for (const t of enemies) {
     const r = lungeCheck(view!.state.obstacles, u as unknown as UnitState, t as unknown as UnitState, view!.state.stance[u.id]);

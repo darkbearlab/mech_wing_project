@@ -152,6 +152,9 @@ export interface ManeuverCost {
   blocked: string | null;
 }
 
+/** 一回合最多能改變多少速度（畫面提示用） */
+export const maxSpeedChange = (u: ManeuverLimits): number => thrustLimits(u).max;
+
 /** 推進背包破壞時：最大加減速只剩 1，而且不能用推進劑 */
 function thrustLimits(u: ManeuverLimits) {
   const ch = CHASSIS[u.chassisId];

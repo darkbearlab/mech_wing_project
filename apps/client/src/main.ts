@@ -2384,6 +2384,7 @@ function objectiveStatus(): string {
   const me = view!.you;
   const pair = (x: [number, number]) => (local?.opponent === 'aivai' ? `A ${x[0]} : ${x[1]} B` : `我 ${x[me]} : ${x[1 - me]} 敵`);
   const parts: string[] = [`擊墜分 ${pair(st.score)}${set.killScore ? `（${set.killScore} 勝）` : ''}`];
+  if (st.points) parts.unshift(`勝利點數 ${pair(st.points)}`);
   if (set.control) parts.push(`據點 ${pair(st.objectives.control)}（${set.control} 勝）`);
   if (set.goal)
     for (const p of [0, 1] as PlayerId[]) {

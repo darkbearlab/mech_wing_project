@@ -27,7 +27,8 @@ interface Mover {
   z?: number;
 }
 
-const STEPS = 48;
+// 和實際移動同樣的取樣步數，預測才不會多報或漏報
+const STEPS = C.MOVE_STEPS;
 
 /** 一條路徑在時間 t 的位置（沒有機動、擱置或纏鬥中就是原地） */
 function track(u: Mover, plan: MovePlan | undefined): (t: number) => Vec {
@@ -45,12 +46,17 @@ export function forecastMoves(units: Mover[], plans: Record<string, MovePlan | u
     // 攀升的機體撞牆是為了爬上去，不算
     if (!moving || plans[u.id]?.climb) continue;
     const r = radiusOf(u);
-    const walls = obstacles.filter((o) => o.kind === 'building' && o.levels! > (u.z ?? 0));
+    const buildings = obstacles.filter((o) => o.kind === 'building');
     const rocks = obstacles.filter((o) => o.kind === 'rock');
+    // 高度照實際移動追蹤：底板完全離開樓頂就掉到下面，之後撞上比所在高度高的牆（跨街、下到矮樓也算）
+    let z = u.z ?? 0;
+    let prev = u.pos;
     for (let i = 1; i <= STEPS; i++) {
       const t = i / STEPS;
       const p = at(t);
-      const wall = walls.find((o) => wallPenetration(o, p, r) > 1e-6);
+      const wall = buildings.find((o) => o.levels! > z && wallPenetration(o, p, r) > 1e-6 && wallPenetration(o, p, r) > wallPenetration(o, prev, r) + 1e-6);
+      prev = p;
+      if (z && !wall) z = buildings.reduce((best, o) => (o.levels! <= z && wallPenetration(o, p, r) > 0 ? Math.max(best, o.levels!) : best), 0);
       const rock = rocks.find((o) => Math.hypot(p.x - o.x, p.y - o.y) < o.r + r);
       const off = p.x < 0 || p.y < 0 || p.x > C.MAP_SIZE || p.y > C.MAP_SIZE;
       if (wall || rock || off) {
@@ -88,6 +94,6 @@ export function forecastMoves(units: Mover[], plans: Record<string, MovePlan | u
 export function warningText(w: MoveWarning, label: (id: string) => string = (id) => id): string {
   if (w.kind === 'ally') return `會和隊友 ${label(w.with!)} 擦撞（雙方停住、這回合不能行動）`;
   if (w.kind === 'wall') return `會撞上建築 ${w.with}（停下、受衝擊）`;
-  if (w.kind === 'rock') return `會撞上大隕石（停下、受衝擊）`;
+  if (w.kind === 'rock') return `路徑會擦到大隕石（停下、受衝擊）`;
   return '會開出地圖（脫離戰場）';
 }
