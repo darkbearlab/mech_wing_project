@@ -16,10 +16,12 @@ export const sensorRange = (u: { parts: Record<string, PartState>; chassisId?: s
  * 從 from 看不看得到 to（底板邊緣距離；radii 是雙方半徑和）。
  * zFrom、zTo：雙方站的高度（層）；建築擋視線和射擊線一樣，看得到一部分就算看得到（所以視野是雙向的）
  */
-export function canSee(obstacles: Obstacle[], from: Vec, range: number, to: Vec, radii = 2 * C.BASE_RADIUS, zFrom = 0, zTo = 0): boolean {
+export function canSee(obstacles: Obstacle[], from: Vec, range: number, to: Vec, radii = 2 * C.BASE_RADIUS, zFrom = 0, zTo = 0, lookOut?: number): boolean {
   const d = dist(from, to) - radii;
   if (d > range) return false;
   if (insideField(obstacles, to) && d > C.FIELD_SPOT_RANGE) return false;
+  // 從隕石群裡往外看（第 5 版起）：只看得到 lookOut
+  if (lookOut !== undefined && d > lookOut && insideField(obstacles, from)) return false;
   if (obstacles.some((o) => o.kind === 'rock' && segmentHitsCircle(from, to, o, o.r))) return false;
   return buildingBlocks(obstacles, from, to, zFrom, zTo) !== 'all';
 }

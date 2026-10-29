@@ -8,9 +8,11 @@ export const TURN_LIMIT = 25;
 /**
  * 規則版本：改到結算結果的規則都要加一版，舊的寫法用 rulesAtLeast 留著，舊紀錄才能照當時的規則重播。
  * 1：聯賽開打時（補給會補滿煙幕彈）；2：補給不補煙幕彈；3：低速擦撞只停下、不會不能行動；
- * 4：技能差縮小、命中 80 以上減半、電子干擾改成導引減值（不再擋標定）、開著的干擾機會暴露、反輻射飛彈不用射擊線
+ * 4：技能差縮小、命中 80 以上減半、電子干擾改成導引減值（不再擋標定）、開著的干擾機會暴露、反輻射飛彈不用射擊線；
+ * 5：高打低只有固定命中加成（沒有傷害加成）、比射擊方高 2 層以上算半掩護；隕石群裡往外只看得到 FIELD_LOOK_OUT_RANGE、
+ *    在群裡開火會暴露到下一回合；化學能武器拆樓倍率提高；散射武器沒打中可能打到目標旁邊的敵機
  */
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
 /** 這一場用的規則是不是第 v 版以後（沒寫版本的是現在的規則） */
 export const rulesAtLeast = (s: { rules?: number }, v: number): boolean => (s.rules ?? RULES_VERSION) >= v;
 
@@ -49,6 +51,8 @@ export const HIGH_GROUND_HIT = 5;
 export const HIGH_GROUND_MAX_LEVELS = 3;
 export const HIGH_GROUND_DAMAGE_PCT = 0.25;
 export const HIGH_GROUND_DAMAGE_FROM = 2;
+/** 規則第 5 版起：目標比射擊方高這麼多層以上，算半掩護（命中 −BUILDING_COVER_PENALTY） */
+export const HIGH_TARGET_COVER_FROM = 2;
 /** 城市地圖：街廓大小、街道寬、街廓是空地的機率、最高幾層 */
 export const CITY_BLOCK = 4;
 export const CITY_STREET = 1.6;
@@ -60,6 +64,10 @@ export const SENSOR_RANGE = 10;
 export const SENSOR_RANGE_NO_HEAD = 6;
 /** 躲在隕石群裡的機體，要這麼近才看得到 */
 export const FIELD_SPOT_RANGE = 4;
+/** 規則第 5 版起：在隕石群裡往外看，只看得到這個距離（底板邊緣距離） */
+export const FIELD_LOOK_OUT_RANGE = 8;
+/** 規則第 5 版起：在隕石群裡開火，到下一回合結束前，這個距離內（中心距離）的敵機不用視線就看得到它 */
+export const FIELD_FIRE_EXPOSE_RANGE = 10;
 
 /** 陣容：default 固定、random 雙方各自隨機、mirror 雙方同一套隨機陣容 */
 export const ROSTER_MODE: 'default' | 'random' | 'mirror' = 'random';
@@ -205,6 +213,12 @@ export const COLLAPSE_DAMAGE = 20;
 export const COLLAPSE_LEGS_SHARE = 0.75;
 /** 塌掉一層時，下面那層跟著塌的機率（可以一路塌下去） */
 export const COLLAPSE_CHAIN = 0.5;
+/** 規則第 5 版起：化學能直射武器與迫擊砲打建築的倍率（原本照屬性倍率 2） */
+export const CHEMICAL_BUILDING_MULT_V5 = 2.5;
+/** 規則第 5 版起：散射武器（直射、一次 3 發以上）沒打中的那一發，打到目標旁邊敵機的機率（%）、距離（底板邊緣）、傷害比例 */
+export const STRAY_CHANCE = 25;
+export const STRAY_RANGE = 1;
+export const STRAY_DAMAGE_SHARE = 0.5;
 
 // ---- 補給點（暫定值） ----
 /** 補給點的半徑：機體中心在這個距離內、動能 0 才能補給 */

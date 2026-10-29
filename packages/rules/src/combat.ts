@@ -1,7 +1,7 @@
 import * as C from './config';
 import { bodyWeight, damageUnit, dealtBy, shotBy, typed, type Ctx } from './damage';
 import { grapplePool } from './grapple';
-import { asCoverInfo, coverOf, coverPenalty, type Cover, type CoverInfo } from './terrain';
+import { asCoverInfo, coverOf, coverPenalty, insideField, type Cover, type CoverInfo } from './terrain';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
 import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec } from './types';
 import { radiusOf, roleLost } from './body';
@@ -168,7 +168,10 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
     chance -= coverPenalty(cover);
   }
   const high = indirect ? 0 : heightAdvantage(h.attacker, h.target);
-  chance += high * C.HIGH_GROUND_HIT;
+  const v5 = C.rulesAtLeast({ rules: h.rules }, 5);
+  // 第 5 版起：高打低只算一層（固定加成）；目標比自己高 HIGH_TARGET_COVER_FROM 層以上算半掩護
+  chance += v5 ? (high > 0 ? C.HIGH_GROUND_HIT : 0) : high * C.HIGH_GROUND_HIT;
+  if (v5 && !indirect && (h.target.z ?? 0) - (h.attacker.z ?? 0) >= C.HIGH_TARGET_COVER_FROM) chance -= C.BUILDING_COVER_PENALTY;
   if (!indirect && h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (!indirect && h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
   // 目標在它那一方的干擾範圍內（第 4 版起）：導引武器命中下降，標定的加成也不算
@@ -288,6 +291,14 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
         const at = { x: target.pos.x + Math.cos(ang) * off, y: target.pos.y + Math.sin(ang) * off };
         pending.push(top(() => mortarBlast(ctx, attacker, at)));
       }
+      // 散射武器沒打中：可能打到目標旁邊的敵機（第 5 版起）
+      const stray = strayVictim(ctx, attacker, def, target, indirect);
+      if (stray) {
+        strays++;
+        const dmg = Math.round((def.damage ?? C.DAMAGE_SCALE) * C.STRAY_DAMAGE_SHARE);
+        ctx.events.push({ type: 'stray', attacker: attacker.id, target: target.id, unit: stray.id });
+        pending.push(top(() => shotBy(ctx, attacker, stray, () => damageUnit(ctx, stray, dmg, 'focused', undefined, overflow), opts.from)));
+      }
       continue;
     }
     hits++;
@@ -295,7 +306,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     if (crit) crits++;
     // 高打低（高出 HIGH_GROUND_DAMAGE_FROM 層以上）：每發命中傷害 +HIGH_GROUND_DAMAGE_PCT（爆擊加倍之後才算）
     const base = (def.damage ?? C.DAMAGE_SCALE) * (crit ? C.CRIT_MULTIPLIER : 1);
-    const dmg = h.high >= C.HIGH_GROUND_DAMAGE_FROM ? Math.round(base * (1 + C.HIGH_GROUND_DAMAGE_PCT)) : base;
+    // 第 5 版起沒有高打低的傷害加成
+    const dmg = h.high >= C.HIGH_GROUND_DAMAGE_FROM && !C.rulesAtLeast(ctx.state, 5) ? Math.round(base * (1 + C.HIGH_GROUND_DAMAGE_PCT)) : base;
     const victim = pool.length > 1 ? ctx.rng.pickWeighted(pool, (u) => bodyWeight(u, u === target ? aimBonus : 0)) : target;
     if (victim !== target) strays++;
     const shield = indirect ? undefined : coveringShield(victim, attacker.pos)?.id;
@@ -324,6 +336,24 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
   const selfPart = attacker.parts[weapon.id] ? weapon.id : weapon.host;
   if (!opts.pod && !opts.landing && h.band === 0 && selfPart && ctx.rng.d100() <= C.ZERO_RANGE_SELF_DAMAGE) damageUnit(ctx, attacker, C.DAMAGE_SCALE, 'focused', selfPart);
   return true;
+}
+
+/** 散射武器（直射、一次 STRAY 3 發以上）：沒打中的那一發可能打到目標 STRAY_RANGE 內的另一台敵機（不會打進隕石群、不會繞過建築） */
+export const scatterWeapon = (d: EquipDef): boolean => d.kind === 'ranged' && !d.fire && (d.shots ?? 1) >= 3;
+
+function strayVictim(ctx: Ctx, attacker: UnitState, def: EquipDef, target: UnitState, indirect: boolean): UnitState | null {
+  if (indirect || !scatterWeapon(def) || !C.rulesAtLeast(ctx.state, 5)) return null;
+  const near = ctx.state.units.filter(
+    (u) =>
+      u !== target &&
+      u.owner === target.owner &&
+      u.status === 'active' &&
+      edgeDistance(u, target) <= C.STRAY_RANGE &&
+      !insideField(ctx.state.obstacles, u.pos) &&
+      !asCoverInfo(coverOf(ctx.state.obstacles, attacker.pos, u.pos, attacker.z, u.z)).blocked,
+  );
+  if (!near.length || ctx.rng.d100() > C.STRAY_CHANCE) return null;
+  return near.reduce((a, b) => (edgeDistance(a, target) <= edgeDistance(b, target) ? a : b));
 }
 
 /** 迫擊砲的砲彈落在 at：落點附近的機體都受破片傷害 */

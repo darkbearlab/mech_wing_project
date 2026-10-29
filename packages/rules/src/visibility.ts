@@ -135,10 +135,18 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
   const obscured: [string[], string[]] = [[], []];
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
+    const lookOut = C.rulesAtLeast(state, 5) ? C.FIELD_LOOK_OUT_RANGE : undefined;
     const seen = state.units.filter(
       // 被標定的敵機不用視線也看得到
       // 開著的干擾器會暴露位置（第 4 版起）：ECM_REVEAL_RANGE 內不用視線也看得到
-      (e) => e.owner !== p && (revealed.has(e.id) || !!e.mark || (C.rulesAtLeast(state, 4) && !!ecmOf(e) && eyes.some((o) => dist(o.pos, e.pos) <= C.ECM_REVEAL_RANGE)) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
+      // 在隕石群裡開火的，暴露到下一回合結束（第 5 版起）
+      (e) =>
+        e.owner !== p &&
+        (revealed.has(e.id) ||
+          !!e.mark ||
+          (C.rulesAtLeast(state, 4) && !!ecmOf(e) && eyes.some((o) => dist(o.pos, e.pos) <= C.ECM_REVEAL_RANGE)) ||
+          ((e.exposedUntil ?? -1) >= state.turn && eyes.some((o) => dist(o.pos, e.pos) <= C.FIELD_FIRE_EXPOSE_RANGE)) ||
+          eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);

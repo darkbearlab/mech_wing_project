@@ -64,8 +64,8 @@ export function buildingHitChance(s: Shooter, skill: number, def: EquipDef, o: O
  * 對建築造成 raw 點 type 屬性的傷害：打光一層就少一層，每塌一層下面那層有 COLLAPSE_CHAIN 的機率跟著塌（可以一路塌下去）；
  * 打平就換成瓦礫區。roll 是 0～1 的亂數，回傳傷害、少了幾層（chain 是其中連帶塌掉的）
  */
-export function damageBuilding(obstacles: Obstacle[], o: Obstacle, raw: number, type: DamageType, roll: () => number = () => 1): { amount: number; lost: number; chain: number; collapsed: boolean } {
-  let amount = Math.round(raw * BUILDING_TYPE_MULT[type]);
+export function damageBuilding(obstacles: Obstacle[], o: Obstacle, raw: number, type: DamageType, roll: () => number = () => 1, mult = BUILDING_TYPE_MULT[type]): { amount: number; lost: number; chain: number; collapsed: boolean } {
+  let amount = Math.round(raw * mult);
   const total = amount;
   let lost = 0;
   let chain = 0;

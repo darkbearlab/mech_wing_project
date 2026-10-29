@@ -218,7 +218,7 @@ function perchTable(u: UnitView, enemies: UnitView[]): string {
       const def = EQUIPMENT[w.defId];
       if (w.ammo !== undefined && w.ammo <= 0) continue;
       const h = buildingHitChance(u, PILOTS[u.pilotId!].skill, def, o, view!.state.obstacles, CHASSIS[u.chassisId].aim, view!.state.stance[u.id] === 'melee');
-      if (h) rows.push(`    ${w.id} ${def.name} → 建築 ${o.id}（${o.levels}層，頂層 ${topHp(o)}/${levelHp(o)}）：約 ${h.chance}%，每發 ${Math.round((def.damage ?? 0) * BUILDING_TYPE_MULT[def.damageType ?? 'kinetic'])} 點`);
+      if (h) rows.push(`    ${w.id} ${def.name} → 建築 ${o.id}（${o.levels}層，頂層 ${topHp(o)}/${levelHp(o)}）：約 ${h.chance}%，每發 ${Math.round((def.damage ?? 0) * (def.damageType === 'chemical' ? config.CHEMICAL_BUILDING_MULT_V5 : BUILDING_TYPE_MULT[def.damageType ?? 'kinetic']))} 點`);
     }
   return rows.length ? `\n  拆樓（敵機站在樓頂的建築）：\n${rows.join('\n')}` : '';
 }
@@ -348,6 +348,8 @@ function eventText(e: GameEvent): string {
       return '';
     case 'actionFail':
       return `${L(e.unit)} 落空：${e.reason}`;
+    case 'stray':
+      return `${L(e.attacker)} 打 ${L(e.target)} 的流彈打到旁邊的 ${L(e.unit)}`;
     case 'blast':
       return `${L(e.by)} 的迫擊砲散布，落在 ${pt(e.at)}${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
     case 'deploy':
@@ -468,7 +470,9 @@ function writeCatalog() {
   }
   out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
-  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL_V4} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL_V4}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY_V4}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −掩體（遮蔽類：煙霧 ${config.SMOKE_SHOT_PENALTY}、隕石群／瓦礫 ${config.FIELD_SHOT_PENALTY}，只取最重的一種；硬掩護類：建築或路障半掩護、盾牆 ${config.BUILDING_COVER_PENALTY}；兩類相加）＋高打低每層 ${config.HIGH_GROUND_HIT}（最多 ${config.HIGH_GROUND_MAX_LEVELS} 層；高 ${config.HIGH_GROUND_DAMAGE_FROM} 層以上每發傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%）＋被標定 +${config.MARK_BONUS} −自己是近戰姿態 ${config.MELEE_STANCE_SHOT_PENALTY} −黑視中 ${config.BLACKOUT_SHOT_PENALTY}；全部加起來超過 ${config.HIT_SOFT_CAP} 的部分只算一半；超過 100 的部分是爆擊`);
+  out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL_V4} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL_V4}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY_V4}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −掩體（遮蔽類：煙霧 ${config.SMOKE_SHOT_PENALTY}、隕石群／瓦礫 ${config.FIELD_SHOT_PENALTY}，只取最重的一種；硬掩護類：建築或路障半掩護、盾牆 ${config.BUILDING_COVER_PENALTY}；兩類相加）＋比目標高（不論幾層）+${config.HIGH_GROUND_HIT}（沒有傷害加成）−目標比自己高 ${config.HIGH_TARGET_COVER_FROM} 層以上 ${config.BUILDING_COVER_PENALTY}（半掩護）＋被標定 +${config.MARK_BONUS} −自己是近戰姿態 ${config.MELEE_STANCE_SHOT_PENALTY} −黑視中 ${config.BLACKOUT_SHOT_PENALTY}；全部加起來超過 ${config.HIT_SOFT_CAP} 的部分只算一半；超過 100 的部分是爆擊`);
+  out.push(`流彈：散射武器（直射、一次 3 發以上，例如機槍、臂部機砲）沒打中的每一發，目標 ${config.STRAY_RANGE} 格內（底板邊緣）有另一台它那一方的機體時，有 ${config.STRAY_CHANCE}% 機率打到最近的那台，傷害 ${config.STRAY_DAMAGE_SHARE * 100}%、不會爆擊；在隕石群裡的、隔著建築的不會被流彈打到。`);
+  out.push(`隕石群：群裡的機體 ${config.FIELD_SPOT_RANGE} 格外看不到；從群裡往外也只看得到 ${config.FIELD_LOOK_OUT_RANGE} 格（底板邊緣距離）。在群裡開火的機體，到下一回合結束前，中心距離 ${config.FIELD_FIRE_EXPOSE_RANGE} 格內的敵機不用視線就看得到它。被標定的機體在群裡也一直看得到。`);
   out.push(
     '',
     '== 回合流程 ==',
@@ -486,7 +490,7 @@ function writeCatalog() {
     `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,
     `行動步驟的結算順序：標定最先（這回合標定、隊友這回合就能用導引武器打），再來是用眩光武器射擊的，其餘照駕駛技能高的先，同分抽籤。順序在前的先打，打倒或打壞了，後面的人可能就打不到了。`,
     `電子干擾器：只有 X-07 能裝；一直開著（干擾器被打壞或機體退場才停）。干擾機中心到機體中心 ${config.ECM_RADIUS} 格以內（剛好 ${config.ECM_RADIUS} 格也算）同一方的機體（含自己）：還是標定得到，但導引武器（垂直飛彈、飛彈莢艙、迫擊砲）打它命中 −${config.ECM_GUIDED_PENALTY}，直射的標定加成不算；在裡面的標定機標定不了別人——標定機要離開自己的干擾機 ${config.ECM_RADIUS} 格以外。開著的干擾器會暴露：敵機在 ${config.ECM_REVEAL_RANGE} 格內不用視線就看得到干擾機（隕石群、建築也藏不住）。反輻射飛彈只打開著干擾器的機體：追干擾電波，不用射擊線、不吃掩護、不用標定，命中只看機器、另外 +${config.ARM_HIT_BONUS}，打中就打在干擾器上。`,
-    `拆樓：射擊的目標可以填建築 id（明確選它才會打到，流彈不會）。建築不會閃，命中只看射手 +${config.BUILDING_TARGET_BONUS}；導引武器打不了建築，要射擊線。每層耐久 ${config.BUILDING_LEVEL_HP}（路障 ${config.BARRICADE_HP}），傷害倍率化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，而且下面那層有 ${config.COLLAPSE_CHAIN * 100}% 機率跟著塌（可以一路塌下去）；樓頂上的機體跟著掉下來，每掉一層受 ${config.COLLAPSE_DAMAGE} 點（${config.COLLAPSE_LEGS_SHARE * 100}% 打在腳上）；整棟打平變成瓦礫區（像隕石群：穿過射擊命中下降）。`,
+    `拆樓：射擊的目標可以填建築 id（明確選它才會打到，流彈不會）。建築不會閃，命中只看射手 +${config.BUILDING_TARGET_BONUS}；導引武器打不了建築，要射擊線。每層耐久 ${config.BUILDING_LEVEL_HP}（路障 ${config.BARRICADE_HP}），傷害倍率化學能 ×${config.CHEMICAL_BUILDING_MULT_V5}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，而且下面那層有 ${config.COLLAPSE_CHAIN * 100}% 機率跟著塌（可以一路塌下去）；樓頂上的機體跟著掉下來，每掉一層受 ${config.COLLAPSE_DAMAGE} 點（${config.COLLAPSE_LEGS_SHARE * 100}% 打在腳上）；整棟打平變成瓦礫區（像隕石群：穿過射擊命中下降）。`,
     `重力圈（與水中）裡腳部全壞的機體（地面滑行、會飛的除外）：不能移動也不能轉向，只能原地懸停（hover-S-0、facingOffset 0），動能直接歸零。宇宙裡腳斷了照樣飄得動（只是不能急轉急停）。`,
     `彈藥：射擊武器的彈數以「發」計，每次射擊扣掉真正打出去的發數，剩的不夠一輪就只打剩下的（目錄的「彈N」）。開房勾選補給點時，雙方後方各一個補給點，停在自己的補給點上（動能 0、地面）用掉動作就補滿彈藥、道具與推進劑。`,
     `地雷：佈雷器在底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上埋雷，對手看不到（對方機體 ${config.MINE_DETECT_RANGE} 格內才看得到）；敵方的地面機體移動經過就引爆，${config.MINE_DAMAGE} 點化學能傷害打在腳上（樓頂上、會飛的不會踩到；自己這一方不會觸發）。路障：${config.BARRICADE_RANGE} 格內架一道長 ${config.BARRICADE_HALF_LENGTH * 2}、高 1 層的矮牆，和建築一樣擋移動、射擊與視線。`,
