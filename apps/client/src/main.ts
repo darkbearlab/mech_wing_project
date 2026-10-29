@@ -3274,7 +3274,7 @@ function estimate(u: UnitView, plan: ActionPlan, t: UnitView): string {
     view!.state.jumped.includes(u.id) ? `落地 −${config.JUMP_LANDING_PENALTY}` : '',
     `相對速度 ${relSpeed.toFixed(1)}`,
     ...(direct ? coverParts(cover).map((c) => `${c.label} −${c.penalty}${c.label === '盾牆' ? '（命中都打在盾上）' : ''}`) : []),
-    direct && first.high ? `高打低 +${first.high * config.HIGH_GROUND_HIT}${first.high >= config.HIGH_GROUND_DAMAGE_FROM ? `・傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%` : ''}` : '',
+    direct && first.high ? `高打低 +${config.HIGH_GROUND_HIT}` : '',
     t.mark ? `已標定 +${config.MARK_BONUS}` : '',
     barrage ? `目標在防禦彈幕裡 −${barrage}` : '',
     direct && coveringShield(t as unknown as UnitState, u.pos) ? '對方盾弧內（可能被盾擋）' : '',
