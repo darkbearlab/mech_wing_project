@@ -72,6 +72,8 @@ export interface HitInput {
   jammed?: boolean;
   /** 這場的規則版本（沒寫是現在的規則） */
   rules?: number;
+  /** 目標只靠干擾電波知道位置（第 7 版起：迫擊砲不用標定也能打，命中下降） */
+  located?: boolean;
 }
 
 /** 這個規則版本的技能修正：每級命中、每級迴避、技能差每級 */
@@ -130,7 +132,8 @@ export function barrierBetween<T extends Positioned & { status?: string }>(units
 export function hitChance(h: HitInput): { band: RangeBand; chance: number; high: number } | null {
   // 反輻射飛彈只打開著電子干擾的機體；其他導引武器只能打被標定的目標（有視線也一樣）
   const antiRadiation = h.weapon.fire === 'antiRadiation';
-  if (antiRadiation ? !ecmOf(h.target) : needsMark(h.weapon) && !h.target.mark) return null;
+  const locatedMortar = !!h.located && h.weapon.fire === 'mortar' && C.rulesAtLeast({ rules: h.rules }, 7) && !!ecmOf(h.target);
+  if (antiRadiation ? !ecmOf(h.target) : needsMark(h.weapon) && !h.target.mark && !locatedMortar) return null;
   const indirect = indirectFire(h.weapon);
   const machine = !!h.weapon.fire;
   const band = rangeBand(h.attacker, h.target);
@@ -178,6 +181,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   const jam = v4 && !!h.jammed;
   if (!machine && h.target.mark && !jam) chance += C.MARK_BONUS;
   if (jam && needsMark(h.weapon)) chance -= C.ECM_GUIDED_PENALTY;
+  if (locatedMortar && !h.target.mark) chance -= C.LOCATED_MORTAR_PENALTY;
   if (antiRadiation) chance += C.ARM_HIT_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
@@ -247,6 +251,7 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
     jammed: jammed(ctx.state.units, target),
     rules: ctx.state.rules,
+    located: !!ctx.state.located?.[attacker.owner].includes(target.id),
   });
   if (!h) return false;
   // 彈藥以發計：打出幾發扣幾發，剩的不夠一輪就只打剩下的（落下的飛行彈藥發射時已經扣過）

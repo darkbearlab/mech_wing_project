@@ -426,6 +426,8 @@ export interface GameState {
   reserves?: Reserve[];
   /** 各方看得到但分不出是什麼的機體（隔著煙霧） */
   obscured?: [string[], string[]];
+  /** 規則第 7 版起：只靠干擾電波知道位置、沒有視線的敵機（直射、鎖定、突進打不到，只有迫擊砲與反輻射飛彈可以） */
+  located?: [string[], string[]];
   winReason?: WinReason;
 }
 

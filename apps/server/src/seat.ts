@@ -152,7 +152,7 @@ function gearText(u: UnitView): string {
 function unitLine(u: UnitView): string {
   const ch = CHASSIS[u.chassisId];
   const p = u.pilotId ? PILOTS[u.pilotId] : undefined;
-  const status = u.status !== 'active' ? ` 【${u.status}】` : u.hidden ? ` 【看不到，最後目擊 T${u.seenTurn}】` : u.unknown ? ' 【煙霧中不明】' : '';
+  const status = u.status !== 'active' ? ` 【${u.status}】` : u.hidden ? ` 【看不到，最後目擊 T${u.seenTurn}】` : u.unknown ? ' 【煙霧中不明】' : u.located ? ' 【只知道位置（干擾電波）：只有迫擊砲、反輻射飛彈打得到】' : '';
   let s = `${u.id} ${u.label} ${ch?.name ?? ''}${ch?.armorType ? `・${ARMOR_NAMES[ch.armorType]}` : ''}${status}\n  位置 ${pt(u.pos)}${u.z ? ((ch?.minSpeed ?? 0) > 0 ? ` 飛行高度${u.z}層` : ` 高度${u.z}層（樓頂）`) : ''}${u.equipment.some((e) => e.deployed) ? ' 盾牆展開中' : ''}${u.mark ? ` 被標定${u.mark.by ? `（${u.mark.by} 照射中）` : ''}` : ''} 朝 ${deg(u.facing)}° 動能 ${u.momentum} 半徑 ${radiusOf(u)}`;
   if (p) s += `\n  駕駛 ${p.name} 技能${p.skill}${p.abilities.length ? ` [${p.abilities.join(',')}]` : ''} 壓力 ${u.stress}/${u.maxStress}${u.blackout ? ' 黑視' : ''} 推進劑 ${u.propellant}/${u.maxPropellant}${u.lockOn ? ` 鎖定 ${u.lockOn}` : ''}`;
   else if (u.vague) s += `  （${u.vague}）`;
@@ -490,7 +490,7 @@ function writeCatalog() {
     `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下（自己走下來不受傷；樓被打塌、跟著掉下來才會受傷）。`,
     `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,
     `行動步驟的結算順序：標定最先（這回合標定、隊友這回合就能用導引武器打），再來是用眩光武器射擊的，其餘照駕駛技能高的先，同分抽籤。順序在前的先打，打倒或打壞了，後面的人可能就打不到了。`,
-    `電子干擾器：只有 X-07 能裝；一直開著（干擾器被打壞或機體退場才停）。干擾機中心到機體中心 ${config.ECM_RADIUS} 格以內（剛好 ${config.ECM_RADIUS} 格也算）同一方的機體（含自己）：還是標定得到，但導引武器（垂直飛彈、飛彈莢艙、迫擊砲）打它命中 −${config.ECM_GUIDED_PENALTY}，直射的標定加成不算；在裡面的標定機標定不了別人——標定機要離開自己的干擾機 ${config.ECM_RADIUS} 格以外。開著的干擾器會暴露：敵機在 ${config.ECM_REVEAL_RANGE} 格內不用視線就看得到干擾機（隕石群、建築也藏不住）。反輻射飛彈只打開著干擾器的機體：追干擾電波，不用射擊線、不吃掩護、不用標定，命中只看機器、另外 +${config.ARM_HIT_BONUS}，打中就打在干擾器上。`,
+    `電子干擾器：只有 X-07 能裝；一直開著（干擾器被打壞或機體退場才停）。干擾機中心到機體中心 ${config.ECM_RADIUS} 格以內（剛好 ${config.ECM_RADIUS} 格也算）同一方的機體（含自己）：還是標定得到，但導引武器（垂直飛彈、飛彈莢艙、迫擊砲）打它命中 −${config.ECM_GUIDED_PENALTY}，直射的標定加成不算；在裡面的標定機標定不了別人——標定機要離開自己的干擾機 ${config.ECM_RADIUS} 格以外。開著的干擾器會暴露位置：敵機在 ${config.ECM_REVEAL_RANGE} 格內知道干擾機在哪（隕石群、建築也藏不住），但沒有視線時直射、鎖定、突進都打不到它，只有迫擊砲（不用標定、命中 −${config.LOCATED_MORTAR_PENALTY}）和反輻射飛彈可以打；有視線就照一般規則。反輻射飛彈只打開著干擾器的機體：追干擾電波，不用射擊線、不吃掩護、不用標定，命中只看機器、另外 +${config.ARM_HIT_BONUS}，打中就打在干擾器上。`,
     `拆樓：射擊的目標可以填建築 id（明確選它才會打到，流彈不會）。建築不會閃，命中只看射手 +${config.BUILDING_TARGET_BONUS}；導引武器打不了建築，要射擊線。每層耐久 ${config.BUILDING_LEVEL_HP}（路障 ${config.BARRICADE_HP}），傷害倍率化學能 ×${config.CHEMICAL_BUILDING_MULT_V5}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，而且下面那層有 ${config.COLLAPSE_CHAIN * 100}% 機率跟著塌（可以一路塌下去）；樓頂上的機體跟著掉下來，每掉一層受 ${config.COLLAPSE_DAMAGE} 點（${config.COLLAPSE_LEGS_SHARE * 100}% 打在腳上）；整棟打平變成瓦礫區（像隕石群：穿過射擊命中下降）。`,
     `重力圈（與水中）裡腳部全壞的機體（地面滑行、會飛的除外）：不能移動也不能轉向，只能原地懸停（hover-S-0、facingOffset 0），動能直接歸零。宇宙裡腳斷了照樣飄得動（只是不能急轉急停）。`,
     `彈藥：射擊武器的彈數以「發」計，每次射擊扣掉真正打出去的發數，剩的不夠一輪就只打剩下的（目錄的「彈N」）。開房勾選補給點時，雙方後方各一個補給點，停在自己的補給點上（動能 0、地面）用掉動作就補滿彈藥、道具與推進劑。`,
