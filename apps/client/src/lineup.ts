@@ -13,6 +13,7 @@ import {
   entryCost,
   gearSlots,
   gearToSlots,
+  gearLoad,
   lineupProblems,
   squadShare,
   slotFits,
@@ -144,6 +145,9 @@ function equipBrief(id: string): string {
   else if (d.kind === 'armor') parts.push('外裝甲');
   else if (d.kind === 'utility') parts.push(d.utility === 'smoke' ? '煙霧彈' : '欺敵氣球');
   else if (d.climbBoost) parts.push(`攀升 +${d.climbBoost.levels} 層・速度上限 +${d.climbBoost.speed}`);
+  if (d.heavy) parts.push('重型外掛');
+  if (d.chassisOnly) parts.push(`限 ${d.chassisOnly.join('、')}`);
+  parts.push(`重量 ${d.weight}`);
   if (d.tags?.includes('quickDraw')) parts.push('快拔');
   if (d.tags?.includes('volatile')) parts.push('會引爆');
   parts.push(`費用 ${d.cost ?? 0}`);
@@ -162,6 +166,8 @@ function editorHtml(u: RosterEntry, label: string, slot: string, teamCost: numbe
   const slots = gearSlots(u.chassis);
   const { filled, extra } = gearToSlots(u.chassis, u.equipment);
   const ch = CHASSIS[u.chassis];
+  const ld = gearLoad(u.chassis, u.equipment);
+  const over = (n: number, max: number | null) => (max !== null && n > max ? 'err' : '');
   const cur = slots.find((x) => x.key === slot) ?? slots[0];
   const humanoid = slots.some((x) => x.kind === 'hand');
   const fixed = (ch.builtIn ?? []).map((b) => EQUIPMENT[b.defId]?.name ?? b.defId);
@@ -188,7 +194,7 @@ function editorHtml(u: RosterEntry, label: string, slot: string, teamCost: numbe
     .join('');
   const picks = cur
     ? Object.keys(EQUIPMENT)
-        .filter((id) => slotFits(cur, id))
+        .filter((id) => slotFits(cur, id, u.chassis))
         .map(
           (id) =>
             `<button class="ldPick ${filled[cur.key] === id ? 'on' : ''}" data-pick="${esc(id)}"><b>${esc(EQUIPMENT[id].name)}${filled[cur.key] === id ? ' <i class="tagOn">裝著</i>' : ''}</b><span>${esc(equipBrief(id))}</span></button>`,
@@ -204,6 +210,7 @@ function editorHtml(u: RosterEntry, label: string, slot: string, teamCost: numbe
   const isMine = mineOf(u.chassis).some((g) => same(g, u.equipment));
   return `<div class="luBox ldBox">
     <div class="luBar"><b>${esc(label)}・${esc(ch.name)}・${esc(PILOTS[u.pilot]?.name ?? u.pilot)}</b><span class="spacer"></span>
+      <span class="muted">載重 <b class="${over(ld.load, ld.maxLoad)}">${ld.load} / ${ld.maxLoad ?? '—'}</b>・重掛點 <b class="${over(ld.heavy, ld.maxHeavy)}">${ld.heavy} / ${ld.maxHeavy ?? '—'}</b>　</span>
       <span class="muted">機體 ${ch.cost ?? 0} + 駕駛 ${PILOTS[u.pilot]?.cost ?? 0} + 裝備 <b>${gearCost(u.equipment)}</b> = <b>${entryCost(u)}</b>　隊伍 <b class="${teamCost > budget ? 'err' : ''}">${teamCost} / ${budget}</b></span></div>
     <div class="ldBody">${figure}<div class="ldRows">${rows}
       ${fixed.length ? `<div class="ldFixed muted">機型固定：${fixed.map(esc).join('、')}</div>` : ''}

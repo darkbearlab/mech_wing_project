@@ -1,7 +1,6 @@
 // 對戰紀錄的清單與重播：從內容 API 讀紀錄（要管理金鑰），照紀錄一步一步重算，用觀戰的畫面播放，並列出玩家（代理）每一步留下的話。
 import {
-  Match,
-  createGame,
+  recordStart,
   replayRecord,
   type BattleNote,
   type BattleRecord,
@@ -73,12 +72,8 @@ export class RecordPlayer {
     readonly rec: BattleRecord,
     private deliver: (msg: ServerMessage) => void,
   ) {
-    this.start = new Match(
-      rec.seed,
-      createGame(rec.seed, rec.rosters, rec.settings),
-    ).spectatorView();
-    let turn = this.start.state.turn;
-    this.errors = replayRecord(rec, (m, phase) => {
+    let turn = 1;
+    const out = replayRecord(rec, (m, phase) => {
       this.frames.push({
         turn,
         phase,
@@ -86,7 +81,10 @@ export class RecordPlayer {
         view: m.spectatorView(),
       });
       turn = m.state.turn;
-    }).errors;
+    });
+    this.errors = out.errors;
+    // 照紀錄當時的規則版本開場
+    this.start = recordStart(rec, out.rules).spectatorView();
   }
 
   private state(view: PlayerView) {

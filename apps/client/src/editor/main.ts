@@ -577,7 +577,7 @@ function equipmentForm(e: EquipDef & Obj) {
       textField(e, 'name', '名稱'),
       selField(e, 'kind', '種類', KIND_OPTS, { rerender: true }),
       selField(e, 'mount', '安裝方式', MOUNT_OPTS, { absent: 'hand', rerender: true }),
-      numField(e, 'weight', '受擊權重', { hint: '被打中時分到這件的機率權重；內建與內藏武器沒有自己的部位，填 0' }),
+      numField(e, 'weight', '重量', { hint: '被打中時分到這件的機率權重，也算進機型的載重；內建與內藏武器沒有自己的部位，填 0' }),
       numField(e, 'durability', '耐久', { hint: '手持與外掛裝備至少 1' }),
       numField(e, 'cost', '費用', { optional: true, hint: '出擊時帶上就加（機型的標準裝備不算）；空白＝0' }),
     )),
@@ -620,6 +620,7 @@ function equipmentForm(e: EquipDef & Obj) {
       numField(e, 'shieldOffset', '中心角度（度）', { optional: true, hint: '相對機體正面，負＝左、正＝右。空白：手持盾在持盾那側，固定盾在正前方' }),
       numField(e, 'shieldArc', '半角（度）', { optional: true, hint: `空白＝${C.SHIELD_ARC_HALF_DEG}。例如左前 90 度：中心 −45、半角 45` }),
     )));
+  if (mount === 'mounted') out.push(sec('外掛', grid(selField(e, 'heavy', '重型', [['false', '一般'], ['true', '重型（要放在重掛點）']], { absent: 'false' }))));
   if (mount === 'integrated') out.push(sec('內建', grid(selField(e, 'blocksHand', '佔手', [['false', '不佔手'], ['true', '那隻手不能握持']], { absent: 'false', hint: '例如手指光束砲' }))));
   out.push(sec('標籤', chips(e.tags, TAG_OPTS, (v) => (v ? (e.tags = v as EquipDef['tags']) : delete e.tags))));
   return out;
@@ -670,6 +671,8 @@ function chassisForm(c: ChassisDef & Obj) {
       textField(c, 'name', '名稱'),
       numField(c, 'cost', '費用', { optional: true, hint: '不含駕駛與另外帶的裝備；標準裝備已含在內。空白＝0' }),
       numField(c, 'weightClass', '重量級'),
+      numField(c, 'load', '載重', { optional: true, hint: '帶的裝備重量加總上限。空白＝不限' }),
+      numField(c, 'heavyMounts', '重掛點', { optional: true, hint: '重型外掛最多幾件。空白＝不限' }),
       numField(c, 'propellant', '推進劑'),
       numField(c, 'baseThrust', '免費加速', { hint: '每回合不耗推進劑的速度變化量' }),
       numField(c, 'maxAccel', '最大加速', { hint: '一回合最多能改變的速度' }),
@@ -908,7 +911,7 @@ function renderForm() {
 
 const FIELD_NAMES: Record<string, string> = {
   radius: '底座半徑', minSpeed: '最低速度', closeCombat: '近身戰鬥', shieldOffset: '盾牌中心角度', shieldArc: '盾牌半角',
-  name: '名稱', kind: '種類', mount: '安裝方式', weight: '受擊權重', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
+  name: '名稱', kind: '種類', mount: '安裝方式', weight: '重量', heavy: '重型外掛', load: '載重', heavyMounts: '重掛點', chassisOnly: '限定機型', durability: '耐久', damage: '傷害', shots: '發數', mode: '傷害模式', ammo: '彈數', arc: '射界半角',
   pointBlank: '零距離', ranges: '距離帶修正', tags: '標籤', blocksHand: '佔手', psycommu: '感應武器', meleeDice: '近戰骰', fuel: '燃料', weightClass: '重量級', propellant: '推進劑',
   baseThrust: '免費加速', maxAccel: '最大加速', power: '出力', aim: '瞄準', evasion: '迴避', parts: '部位', dial: '機動盤', builtIn: '內建武裝', skill: '技術',
   maxStress: '壓力上限', recovery: '壓力恢復', abilities: '能力', ntSense: '擊墜感受', crew: '機上人員', cost: '費用', unique: '具名', envs: '適合環境', hover: '地面滑行',

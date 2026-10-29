@@ -7,7 +7,8 @@ import { aiOrders } from './ai';
 import { CHASSIS, EQUIPMENT, PILOTS } from './data';
 import { Match, ordersBySquad, squadsOf, type Orders } from './match';
 import { contentVersion } from './content';
-import { MAX_NOTE_CHARS, replayRecord, submitStep, type BattleRecord, type BattleStep } from './record';
+import { MAX_NOTE_CHARS, recordStart, replayRecord, submitStep, type BattleRecord, type BattleStep } from './record';
+import { RULES_VERSION } from './config';
 import { lineupProblems, squadShare, type BattleSettings } from './objectives';
 import type { ClientMessage, RoomTerms, SeatInfo, ServerMessage } from './protocol';
 import { Rng } from './rng';
@@ -90,14 +91,14 @@ export class Room {
    */
   restore(rec: BattleRecord): boolean {
     // 找出最後一次結算是第幾步
-    const probe = new Match(rec.seed, createGame(rec.seed, rec.rosters, rec.settings));
+    const probe = recordStart(rec);
     let resolved = 0;
     for (const [i, s] of rec.steps.entries()) {
       const before = probe.resolvedCount;
       if (submitStep(probe, s).length) break;
       if (probe.resolvedCount !== before) resolved = i + 1;
     }
-    const kept: BattleRecord = { ...rec, steps: rec.steps.slice(0, resolved) };
+    const kept: BattleRecord = { ...rec, rules: rec.rules ?? RULES_VERSION, steps: rec.steps.slice(0, resolved) };
     const { match, errors } = replayRecord(kept);
     if (errors.length) {
       this.log(`restore failed: ${errors.join('；')}`);
@@ -186,6 +187,7 @@ export class Room {
       format: 1,
       seed,
       contentVersion: contentVersion(),
+      rules: RULES_VERSION,
       rosters: structuredClone(rosters),
       ...(settings ? { settings: structuredClone(settings) } : {}),
       seats: [ai.some((k) => k.startsWith('0')) ? 'ai' : 'human', ai.some((k) => k.startsWith('1')) ? 'ai' : 'human'],

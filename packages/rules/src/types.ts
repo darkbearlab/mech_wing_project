@@ -57,6 +57,10 @@ export interface EquipDef {
   id: string;
   name: string;
   kind: 'ranged' | 'melee' | 'shield' | 'tank' | 'armor' | 'utility' | 'module';
+  /** 重型外掛：要放在機型的重掛點上（機型的 heavyMounts） */
+  heavy?: boolean;
+  /** 只有這些機型能裝（沒寫是都能裝） */
+  chassisOnly?: string[];
   /** 輔助模組（kind module）：錨鉤這類被動裝備，攀升能多爬幾層、速度上限多多少 */
   climbBoost?: { levels: number; speed: number };
   /** 垂直噴射器：移動步驟可以不選機動盤，滑完動能後跳到 1 格內任一點、面向任選 */
@@ -158,6 +162,10 @@ export interface ChassisDef {
   dial: string[]; // 機動 id
   /** 機型自帶的內建武裝 */
   builtIn?: { defId: string; host: BodyPartId }[];
+  /** 載重：出擊時帶的裝備重量加總的上限（沒寫不限） */
+  load?: number;
+  /** 重掛點：重型外掛最多幾件（沒寫不限） */
+  heavyMounts?: number;
   /** 底座半徑；沒填是 config.BASE_RADIUS（MS 大小） */
   radius?: number;
   /** 最低速度：動能不能低於這個值（戰機用）；沒填是 0 */
@@ -397,6 +405,8 @@ export interface GameState {
   rngState: number;
   /** 開場時使用的資料包版本（重播、對戰都以這版為準） */
   contentVersion: string;
+  /** 規則版本（config.ts 的 RULES_VERSION；沒寫是現在的規則） */
+  rules?: number;
   winner: PlayerId | 'draw' | null;
   /** 開戰前選的勝利條件與部署方式（舊紀錄沒有，照 DEFAULT_SETTINGS） */
   settings?: BattleSettings;

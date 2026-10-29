@@ -1,5 +1,6 @@
 // 武裝掛點：把一台機體能裝東西的位置列成一格一格（左右手、左右與背上的武器架、外掛掛點、手臂內建、內藏），
-// 給出擊準備的武裝編輯器用。配裝（RosterEntry.equipment）和掛點互相轉換；每個掛點目前一件，之後再和底盤掛勾。
+// 給出擊準備的武裝編輯器用。配裝（RosterEntry.equipment）和掛點互相轉換；每個掛點一件。
+// 機型另外限制載重（裝備重量加總）與重掛點（重型外掛幾件），有些裝備只有特定機型能裝。
 import { chassisParts } from './body';
 import { CHASSIS, EQUIPMENT, type RosterEntry } from './data';
 import type { Hand } from './types';
@@ -44,10 +45,12 @@ export function gearSlots(chassisId: string): GearSlot[] {
   return out;
 }
 
-/** 這件裝備能不能放在這個掛點 */
-export function slotFits(slot: GearSlot, defId: string): boolean {
+/** 這件裝備能不能放在這個掛點（給了機型時，也看機型能不能裝、有沒有重掛點） */
+export function slotFits(slot: GearSlot, defId: string, chassisId?: string): boolean {
   const def = EQUIPMENT[defId];
   if (!def) return false;
+  if (chassisId && !chassisAllows(chassisId, defId)) return false;
+  if (chassisId && def.heavy && CHASSIS[chassisId]?.heavyMounts === 0) return false;
   const mount = def.mount ?? 'hand';
   if (slot.kind === 'hand') return mount === 'hand';
   if (slot.kind === 'rack') return mount === 'hand' && def.kind !== 'shield';
@@ -74,7 +77,7 @@ export function gearToSlots(chassisId: string, gear: Gear): { filled: Record<str
     } else if (loc === 'mount') slot = (host ? free((s) => s.kind === 'mount' && s.host === host) : undefined) ?? free((s) => s.kind === 'mount' && s.host === 'pack') ?? free((s) => s.kind === 'mount');
     else if (loc === 'builtin') slot = free((s) => s.kind === 'builtin' && s.host === host);
     else if (loc === 'housed') slot = free((s) => s.kind === 'housed' && s.host === host) ?? free((s) => s.kind === 'housed');
-    if (slot && slotFits(slot, defId)) filled[slot.key] = defId;
+    if (slot && slotFits(slot, defId, chassisId)) filled[slot.key] = defId;
     else extra.push(item);
   }
   return { filled, extra };
@@ -91,4 +94,35 @@ export function slotsToGear(chassisId: string, filled: Record<string, string>, e
     out.push(item);
   }
   return [...out, ...extra];
+}
+
+/** 這個機型能不能裝這件裝備（專用裝備） */
+export function chassisAllows(chassisId: string, defId: string): boolean {
+  const only = EQUIPMENT[defId]?.chassisOnly;
+  return !only || only.includes(chassisId);
+}
+
+/** 這套配裝的載重與重掛點用量（機型沒寫上限的是 null） */
+export function gearLoad(chassisId: string, gear: Gear): { load: number; maxLoad: number | null; heavy: number; maxHeavy: number | null } {
+  const c = CHASSIS[chassisId];
+  const defs = gear.map(([d]) => EQUIPMENT[d]).filter(Boolean);
+  return {
+    load: defs.reduce((n, d) => n + (d.weight ?? 0), 0),
+    maxLoad: c?.load ?? null,
+    heavy: defs.filter((d) => d.heavy).length,
+    maxHeavy: c?.heavyMounts ?? null,
+  };
+}
+
+/** 配裝的問題：放不進掛點、超過載重、重掛點不夠、機型不能裝 */
+export function gearProblems(chassisId: string, gear: Gear): string[] {
+  const out: string[] = [];
+  const only = gear.filter(([d]) => EQUIPMENT[d] && !chassisAllows(chassisId, d));
+  if (only.length) out.push(`${only.map(([d]) => EQUIPMENT[d].name).join('、')}不能裝在這個機型上`);
+  const { load, maxLoad, heavy, maxHeavy } = gearLoad(chassisId, gear);
+  if (maxHeavy !== null && heavy > maxHeavy) out.push(maxHeavy ? `重型外掛 ${heavy} 件，這個機型只有 ${maxHeavy} 個重掛點` : '這個機型沒有重掛點，不能裝重型外掛');
+  if (maxLoad !== null && load > maxLoad) out.push(`載重 ${load} 超過上限 ${maxLoad}`);
+  const extra = gearToSlots(chassisId, gear).extra.filter(([d]) => EQUIPMENT[d] && chassisAllows(chassisId, d) && !(EQUIPMENT[d].heavy && maxHeavy === 0));
+  if (extra.length) out.push(`${extra.map(([d, loc, host]) => `${EQUIPMENT[d].name}@${loc}${host ? `/${host}` : ''}`).join('、')} 放不進掛點`);
+  return out;
 }

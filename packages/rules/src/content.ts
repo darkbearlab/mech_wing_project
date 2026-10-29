@@ -37,7 +37,7 @@ export function scaleContent(pack: ContentPack): ContentPack {
   return p;
 }
 
-export const BUILTIN_VERSION = 'builtin-16';
+export const BUILTIN_VERSION = 'builtin-17';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ammoRounds: true, ...BUILTIN_CONTENT };
 
 let active = BUILTIN_VERSION;
@@ -94,6 +94,8 @@ export function validateContent(pack: ContentPack): string[] {
     if (e.ammo !== undefined && !(Number.isInteger(e.ammo) && e.ammo >= 1)) err(w, 'ammo 要是 1 以上的整數');
     for (const t of e.tags ?? []) if (!TAGS.includes(t)) err(w, `不認得的標籤 ${t}`);
     if (e.blocksHand && mount !== 'integrated') err(w, 'blocksHand 只能用在內建武器');
+    if (e.heavy && mount !== 'mounted') err(w, 'heavy 只能用在外掛裝備');
+    if (e.chassisOnly !== undefined && !(Array.isArray(e.chassisOnly) && e.chassisOnly.every((id) => pack.chassis?.[id]))) err(w, 'chassisOnly 要是機型 id 的清單');
     if (e.shieldArc !== undefined && !(isNum(e.shieldArc, 1) && e.shieldArc <= 180)) err(w, 'shieldArc 要在 1–180 度之間');
     if (e.shieldOffset !== undefined && !(isNum(e.shieldOffset, -180) && e.shieldOffset <= 180)) err(w, 'shieldOffset 要在 −180–180 度之間');
     if (e.psycommu) {
@@ -121,6 +123,8 @@ export function validateContent(pack: ContentPack): string[] {
     if (parts.length && !parts.some((x) => x.role === 'core')) err(w, '至少要有一個「核心」部位');
     for (const r of ['rightHand', 'leftHand'] as const) if (parts.filter((x) => x.role === r).length > 1) err(w, `「${r === 'rightHand' ? '右手' : '左手'}」只能有一個部位`);
     if (c.radius !== undefined && !(isNum(c.radius) && c.radius >= 0.2 && c.radius <= 4)) err(w, '半徑要在 0.2–4 之間');
+    if (c.load !== undefined && !isNum(c.load, 0)) err(w, 'load 要是 0 以上的數字');
+    if (c.heavyMounts !== undefined && !(Number.isInteger(c.heavyMounts) && c.heavyMounts >= 0)) err(w, 'heavyMounts 要是 0 以上的整數');
     if (c.minSpeed !== undefined && !(Number.isInteger(c.minSpeed) && c.minSpeed >= 0 && c.minSpeed <= MAX_DIAL_SPEED)) err(w, `最低速度要是 0–${MAX_DIAL_SPEED} 的整數`);
     if (c.closeCombat !== undefined && typeof c.closeCombat !== 'boolean') err(w, 'closeCombat 要是 true 或 false');
     if (c.crew !== undefined && !CREWS.includes(c.crew)) err(w, `crew 要是 ${CREWS.join('／')}`);

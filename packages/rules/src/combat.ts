@@ -319,6 +319,17 @@ export function contactAngle(def: UnitState, from: Vec): AngleClass {
   return 'side';
 }
 
+/** 落下時打不到的原因：太遠、貼得太近（最小射程內）、射界外 */
+function landingMiss(def: EquipDef, shooter: UnitState, target: UnitState): string {
+  const band = rangeBand(shooter, target);
+  if (band === null) return '目標跑出最遠射程，落空';
+  const bands = Object.keys(def.ranges ?? {}).map(Number);
+  const nearest = Math.min(...bands);
+  if (bands.length && band < nearest) return `目標貼近到${bandName(band)}（最小射程是${bandName(nearest as RangeBand)}），落空`;
+  if (def.arc !== undefined && !indirectFire(def) && relativeAngle(shooter, target.pos) > def.arc * DEG) return '目標離開正面射界，落空';
+  return '打不到目標，落空';
+}
+
 /**
  * 上一回合發射的彈藥命中（動作步驟一開始、移動結束後）：
  * 迫擊砲、垂直飛彈照發射位置算、要目標的標定還在；反戰車飛彈照發射端現在的位置算、發射端要還能操作而且射擊線沒被擋住或隔著煙霧
@@ -373,6 +384,6 @@ export function landInbound(ctx: Ctx, turn: TurnInfo): void {
       shooter = { ...attacker, pos: { ...inb.from }, z: inb.z, facing: angleOf(sub(target.pos, inb.from)) };
       velocity = { ...turn.velocity, [attacker.id]: { x: 0, y: 0 } };
     }
-    if (!shoot(ctx, { ...turn, velocity }, shooter, weapon, target, { landing: inb.id, shots: inb.shots })) lost('目標跑出射程，落空');
+    if (!shoot(ctx, { ...turn, velocity }, shooter, weapon, target, { landing: inb.id, shots: inb.shots })) lost(landingMiss(def, shooter, target));
   }
 }
