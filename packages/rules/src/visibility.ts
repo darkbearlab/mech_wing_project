@@ -95,6 +95,8 @@ export interface StateView {
   flagship: [string | null, string | null];
   /** 雙方的擊墜分 */
   score: [number, number];
+  /** 規則第 6 版起：勝利點數（上一回合結束時） */
+  points?: [number, number];
   winReason?: WinReason;
   /** 本回合各機的移動向量（動作階段才有；看不到的敵機不列） */
   velocity: Record<string, Vec>;
@@ -243,7 +245,7 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   }
   const velocity: Record<string, Vec> = {};
   for (const [id, v] of Object.entries(s.turnInfo?.velocity ?? {})) if (units.some((u) => u.id === id && !u.hidden)) velocity[id] = { ...v };
-  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), inbound: structuredClone(s.inbound ?? []), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], jumped: (s.turnInfo?.jumped ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
+  return { turn: s.turn, balloons, mines: structuredClone(knownMines(s.mines ?? [], s.units, viewer)), inbound: structuredClone(s.inbound ?? []), enemyPods, reserves: (s.reserves ?? []).filter((r) => r.unit.owner === viewer).map((r) => ({ id: r.unit.id, label: r.unit.label, turn: r.turn })), settings: structuredClone(s.settings ?? DEFAULT_SETTINGS), objectives: structuredClone(s.objectives ?? newObjectives()), flagship: [flagshipOf(s, 0)?.id ?? null, flagshipOf(s, 1)?.id ?? null], score: [killScoreOf(s, 0), killScoreOf(s, 1)], ...(s.points ? { points: [...s.points] as [number, number] } : {}), winReason: s.winReason, obstacles: structuredClone(s.obstacles), bumped: s.turnInfo?.bumped ?? [], jumped: (s.turnInfo?.jumped ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), deferred: (s.turnInfo?.deferred ?? []).filter((id) => units.some((u) => u.id === id && !u.hidden)), velocity, stance, units, grapples: structuredClone(s.grapples), winner: s.winner };
 }
 
 /** 依視野過濾事件：看不到的敵機在移動中只留下看得到的那幾段，其他與它相關的細節不送出 */

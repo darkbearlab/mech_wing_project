@@ -17,7 +17,7 @@ import type { ActionPlan, EquipState, GameEvent, Mine, Obstacle, GameState, Move
 import { anyPursuit, runPursuits } from './pursuit';
 import { commandPods, findPod, movePods, podSeen, podUpkeep, psycommuOf, shootPod } from './psycommu';
 import { barrageActive, inBarrage, isShip } from './ship';
-import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, supplyPoint, type WinReason } from './objectives';
+import { DEFAULT_SETTINGS, byScore, deployZone, flagshipOf, killScoreOf, scoreObjectives, settleBoth, supplyPoint, type BattleSettings, type WinReason } from './objectives';
 import { radiusOf } from './body';
 import { DEG, dist } from './geometry';
 import type { DeployPlan, PlayerDeploy } from './types';
@@ -438,9 +438,10 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   // 回合結束：達陣與據點
   const settings = state.settings ?? DEFAULT_SETTINGS;
   const done = scoreObjectives(state, settings, (text, side) => ctx.events.push({ type: 'objective', side, text }));
-  if (state.winner === null && done.goal.length) finish(ctx, settleBoth(state, done.goal), 'goal');
-  if (state.winner === null && done.control.length) finish(ctx, settleBoth(state, done.control, state.objectives!.control), 'control');
-  if (!checkWinner(ctx, true)) {
+  const points = C.rulesAtLeast(state, 6);
+  if (!points && state.winner === null && done.goal.length) finish(ctx, settleBoth(state, done.goal), 'goal');
+  if (!points && state.winner === null && done.control.length) finish(ctx, settleBoth(state, done.control, state.objectives!.control), 'control');
+  if (!checkWinner(ctx, true, done)) {
     state.turn++;
     // 增援進場
     const arriving = (state.reserves ?? []).filter((r) => r.turn <= state.turn);
@@ -467,7 +468,7 @@ function finish(ctx: Ctx, winner: PlayerId | 'draw', reason: WinReason): void {
  * 勝負：一方全滅；斬首（旗艦退場）；擊墜分到門檻（同時到就比分數）；
  * 回合結束時另外檢查回合上限（比據點分再比擊墜分）。達陣與據點在回合結束時另外結算。
  */
-function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
+function checkWinner(ctx: Ctx, endOfTurn: boolean, done?: { goal: PlayerId[]; control: PlayerId[] }): boolean {
   const { state } = ctx;
   if (state.winner !== null) return true;
   const s = state.settings ?? DEFAULT_SETTINGS;
@@ -476,6 +477,8 @@ function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
     finish(ctx, alive[0] === alive[1] ? 'draw' : alive[0] ? 0 : 1, 'annihilation');
     return true;
   }
+  // 第 6 版起：勝利點數，回合結束時才比
+  if (C.rulesAtLeast(state, 6)) return endOfTurn ? checkPoints(ctx, s, done) : false;
   if (s.decapitation) {
     const lost = ([0, 1] as PlayerId[]).filter((p) => flagshipOf(state, p)?.status !== 'active');
     if (lost.length) {
@@ -491,6 +494,33 @@ function checkWinner(ctx: Ctx, endOfTurn: boolean): boolean {
     }
   }
   if (endOfTurn && state.turn >= s.turnLimit) {
+    finish(ctx, byScore(state, s.control ? state.objectives?.control : undefined), 'turnLimit');
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 勝利點數（第 6 版起）：斬首（對方旗艦退場）、擊墜分到門檻、達陣、據點各 1 點，拿到就一直算。
+ * 回合結束時點數多的獲勝（理由取對方沒有的那一項）；同分就繼續打，到回合上限照舊比分。
+ */
+function checkPoints(ctx: Ctx, s: BattleSettings, done?: { goal: PlayerId[]; control: PlayerId[] }): boolean {
+  const { state } = ctx;
+  const earned = ([0, 1] as PlayerId[]).map((p) => {
+    const got: WinReason[] = [];
+    if (s.decapitation && flagshipOf(state, (1 - p) as PlayerId)?.status !== 'active') got.push('decapitation');
+    if (s.killScore && killScoreOf(state, p) >= s.killScore) got.push('killScore');
+    if (done?.goal.includes(p)) got.push('goal');
+    if (done?.control.includes(p)) got.push('control');
+    return got;
+  });
+  state.points = [earned[0].length, earned[1].length];
+  if (earned[0].length !== earned[1].length) {
+    const w: PlayerId = earned[0].length > earned[1].length ? 0 : 1;
+    finish(ctx, w, earned[w].find((r) => !earned[1 - w].includes(r)) ?? earned[w][0]);
+    return true;
+  }
+  if (state.turn >= s.turnLimit) {
     finish(ctx, byScore(state, s.control ? state.objectives?.control : undefined), 'turnLimit');
     return true;
   }
