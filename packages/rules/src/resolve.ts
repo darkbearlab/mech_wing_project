@@ -822,7 +822,7 @@ function doLunge(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], {
 /**
  * 標定：掃描正面 ±MARK_ARC_DEG、感測距離內的敵機（不用視線），隨機標定 markCount 台。
  * 被標定的敵機我方一直看得到、射擊命中 +MARK_BONUS，持續到超出標定機的感測距離為止（回合、攻擊都不會消耗）。
- * 不疊加：已經被標定的不會再被挑到；重新標定時，這台原本標的先全部解除再重挑。不會暴露自己的位置
+ * 不疊加：已經被標定的不會再被挑到；重新標定時，這台原本標的先全部解除再重挑。第 8 版以前不會暴露自己的位置，第 9 版起暴露到下一回合結束
  */
 function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'mark' }>): boolean {
   const { state } = ctx;
@@ -845,6 +845,8 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
     t.mark = { by: u.id };
     ctx.events.push({ type: 'mark', unit: u.id, target: t.id });
   }
+  // 第 9 版起：標定的電波暴露自己，到下一回合結束前敵方都看得到
+  if (C.rulesAtLeast(state, 9)) u.markExposedUntil = state.turn + 1;
   updateSight(state);
   return false;
 }
