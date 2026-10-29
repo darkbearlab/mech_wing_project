@@ -230,7 +230,7 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
     for (const t of enemies) {
       const wall = barrierBetween(view!.state.units as never[] as (UnitView & { status: string })[], u.id, u.pos, u.z, t.pos);
       const cover = { ...coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z), barrier: !!wall && !indirectFire(def) };
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never), landing: view!.state.jumped.includes(u.id) });
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view!.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage: isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never), landing: view!.state.jumped.includes(u.id) });
       // 打不到的不列（太多了）；彈藥用完的標出來
       if (!h) continue;
       const vs = matchupText(CHASSIS[t.chassisId]?.armorType, def.damageType ?? 'kinetic');
@@ -249,7 +249,7 @@ function shotTable(u: UnitView, enemies: UnitView[]): string {
     const at = e.pod.pos;
     for (const t of enemies) {
       const cover = coverOf(view!.state.obstacles, at, t.pos);
-      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover });
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view!.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover });
       rows.push(`${e.id} 炮群@${pt(at)} → ${t.id}：${h ? `${bandName(h.band)} 約 ${h.chance}%（每支 ${def.shots ?? 1} 發）${shotTags(u, at, t, cover, 0)}` : '打不到'}`);
     }
   }

@@ -3020,7 +3020,7 @@ function salvoControls(u: UnitView, plan: ActionPlan): string {
     const cur = plan.salvo?.[w.id];
     html += `<div class="row"><span class="small muted">${esc(def.name)}</span>`;
     for (const t of enemies) {
-      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
+      const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view!.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, u.pos, t.pos, u.z, t.z) });
       if (!h) continue;
       html += tip(`<button class="${cur === t.id ? 'on' : ''}" data-salvo="${w.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${def.name} → ${t.label}：${bandName(h.band)}・${chanceText(h.chance)}`);
     }
@@ -3049,7 +3049,7 @@ function podActionControls(u: UnitView, plan: ActionPlan): string {
     for (const t of enemies) {
       const at = e.pod!.pos;
       // 炮群本身當作不動（和結算一樣），相對速度就是目標的速度
-      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, at, t.pos) });
+      const h = hitChance({ attacker: { ...u, pos: at, facing: Math.atan2(t.pos.y - at.y, t.pos.x - at.x) }, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view!.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed({ ...view!.state.velocity, [u.id]: { x: 0, y: 0 } }, u.id, t.id), shooterMelee: false, cover: coverOf(view!.state.obstacles, at, t.pos) });
       const est = h ? `${bandName(h.band)}・${chanceText(h.chance)}${dangerClose(view!.state, t.id) ? '・Danger Close／誤擊風險' : ''}` : '炮群射程外';
       html += tip(`<button class="${chosen.includes(t.id) ? 'on' : ''}${dangerClose(view!.state, t.id) ? ' danger' : ''}" data-pod-t="${e.id}|${t.id}">${esc(t.label.split(' ')[0])}</button>`, `${t.label}：${est}`);
     }
@@ -3249,7 +3249,7 @@ function weaponShot(u: UnitView, w: EquipState, t: UnitView): { h: NonNullable<R
   if (!indirect && def.arc !== undefined && relativeAngle(u, t.pos) > (def.arc * Math.PI) / 180) return { h: null, why: '射界外' };
   if (def.pointBlank === false && rangeBand(u, t) === 0) return { h: null, why: '太近' };
   const barrage = isShip(u) ? 0 : barragePenalty(view!.state.units as never, t as never);
-  const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage, landing: view!.state.jumped.includes(u.id) });
+  const h = hitChance({ attacker: u, attackerSkill: PILOTS[u.pilotId!].skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view!.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed(view!.state.velocity, u.id, t.id), shooterMelee: view!.state.stance[u.id] === 'melee', cover, barrage, landing: view!.state.jumped.includes(u.id) });
   return { h, why: h ? '' : '射程外' };
 }
 
