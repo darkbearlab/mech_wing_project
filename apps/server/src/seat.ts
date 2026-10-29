@@ -267,7 +267,7 @@ function render(v: PlayerView): string {
   const set = s.settings;
   const out: string[] = [];
   out.push(`資料 ${contentVersion()}　房間 ${room}　你是 ${side(v.you)} 方${v.squad !== undefined ? `第 ${v.squad} 小隊（席位 ${seatName}）` : ''}　第 ${s.turn} 回合　步驟 ${v.phase}　已送出 A:${v.submitted[0]} B:${v.submitted[1]}${v.squads ? `　我方各小隊 ${Object.entries(v.squads).map(([k, x]) => `${k}:${x}`).join(' ')}` : ''}`);
-  out.push(`環境 ${set.environment ?? 'space'}　地形 ${set.terrain ?? '-'}　勝利條件 ${JSON.stringify({ killScore: set.killScore, decap: set.decapitation, goal: set.goal, control: set.control, turnLimit: set.turnLimit })}　擊墜分 A ${s.score[0]} / B ${s.score[1]}　旗艦 ${s.flagship.join(' / ')}`);
+  out.push(`環境 ${set.environment ?? 'space'}　地形 ${set.terrain ?? '-'}　勝利條件 ${JSON.stringify({ killScore: set.killScore, decap: set.decapitation, goal: set.goal, control: set.control, turnLimit: set.turnLimit })}　擊墜分 A ${s.score[0]} / B ${s.score[1]}${s.points ? `　勝利點數 A ${s.points[0]} / B ${s.points[1]}（同分繼續打）` : ''}　旗艦 ${s.flagship.join(' / ')}`);
   out.push(`地圖 ${config.MAP_SIZE}×${config.MAP_SIZE}，y 往 B 方增加；朝向 0° = +x、90° = +y。距離帶 R1≤${config.RANGE_LIMITS.r1} R2≤${config.RANGE_LIMITS.r2} R3≤${config.RANGE_LIMITS.r3} R4≤${config.RANGE_LIMITS.r4}（底板邊緣距離；R4 只有戰艦主砲）`);
   if (set.goal) out.push(`達陣點 A 要去 ${pt(goalZone(1))}、B 要去 ${pt(goalZone(0))}`);
   if (set.control) out.push(`據點 ${controlPoints().map(pt).join(' ')}`);
@@ -484,7 +484,8 @@ function writeCatalog() {
     `傷害屬性與裝甲（三角相剋，±${config.TYPE_MULT * 100}%）：複合裝甲擋動能、怕化學能；反射裝甲擋能量、怕動能；陶瓷裝甲擋化學能、怕能量。機體部位照機型的裝甲，盾牌照盾牌的裝甲；武器和其他裝備不剋也不被剋。耐久與傷害的刻度是舊版的 10 倍（基本數值是 10 的倍數；相剋、高打低算完四捨五入，所以會有 8、13、38 這種零頭）。`,
     `命中部位看攻擊方向（照目標的朝向：正面 ±${config.FRONT_ARC_DEG}°、背後 ${config.BACK_ARC_DEG}° 以外、其餘側面）：正面打背包權重 ×${config.HIT_DIRECTION_WEIGHT.front.propulsion}、軀幹 ×${config.HIT_DIRECTION_WEIGHT.front.core}；背後打背包 ×${config.HIT_DIRECTION_WEIGHT.back.propulsion}、頭 ×${config.HIT_DIRECTION_WEIGHT.back.sensor}；側面打靠近的那隻手 ×${config.HIT_DIRECTION_WEIGHT.side.near}、另一隻 ×${config.HIT_DIRECTION_WEIGHT.side.far}、背包 ×${config.HIT_DIRECTION_WEIGHT.side.propulsion}。外掛裝備照掛的部位、手上的武器照那隻手。近戰、撞擊照出手那台的位置；從上方打下來的（迫擊砲、垂直飛彈、跳劈）照頂部攻擊表；樓塌、地雷、墜落不看方向。從正面打過來的傷害 ×${config.FRONT_DAMAGE_MULT}（正面裝甲最厚；從上方打下來的不算），所以繞到側面、背後打比較划算。`,
     `零距離開火（底板邊緣 ${config.RANGE_LIMITS.r0} 格內）：有 ${config.ZERO_RANGE_SELF_DAMAGE}% 機率傷到自己這件武器 ${config.DAMAGE_SCALE} 點（內建武器傷到所在部位）。`,
-    `斬首：旗艦是隊上費用最高的那一台（同分取先排的），被擊墜就輸；配陣容時注意別讓又慢又脆的機體變成旗艦。`,
+    `斬首：旗艦是隊上費用最高的那一台（同分取先排的）；配陣容時注意別讓又慢又脆的機體變成旗艦。`,
+    `勝負（勝利點數）：擊墜對方旗艦（斬首）、擊墜分到門檻、達陣、據點，每一項給 1 點，拿到就一直算。每回合結束時比點數，多的一方獲勝；同分就繼續打。一方全滅立即判定。到回合上限仍同分時比擊墜分（有據點時先比據點分）。`,
     `視野：感測距離內、視線沒被建築擋住就看得到（全隊共用）；看得到是雙向的。`,
     `攀升：速度 ${config.CLIMB_MAX_SPEED} 以下的機動加 climb:true，撞到「比自己現在站的高度高 ${config.CLIMB_LEVELS} 層以內」的牆就爬上樓頂（在空中，移動結束才落下，跳得過街道），每爬一次推進劑 −${config.CLIMB_PROPELLANT}。錨鉤加層數與速度上限。走出樓頂邊緣會落下（自己走下來不受傷；樓被打塌、跟著掉下來才會受傷）。`,
     `標定（行動 {"type":"mark","weapon":"標定器id"}）：掃描正面 ±${config.MARK_ARC_DEG}°、感測距離內的敵機，不用視線，隨機標定 ${config.MARK_COUNT} 台（不重複已被標定的）。被標定的我方一直看得到、命中 +${config.MARK_BONUS}；超出標定機的感測距離、或標定機的頭部／標定器壞了才解除。再標一次會先解除自己原本標的。不暴露位置；被標定的一方知道自己被標，但不知道是誰。`,

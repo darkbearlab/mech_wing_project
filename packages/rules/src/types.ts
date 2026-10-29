@@ -409,6 +409,8 @@ export interface GameState {
   contentVersion: string;
   /** 規則版本（config.ts 的 RULES_VERSION；沒寫是現在的規則） */
   rules?: number;
+  /** 規則第 6 版起：雙方目前的勝利點數（回合結束時更新） */
+  points?: [number, number];
   winner: PlayerId | 'draw' | null;
   /** 開戰前選的勝利條件與部署方式（舊紀錄沒有，照 DEFAULT_SETTINGS） */
   settings?: BattleSettings;
