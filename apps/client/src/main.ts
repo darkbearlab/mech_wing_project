@@ -1833,7 +1833,7 @@ function drawUnit(u: UnitView, pos: Vec, facing: number) {
     g.fillText(`${flag}${id} ${name}${u.z ? ` ▲${u.z}` : ''}${u.mark ? ' ◎' : ''}${u.vague === 'sluggish' ? ' ⚠' : ''}`, c.x, top - 13);
     g.font = '11px sans-serif';
     g.fillStyle = dim;
-    g.fillText(out ? ({ destroyed: '擊毀', withdrawn: '脫離戰場', unconscious: '駕駛昏迷' } as Record<string, string>)[u.status] ?? '停止動作' : u.hidden ? `${model}・最後目擊 T${u.seenTurn}` : model, c.x, top);
+    g.fillText(out ? ({ destroyed: '擊毀', withdrawn: '脫離戰場', unconscious: '駕駛昏迷' } as Record<string, string>)[u.status] ?? '停止動作' : u.hidden ? `${model}・最後目擊 T${u.seenTurn}` : u.located ? `${model}・只知道位置` : model, c.x, top);
   }
   g.globalAlpha = 1;
 }
@@ -2790,6 +2790,7 @@ function infoHtml(u: UnitView): string {
     html += `<div class="small muted">駕駛：不明${u.vague === 'sluggish' ? '　<span class="warn">動作遲鈍</span>' : ''}</div>`;
   }
   if (u.hidden) html += `<div class="small warn">目前看不到：以下是第 ${u.seenTurn} 回合最後目擊時的樣子</div>`;
+  if (u.located) html += `<div class="small warn">只知道位置（干擾電波）：沒有視線，只有迫擊砲、反輻射飛彈打得到</div>`;
   const v = view!.state.velocity[u.id];
   html += `<div class="small muted">動能 ${signed(u.momentum)}${v ? `　本回合移動 ${Math.hypot(v.x, v.y).toFixed(1)}` : ''}</div>`;
   if (isHumanoid(u)) {

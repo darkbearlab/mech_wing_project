@@ -11,9 +11,10 @@ export const TURN_LIMIT = 25;
  * 4：技能差縮小、命中 80 以上減半、電子干擾改成導引減值（不再擋標定）、開著的干擾機會暴露、反輻射飛彈不用射擊線；
  * 5：高打低只有固定命中加成（沒有傷害加成）、比射擊方高 2 層以上算半掩護；隕石群裡往外只看得到 FIELD_LOOK_OUT_RANGE、
  *    在群裡開火會暴露到下一回合；化學能武器拆樓倍率提高；散射武器沒打中可能打到目標旁邊的敵機；
- * 6：勝利點數：斬首、擊墜分、達陣、據點各給 1 點，回合結束時點數多的獲勝，同分就繼續打（全滅照舊立即判定）
+ * 6：勝利點數：斬首、擊墜分、達陣、據點各給 1 點，回合結束時點數多的獲勝，同分就繼續打（全滅照舊立即判定）；
+ * 7：開著的干擾器只暴露位置：沒有視線時只有迫擊砲（命中 −LOCATED_MORTAR_PENALTY、不用標定）與反輻射飛彈打得到它
  */
-export const RULES_VERSION = 6;
+export const RULES_VERSION = 7;
 /** 這一場用的規則是不是第 v 版以後（沒寫版本的是現在的規則） */
 export const rulesAtLeast = (s: { rules?: number }, v: number): boolean => (s.rules ?? RULES_VERSION) >= v;
 
@@ -234,6 +235,8 @@ export const ARM_HIT_BONUS = 40;
 export const ECM_GUIDED_PENALTY = 30;
 /** 規則第 4 版起：開著的干擾器會暴露位置，敵機在這個距離內（中心距離）不用視線就看得到它 */
 export const ECM_REVEAL_RANGE = 12;
+/** 規則第 7 版起：只知道位置（干擾電波）的目標，迫擊砲不用標定就能打，命中 −這麼多（也不算標定加成） */
+export const LOCATED_MORTAR_PENALTY = 20;
 /** 埋地雷的最遠距離（底板邊緣距離） */
 export const MINE_LAY_RANGE = 2;
 /** 地雷的觸發半徑：機體底板碰到這個範圍就引爆 */

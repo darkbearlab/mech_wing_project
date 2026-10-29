@@ -52,6 +52,8 @@ export interface UnitView {
   seenTurn?: number;
   /** 隔著煙霧看到的不明機體（可能是氣球） */
   unknown?: boolean;
+  /** 只靠干擾電波知道位置（規則第 7 版起：直射、鎖定、突進打不到） */
+  located?: boolean;
   // 以下只有自己的機體才有
   pilotId?: string;
   stress?: number;
@@ -135,6 +137,7 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
 export function updateSight(state: GameState, revealed: Set<string> = new Set()): void {
   checkMarks(state);
   const obscured: [string[], string[]] = [[], []];
+  const located: [string[], string[]] = [[], []];
   for (const p of [0, 1] as PlayerId[]) {
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const lookOut = C.rulesAtLeast(state, 5) ? C.FIELD_LOOK_OUT_RANGE : undefined;
@@ -151,11 +154,22 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
           eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))),
     );
     state.visible[p] = seen.map((e) => e.id);
+    // 第 7 版起：只靠干擾電波看到的（其他方式都看不到）另外記下來
+    if (C.rulesAtLeast(state, 7))
+      for (const e of seen)
+        if (
+          !revealed.has(e.id) &&
+          !e.mark &&
+          !((e.exposedUntil ?? -1) >= state.turn && eyes.some((o) => dist(o.pos, e.pos) <= C.FIELD_FIRE_EXPOSE_RANGE)) &&
+          !eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))
+        )
+          located[p].push(e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
     // 隔著煙霧（或在煙霧裡）只看得到有東西，認不出是什麼；開火的會暴露
     for (const e of seen) if (!revealed.has(e.id) && !e.mark && smokeHides(state, eyes, e.pos, radiusOf(e))) obscured[p].push(e.id);
   }
   state.obscured = obscured;
+  state.located = located;
 }
 
 /** 標定機失去戰鬥能力、標定器或頭部壞了、目標超出它的感測距離：標定解除（視線、射界都不影響） */
@@ -206,10 +220,12 @@ export function viewState(s: GameState, viewer: PlayerId): StateView {
   const visible = new Set(s.visible[viewer]);
   const units: UnitView[] = [];
   const obscured = new Set(s.obscured?.[viewer] ?? []);
+  const located = new Set(s.located?.[viewer] ?? []);
   for (const u of s.units) {
     if (u.owner === viewer || visible.has(u.id)) {
       const v = viewUnit(u, viewer);
-      units.push(obscured.has(u.id) ? { ...v, label: '不明機體', unknown: true, vague: null } : v);
+      const w = located.has(u.id) ? { ...v, located: true } : v;
+      units.push(obscured.has(u.id) ? { ...w, label: '不明機體', unknown: true, vague: null } : w);
       continue;
     }
     // 看不到的敵機：用最後目擊時的樣子當殘影；擊毀之類的結果還是知道

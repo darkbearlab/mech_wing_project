@@ -34,7 +34,7 @@ export function pursuitOptions(state: GameState, u: UnitState): PursuitOption[] 
   if (u.status !== 'active' || grappled(state, u.id) || info?.bumped.includes(u.id)) return [];
   const out: PursuitOption[] = [];
   for (const t of state.units) {
-    if (t.owner === u.owner || t.status !== 'active' || grappled(state, t.id) || !state.visible[u.owner].includes(t.id)) continue;
+    if (t.owner === u.owner || t.status !== 'active' || grappled(state, t.id) || !state.visible[u.owner].includes(t.id) || state.located?.[u.owner].includes(t.id)) continue;
     if (!tailing(u, t)) continue;
     for (const w of readyRanged(u)) {
       if (w.ammo !== undefined && w.ammo <= 0) continue;

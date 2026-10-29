@@ -791,6 +791,7 @@ function doLunge(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], {
   const target = state.units.find((x) => x.id === action.target);
   if (!target || target.status !== 'active') return fail('目標已失去戰鬥能力');
   if (!state.visible[u.owner].includes(target.id)) return fail('看不到目標');
+  if (state.located?.[u.owner].includes(target.id)) return fail('只知道位置（干擾電波），沒有視線衝不過去');
   const weapon = readyMelee(u);
   if (weapon && benched.has(weapon.id)) return fail('拿近戰武器的那一側在換武器，不能突進');
   if (inGrapple(state, target.id)) return fail('目標在纏鬥中，衝不進去');
@@ -909,6 +910,18 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   if (!ctx.state.visible[u.owner].includes(target.id)) {
     ctx.events.push({ type: 'actionFail', unit: u.id, reason: '看不到目標' });
     return false;
+  }
+  // 只靠干擾電波知道位置（第 7 版起）：只有迫擊砲與反輻射飛彈打得到
+  const located = !!ctx.state.located?.[u.owner].includes(target.id);
+  if (located) {
+    if (action.type === 'lock') {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: '只知道位置（干擾電波），鎖定不了' });
+      return false;
+    }
+    const usable = weapons.filter((w) => ['mortar', 'antiRadiation'].includes(EQUIPMENT[w.defId].fire ?? ''));
+    for (const w of weapons) if (!usable.includes(w)) ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：只知道位置（干擾電波），沒有視線打不到` });
+    weapons.splice(0, weapons.length, ...usable);
+    if (!weapons.length) return false;
   }
   if (action.type === 'lock') {
     if (roleLost(u, 'sensor')) {

@@ -787,7 +787,7 @@ function aiPodActions(view: PlayerView, u: UnitView, enemies: UnitView[], focus:
 export function aiPursuits(view: PlayerView): PlayerPursuits {
   const out: PlayerPursuits = {};
   const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active');
-  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
+  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden && !u.located);
   const focus = pickFocus(own, enemies, view.state.obstacles, focusHints(view));
   for (const [id, opts] of Object.entries(view.pursuit ?? {})) {
     let best: { o: (typeof opts)[number]; v: number } | null = null;
@@ -807,7 +807,7 @@ export function aiPursuits(view: PlayerView): PlayerPursuits {
 
 export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
   const own = view.state.units.filter((u) => u.owner === view.you && u.status === 'active' && !view.state.bumped.includes(u.id));
-  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden);
+  const enemies = view.state.units.filter((u) => u.owner !== view.you && u.status === 'active' && !u.hidden && !u.located);
   const out: PlayerActions = {};
   const focus = pickFocus(own, enemies, view.state.obstacles, focusHints(view));
   const aimed: Record<string, number> = {};
