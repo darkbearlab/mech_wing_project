@@ -1,1190 +1,1038 @@
 [
- {
-  "name": "城市 50",
-  "scale": "small",
-  "env": "city",
-  "why": "三台：兩台 20 分王牌搶樓頂、徵招兵補位；被打掉的是 10 分機時不會直接輸。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "machine_gun",
-      "right"
-     ],
-     [
-      "bazooka",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  {
+    "name": "城市 50",
+    "scale": "small",
+    "env": "city",
+    "why": "S2-1 結論：兩台重型雙肩砲王牌成對搶樓頂（X-13 武器腕剋陶瓷），8 分 X-00 誘餌補位；任一主力陣亡就到門檻，損傷前先退。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-00",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "machine_gun",
-      "right"
-     ],
-     [
-      "bazooka",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "城市 85",
+    "scale": "standard",
+    "env": "city",
+    "why": "兩台 X-13 王牌成對佔中央高樓，X-04 王牌在後；X-07 偵察機（感測 14）站高樓標定、X-04 雙垂直飛彈躲樓後越頂打擊。",
+    "roster": [
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "recruit",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "城市 100",
+    "scale": "expanded",
+    "env": "city",
+    "why": "S2-3 勝方架構：X-07 高樓標定＋X-04 樓後垂直飛彈，兩台 X-13 高樓俯射獵殺標定機；新增干擾機貼旗艦，讓對方飛彈 −30。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "ecm_pod",
+            "mount",
+            "pack"
+          ]
+        ]
+      }
     ]
-   }
-  ]
- },
- {
-  "name": "城市 85",
-  "scale": "standard",
-  "env": "city",
-  "why": "第 2 場勝利配置：四台 21 分王牌帶錨鉤，成對搶高樓、靜止肩砲射擊。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "城市 130",
+    "scale": "large",
+    "env": "city",
+    "why": "S2-5 教訓：三台 X-13 開局成對佔中央 3 層以上樓頂，旗艦藏在高樓背後並有干擾機同行；標定機與干擾機分開 4 格以上，飛彈第 3 輪後就補給。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "bazooka",
+            "right"
+          ],
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "arm_gatling",
+            "builtin",
+            "rarm"
+          ],
+          [
+            "arm_gatling",
+            "builtin",
+            "larm"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "ecm_pod",
+            "mount",
+            "pack"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "宇宙 50",
+    "scale": "small",
+    "env": "space",
+    "why": "兩台重型雙肩砲王牌低速佔群、靜止射擊，X-07 偵察機從 14 格外標定讓直射 +10。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "宇宙 85",
+    "scale": "standard",
+    "env": "space",
+    "why": "S2-2 勝方：三台肩砲機佔群靜止射擊；X-07 偵察機加飛彈機各帶一具標定器（第一具常被打掉），飛彈機躲岩石後。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "bazooka",
+            "right"
+          ],
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "veteran",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "宇宙 100",
+    "scale": "expanded",
+    "env": "space",
+    "why": "S2-4 教訓：干擾機與旗艦相鄰出生並同行；主力先低速進群、靜止，在干擾圈內；偵察機開局就往另一側、離自家干擾機 4 格以上。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "bazooka",
+            "right"
+          ],
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "ecm_pod",
+            "mount",
+            "pack"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      }
     ]
-   }
-  ]
- },
- {
-  "name": "城市 100",
-  "scale": "expanded",
-  "env": "city",
-  "why": "五台王牌五門肩砲，集中拆樓與集火；對手需打下三台。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "宇宙 130",
+    "scale": "large",
+    "env": "space",
+    "why": "S2-6 勝方 60:0：旗艦＋干擾機＋三台 X-13 進群靜止；兩台垂直飛彈機打完 4 輪就補給；偵察機躲岩石後從 12–14 格標定。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "ecm_pod",
+            "mount",
+            "pack"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ]
+        ]
+      },
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "角色：旗艦",
+    "scale": "large",
+    "env": "city",
+    "why": "X-04 王牌雙肩砲：軀幹 130 最耐打，永遠在干擾圈與建築/群內，不穿越開闊地。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "machine_gun",
+            "left"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "角色：高樓砲手",
+    "scale": "large",
+    "env": "city",
+    "why": "X-13 王牌雙肩砲＋能量武器腕（剋陶瓷、獵殺標定機），錨鉤成對搶 3 層以上樓頂。",
+    "roster": [
+      {
+        "chassis": "X-13",
+        "pilot": "ace",
+        "equipment": [
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "shoulder_cannon",
+            "mount",
+            "torso"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "角色：干擾護衛",
+    "scale": "large",
+    "env": "space",
+    "why": "X-07 干擾器貼著旗艦與主力：半徑 4 內對方導引武器 −30；12 格內會暴露自己。出擊順序：旗艦→干擾機→主力→飛彈機→標定機，讓標定機一開場就離干擾機最遠。",
+    "roster": [
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "ecm_pod",
+            "mount",
+            "pack"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "角色：偵察標定",
+    "scale": "large",
+    "env": "city",
+    "why": "X-07 感測 14：站高樓或岩石後、離敵 11–14 格標定；必須離自家干擾機 4 格以上。出擊順序：旗艦→干擾機→主力→飛彈機→標定機，讓標定機一開場就離干擾機最遠。",
+    "roster": [
+      {
+        "chassis": "X-07",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      }
     ]
-   }
-  ]
- },
- {
-  "name": "城市 130",
-  "scale": "large",
-  "env": "city",
-  "why": "四台 22 分加一台 21 分王牌主力，X-04 雙肩砲在第二線專職拆樓；旗艦不進任何射線。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "角色：飛彈機",
+    "scale": "large",
+    "env": "city",
+    "why": "X-04 徵招兵雙垂直飛彈（命中不看駕駛）＋備用標定器，躲樓後或岩石後；只打 10 格內、不在敵方干擾圈的目標，3–4 輪後補給。",
+    "roster": [
+      {
+        "chassis": "X-04",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "vls",
+            "mount",
+            "pack"
+          ],
+          [
+            "vls",
+            "mount",
+            "torso"
+          ],
+          [
+            "designator",
+            "mount",
+            "head"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
+  },
+  {
+    "name": "角色：誘餌",
+    "scale": "large",
+    "env": "city",
+    "why": "8 分 X-00 徵招兵，只在小規模湊台數吸收火力，被擊墜送分低於門檻。",
+    "roster": [
+      {
+        "chassis": "X-00",
+        "pilot": "recruit",
+        "equipment": [
+          [
+            "machine_gun",
+            "right"
+          ],
+          [
+            "grapnel",
+            "mount",
+            "legs"
+          ]
+        ]
+      }
     ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-04",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "宇宙 50",
-  "scale": "small",
-  "env": "space",
-  "why": "三台：兩台 20 分王牌懸停集火、徵招兵補位（10 分），與城市 50 同邏輯；被打掉補位機時不會直接過 20 分門檻。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "recruit",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "宇宙 85",
-  "scale": "standard",
-  "env": "space",
-  "why": "第 5 場 51:0 配置：佔群後靜止，王牌命中壓過數量。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "宇宙 100",
-  "scale": "expanded",
-  "env": "space",
-  "why": "第 6 場勝方：兩具干擾器讓對方標定與垂直飛彈全部失效，陣形收在 4 格內。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "ecm_pod",
-      "mount",
-      "pack"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "ecm_pod",
-      "mount",
-      "pack"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "宇宙 130",
-  "scale": "large",
-  "env": "space",
-  "why": "兩具干擾器防標定，反輻射飛彈專拆對方干擾器（干擾已成標配）；群內約 4 台，其餘留在 4 格內。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "ecm_pod",
-      "mount",
-      "pack"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "ecm_pod",
-      "mount",
-      "pack"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ]
-    ]
-   },
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_missile",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "角色：旗艦",
-  "scale": "large",
-  "env": "city",
-  "why": "全隊最貴，永遠在所有敵機射線之外，只補刀或支援。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "larm"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "角色：拆樓砲台",
-  "scale": "large",
-  "env": "city",
-  "why": "第二線雙肩砲拆敵人腳下樓層，不當前排或旗艦（陶瓷怕動能、閃避 0）。",
-  "roster": [
-   {
-    "chassis": "X-04",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "角色：干擾護衛",
-  "scale": "large",
-  "env": "space",
-  "why": "陣形中央開干擾器，半徑 4 內隊友不能被標定、垂直飛彈與飛彈莢艙打不到。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "ecm_pod",
-      "mount",
-      "pack"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "角色：干擾獵手",
-  "scale": "large",
-  "env": "space",
-  "why": "反輻射飛彈只打開著干擾器的機體、命中 +40，打開對方的干擾圈讓己方標定生效。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "ace",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "machine_gun",
-      "left"
-     ],
-     [
-      "shoulder_cannon",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_missile",
-      "mount",
-      "torso"
-     ],
-     [
-      "arm_gatling",
-      "builtin",
-      "rarm"
-     ]
-    ]
-   }
-  ]
- },
- {
-  "name": "角色：低價補位",
-  "scale": "large",
-  "env": "city",
-  "why": "10 分徵招兵帶火箭砲與錨鉤，只在小規模湊台數；被擊墜送分少於擊墜門檻。",
-  "roster": [
-   {
-    "chassis": "X-00",
-    "pilot": "recruit",
-    "equipment": [
-     [
-      "bazooka",
-      "right"
-     ],
-     [
-      "grapnel",
-      "mount",
-      "legs"
-     ]
-    ]
-   }
-  ]
- }
+  }
 ]
