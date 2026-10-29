@@ -50,7 +50,9 @@ export function segmentHitsCircle(a: Vec, b: Vec, c: Vec, r: number): boolean {
   return Math.hypot(a.x + dx * t - c.x, a.y + dy * t - c.y) < r;
 }
 
-export const insideField = (obstacles: Obstacle[], p: Vec) => obstacles.some((o) => o.kind === 'field' && dist(p, o) <= o.r);
+export const insideField = (obstacles: Obstacle[], p: Vec) => obstacles.some((o) => o.kind === 'field' && !o.thin && dist(p, o) <= o.r);
+/** 在稀薄碎石裡（被炸散的隕石群） */
+export const insideThinField = (obstacles: Obstacle[], p: Vec) => obstacles.some((o) => o.kind === 'field' && !!o.thin && dist(p, o) <= o.r);
 
 /** cover：被建築擋住一部分（半掩護）。只取最主要的一種，判斷擋不擋得住用；命中的扣分看 CoverInfo */
 export type Cover = 'clear' | 'field' | 'smoke' | 'blocked' | 'cover';
@@ -63,6 +65,8 @@ export interface CoverInfo {
   blocked: boolean;
   smoke: boolean;
   field: boolean;
+  /** 穿過的只有稀薄碎石（隕石群被炸散） */
+  thin?: boolean;
   /** 被建築（含路障）擋住一部分 */
   building: boolean;
   /** 穿過別人展開的盾牆 */
@@ -76,8 +80,9 @@ export function coverOf(obstacles: Obstacle[], a: Vec, b: Vec, za = 0, zb = 0): 
   const walls = buildingBlocks(obstacles, a, b, za, zb);
   if (walls === 'all') return { ...none, blocked: true };
   // 煙霧、隕石群：射擊線穿過，或目標在裡面
-  const on = (kind: Obstacle['kind']) => obstacles.some((o) => o.kind === kind && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r));
-  return { blocked: false, smoke: on('smoke'), field: on('field'), building: walls === 'some' };
+  const on = (kind: Obstacle['kind'], thin = false) => obstacles.some((o) => o.kind === kind && !!o.thin === thin && (segmentHitsCircle(a, b, o, o.r) || dist(b, o) <= o.r));
+  const field = on('field');
+  return { blocked: false, smoke: on('smoke'), field, ...(!field && on('field', true) ? { thin: true } : {}), building: walls === 'some' };
 }
 
 /** 掩體各項的扣分（遮蔽取最重的一種、硬掩護取一種，兩類相加） */
@@ -86,6 +91,7 @@ export function coverParts(c: CoverInfo): { label: string; penalty: number }[] {
   const out: { label: string; penalty: number }[] = [];
   if (c.smoke) out.push({ label: '煙霧', penalty: C.SMOKE_SHOT_PENALTY });
   else if (c.field) out.push({ label: '碎石', penalty: C.FIELD_SHOT_PENALTY });
+  else if (c.thin) out.push({ label: '稀薄碎石', penalty: C.THIN_FIELD_PENALTY });
   if (c.barrier) out.push({ label: '盾牆', penalty: C.BUILDING_COVER_PENALTY });
   else if (c.building) out.push({ label: '建築半掩護', penalty: C.BUILDING_COVER_PENALTY });
   return out;

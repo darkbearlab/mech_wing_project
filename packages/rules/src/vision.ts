@@ -1,7 +1,7 @@
 // 視野：每台機體有感測距離（頭部壞了會變短），被大隕石擋住看不到，躲在隕石群裡要很近才發現。
 import * as C from './config';
 import { DEG, angleDiff, angleOf, dist, sub } from './geometry';
-import { buildingBlocks, insideField, segmentHitsCircle } from './terrain';
+import { buildingBlocks, insideField, insideThinField, segmentHitsCircle } from './terrain';
 import { roleLost } from './body';
 import type { Obstacle, PartState, Vec } from './types';
 import { CHASSIS } from './data';
@@ -20,6 +20,7 @@ export function canSee(obstacles: Obstacle[], from: Vec, range: number, to: Vec,
   const d = dist(from, to) - radii;
   if (d > range) return false;
   if (insideField(obstacles, to) && d > C.FIELD_SPOT_RANGE) return false;
+  if (insideThinField(obstacles, to) && d > C.THIN_FIELD_SPOT_RANGE) return false;
   // 從隕石群裡往外看（第 5 版起）：只看得到 lookOut
   if (lookOut !== undefined && d > lookOut && insideField(obstacles, from)) return false;
   if (obstacles.some((o) => o.kind === 'rock' && segmentHitsCircle(from, to, o, o.r))) return false;

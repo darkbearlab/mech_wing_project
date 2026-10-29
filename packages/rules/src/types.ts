@@ -40,7 +40,7 @@ export interface ChassisPart {
  * dazzle 眩光（命中的目標本回合射擊命中下降；用它的行動最先結算，例如德姆的擴散光束砲）
  */
 /** turret：戰艦的砲塔（各自選目標開火，見 ActionPlan.salvo） */
-export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow' | 'dazzle' | 'turret';
+export type EquipTag = 'quickDraw' | 'secondary' | 'volatile' | 'overflow' | 'dazzle' | 'turret' | 'airburst' | 'proximity';
 
 /**
  * 安裝方式：
@@ -61,6 +61,8 @@ export interface EquipDef {
   heavy?: boolean;
   /** 只有這些機型能裝（沒寫是都能裝） */
   chassisOnly?: string[];
+  /** 匿蹤塗層：遠處看不到、標定與鎖定只能近距離（規則第 8 版起） */
+  stealth?: boolean;
   /** 輔助模組（kind module）：錨鉤這類被動裝備，攀升能多爬幾層、速度上限多多少 */
   climbBoost?: { levels: number; speed: number };
   /** 垂直噴射器：移動步驟可以不選機動盤，滑完動能後跳到 1 格內任一點、面向任選 */
@@ -306,8 +308,10 @@ export interface Obstacle {
   levels?: number;
   /** 煙霧：最後一個還在的回合 */
   until?: number;
-  /** 建築：最上面那層還剩的耐久（沒寫是滿的） */
+  /** 建築：最上面那層還剩的耐久（沒寫是滿的）；隕石群：還剩的耐久（規則第 8 版起） */
   hp?: number;
+  /** 隕石群被炸散，成了稀薄碎石 */
+  thin?: boolean;
 }
 
 /** 飛行中的彈藥：發射的下一回合、移動結束後才命中（迫擊砲、垂直飛彈要標定還在；反戰車飛彈要發射端還看得到目標） */
@@ -325,6 +329,8 @@ export interface Inbound {
   z?: number;
   /** 發射的回合 */
   turn: number;
+  /** 區域砲擊：瞄準的地點（沒有目標機體） */
+  at?: Vec;
 }
 
 /** 地雷：敵方的地面機體移動經過就引爆（自己這一方不會觸發） */
@@ -451,7 +457,11 @@ export type Action =
   | { type: 'decoy'; weapon: string; at: Vec }
   /** 埋地雷、架路障：at 是位置（路障橫擋在自己和 at 之間的方向上） */
   | { type: 'mine'; weapon: string; at: Vec }
-  | { type: 'barricade'; weapon: string; at: Vec };
+  | { type: 'barricade'; weapon: string; at: Vec }
+  /** 迫擊砲區域砲擊：不用目標、不用標定，下回合砲彈散落在 at 附近（規則第 8 版起） */
+  | { type: 'barrage'; weapon: string; at: Vec }
+  /** 火箭砲定時引信：朝 at 盲射，到那裡引爆（規則第 8 版起） */
+  | { type: 'airburst'; weapon: string; at: Vec };
 
 /** 第一步：移動（纏鬥中的機體不移動） */
 export interface MovePlan {
@@ -579,7 +589,9 @@ export type GameEvent =
   | { type: 'swap'; unit: string; hand: Hand; equip: string | null }
   | { type: 'lock'; unit: string; target: string }
   /** 迫擊砲沒打中：砲彈落在 at，炸到附近的 units */
-  | { type: 'blast'; by: string; at: Vec; units: string[] }
+  | { type: 'blast'; by: string; at: Vec; units: string[]; kind?: 'barrage' | 'airburst' }
+  /** 隕石群被炸散成稀薄碎石 */
+  | { type: 'fieldThin'; obstacle: string }
   /** 散射武器沒打中的一發打到目標旁邊的敵機 */
   | { type: 'stray'; attacker: string; target: string; unit: string }
   /** 展開盾展開（up）或收起 */

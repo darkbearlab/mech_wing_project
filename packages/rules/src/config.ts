@@ -12,9 +12,10 @@ export const TURN_LIMIT = 25;
  * 5：高打低只有固定命中加成（沒有傷害加成）、比射擊方高 2 層以上算半掩護；隕石群裡往外只看得到 FIELD_LOOK_OUT_RANGE、
  *    在群裡開火會暴露到下一回合；化學能武器拆樓倍率提高；散射武器沒打中可能打到目標旁邊的敵機；
  * 6：勝利點數：斬首、擊墜分、達陣、據點各給 1 點，回合結束時點數多的獲勝，同分就繼續打（全滅照舊立即判定）；
- * 7：開著的干擾器只暴露位置：沒有視線時只有迫擊砲（命中 −LOCATED_MORTAR_PENALTY、不用標定）與反輻射飛彈打得到它
+ * 7：開著的干擾器只暴露位置：沒有視線時只有迫擊砲（命中 −LOCATED_MORTAR_PENALTY、不用標定）與反輻射飛彈打得到它；
+ * 8：迫擊砲區域砲擊、火箭砲定時引信、爆風主要打腳、近炸武器、隕石群會被炸散、碎石撞擊機率提高、匿蹤塗層
  */
-export const RULES_VERSION = 7;
+export const RULES_VERSION = 8;
 /** 這一場用的規則是不是第 v 版以後（沒寫版本的是現在的規則） */
 export const rulesAtLeast = (s: { rules?: number }, v: number): boolean => (s.rules ?? RULES_VERSION) >= v;
 
@@ -35,6 +36,8 @@ export const FIELD_SHOT_PENALTY = 20;
 /** 高速穿越隕石群：速度超過這個值，每多 1 點有這麼多 % 機率被碎石打中 1 點 */
 export const DEBRIS_SAFE_SPEED = 2;
 export const DEBRIS_CHANCE_PER_SPEED = 15;
+/** 規則第 8 版起：速度每超過 DEBRIS_SAFE_SPEED 一點，撞到碎石的機率 +這麼多（%） */
+export const DEBRIS_CHANCE_PER_SPEED_V8 = 30;
 
 // 建築與高度（1 層約等於一台機體的高度）
 /** 機體的高度（層）與槍口的高度（從腳下算） */
@@ -128,6 +131,29 @@ export const MORTAR_SCATTER_MIN = 1.5;
 export const MORTAR_SCATTER_MAX = 3;
 export const MORTAR_SPLASH_RADIUS = 1;
 export const MORTAR_SPLASH_DAMAGE = 10;
+/** 規則第 8 版起：爆風（散布、區域砲擊、定時引信）打在腳上的比例，其餘照一般部位 */
+export const BLAST_LEGS_SHARE = 0.75;
+/** 迫擊砲區域砲擊：落點偏移（格）、爆風半徑（底板邊緣）、每台受的傷害 */
+export const BARRAGE_SCATTER_MIN = 1.5;
+export const BARRAGE_SCATTER_MAX = 3;
+export const BARRAGE_RADIUS = 1.5;
+export const BARRAGE_DAMAGE = 10;
+/** 火箭砲定時引信：落點偏移最多（格）、爆風半徑、傷害是直擊的幾成 */
+export const AIRBURST_SCATTER_MAX = 1;
+export const AIRBURST_RADIUS = 1;
+export const AIRBURST_DAMAGE_SHARE = 0.5;
+/** 近炸武器：命中 +這麼多；打中時核心（軀幹）被打到的權重乘上這個值 */
+export const PROXIMITY_HIT_BONUS = 20;
+export const PROXIMITY_CORE_WEIGHT = 0.2;
+/** 隕石群的耐久：化學能爆風落在群裡每次扣 FIELD_BLAST_DAMAGE，扣光就變成稀薄碎石 */
+export const FIELD_HP = 200;
+export const FIELD_BLAST_DAMAGE = 40;
+/** 稀薄碎石：在裡面的機體這個距離外看不到、穿過射擊命中 −THIN_FIELD_PENALTY */
+export const THIN_FIELD_SPOT_RANGE = 8;
+export const THIN_FIELD_PENALTY = 10;
+/** 匿蹤塗層：這個距離外（底板邊緣）看不到；標定、鎖定只能在 STEALTH_MARK_RANGE 內 */
+export const STEALTH_SPOT_RANGE = 6;
+export const STEALTH_MARK_RANGE = 8;
 /** 展開盾：機體正面寬這麼多格、高 1 層的矮牆；穿過它的射擊算半掩護，命中一律打在盾上。展開中只能用這個速度以下的機動，快了就自動收起 */
 export const BARRIER_WIDTH = 2;
 export const BARRIER_LEVELS = 1;

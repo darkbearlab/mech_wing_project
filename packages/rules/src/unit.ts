@@ -324,6 +324,12 @@ export function validateAction(u: UnitState, plan: ActionPlan): string[] {
   if (a.type === 'deploy' && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].deployable && (e.location === 'right' || e.location === 'left'))) errors.push(`${u.label}：手上沒有能展開的盾`);
   if (a.type === 'lunge' && !readyMelee(u)) errors.push(`${u.label}：手上沒有近戰武器，不能突進`);
   if ((a.type === 'smoke' || a.type === 'decoy' || a.type === 'mark' || a.type === 'mine' || a.type === 'barricade') && !u.equipment.some((e) => e.id === a.weapon && EQUIPMENT[e.defId].utility === a.type)) errors.push(`${u.label}：沒有這個道具`);
+  // 迫擊砲區域砲擊、火箭砲定時引信（第 8 版起）
+  if (a.type === 'barrage' || a.type === 'airburst') {
+    const def = EQUIPMENT[u.equipment.find((e) => e.id === a.weapon)?.defId ?? ''];
+    if (!def || (a.type === 'barrage' ? def.fire !== 'mortar' : !def.tags?.includes('airburst'))) errors.push(`${u.label}：${a.type === 'barrage' ? '沒有迫擊砲' : '沒有能用定時引信的武器'}`);
+    if (!Number.isFinite(a.at?.x) || !Number.isFinite(a.at?.y)) errors.push(`${u.label}：要選位置`);
+  }
   for (const [hand, target] of swapOrders(plan)) {
     const e = target === null ? null : u.equipment.find((x) => x.id === target && !alwaysReady(x));
     if (target !== null && !e) errors.push(`${u.label}：沒有這件裝備`);

@@ -16,5 +16,12 @@
       }
     }
   },
-  "builtin-16": {}
+  "builtin-16": {},
+  "builtin-18": {
+    "equipment": {
+      "bazooka": {
+        "tags": null
+      }
+    }
+  }
 }

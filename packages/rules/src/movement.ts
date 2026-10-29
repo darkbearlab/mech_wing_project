@@ -226,9 +226,9 @@ export function simulateMovement(
     if (!m.path || m.unit.status !== 'active') continue;
     const speed = Math.round(m.path.length);
     if (speed <= C.DEBRIS_SAFE_SPEED) continue;
-    for (const f of ctx.state.obstacles.filter((o) => o.kind === 'field')) {
+    for (const f of ctx.state.obstacles.filter((o) => o.kind === 'field' && !o.thin)) {
       if (!m.samples.some((s) => Math.hypot(s[0] - f.x, s[1] - f.y) <= f.r)) continue;
-      if (ctx.rng.d100() > (speed - C.DEBRIS_SAFE_SPEED) * C.DEBRIS_CHANCE_PER_SPEED) continue;
+      if (ctx.rng.d100() > (speed - C.DEBRIS_SAFE_SPEED) * (C.rulesAtLeast(ctx.state, 8) ? C.DEBRIS_CHANCE_PER_SPEED_V8 : C.DEBRIS_CHANCE_PER_SPEED)) continue;
       ctx.events.push({ type: 'debris', unit: m.unit.id, obstacle: f.id, damage: C.DAMAGE_SCALE });
       damageUnit(ctx, m.unit, C.DAMAGE_SCALE, 'scattered');
     }
