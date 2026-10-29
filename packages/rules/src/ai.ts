@@ -768,7 +768,7 @@ function aiPodActions(view: PlayerView, u: UnitView, enemies: UnitView[], focus:
     let best: { t: UnitView; v: number } | null = null;
     for (const t of enemies) {
       const at = e.pod.pos;
-      const h = hitChance({ attacker: { ...u, pos: at, facing: angleOf(sub(t.pos, at)) }, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: null, shooterMelee: false, cover: coverOf(view.state.obstacles, at, t.pos) });
+      const h = hitChance({ attacker: { ...u, pos: at, facing: angleOf(sub(t.pos, at)) }, attackerSkill: skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view.state.units as never, t as never), located: !!t.located, relSpeed: null, shooterMelee: false, cover: coverOf(view.state.obstacles, at, t.pos) });
       if (!h || h.chance < 10) continue;
       const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (e.bits ?? ps.count) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
       if (!best || v > best.v) best = { t, v };
@@ -821,7 +821,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
         if (!def.tags?.includes('turret') || (w.ammo !== undefined && w.ammo <= 0)) continue;
         let best: { t: UnitView; v: number } | null = null;
         for (const t of enemies) {
-          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
+          const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: false, cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
           if (!h || h.chance < 10) continue;
           const v = hitValue(h.chance) * (def.damage ?? 1) * (def.shots ?? 1) * (t === focus ? 1.4 : 1) * (1 + hurtOf(t) * 0.8);
           if (!best || v > best.v) best = { t, v };
@@ -848,7 +848,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       // 眩光要靠隊友接著開火才划算；AI 還不會整體協調，先不用
       if (def.tags?.includes('dazzle')) continue;
       for (const t of enemies) {
-        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
+        const h = hitChance({ attacker: u, attackerSkill: skill, weapon: def, target: t, targetSkill: null, jammed: jammed(view.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) });
         if (!h || (w.ammo !== undefined && w.ammo <= 0)) continue;
         // 集火：集火目標、受傷的、隊友已經瞄準的敵機加權
         // 誤擊風險：打到隊友的部分要倒扣，太容易打到隊友就不開火
@@ -956,7 +956,7 @@ export function aiActions(view: PlayerView, rng: Rng): PlayerActions {
       const t = shot!.target;
       const benched = new Set(Object.keys(plan.swaps ?? {}).map((h) => u.equipment.find((e) => e.location === h)?.id));
       const guns = heldOf(u, 'ranged').filter((w) => !benched.has(w.id) && (w.ammo === undefined || w.ammo > 0) && !EQUIPMENT[w.defId].tags?.includes('dazzle'));
-      const ok = guns.filter((w) => (hitChance({ attacker: u, attackerSkill: skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) })?.chance ?? 0) >= 12);
+      const ok = guns.filter((w) => (hitChance({ attacker: u, attackerSkill: skill, weapon: EQUIPMENT[w.defId], target: t, targetSkill: null, jammed: jammed(view.state.units as never, t as never), located: !!t.located, relSpeed: relativeSpeed(view.state.velocity, u.id, t.id), shooterMelee: view.state.stance[u.id] === 'melee', cover: coverOf(view.state.obstacles, u.pos, t.pos, u.z, t.z) })?.chance ?? 0) >= 12);
       if (!ok.length) plan.action = { type: 'none' };
       else plan.action = { type: 'shoot', weapon: ok[0].id, target: t.id, ...(ok.length > 1 ? { also: ok.slice(1).map((w) => w.id) } : {}) };
     }
