@@ -38,7 +38,7 @@ export function scaleContent(pack: ContentPack): ContentPack {
   return p;
 }
 
-export const BUILTIN_VERSION = 'builtin-18';
+export const BUILTIN_VERSION = 'builtin-19';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ammoRounds: true, ...BUILTIN_CONTENT };
 
 /**
@@ -86,7 +86,7 @@ const DAMAGE_TYPES = ['kinetic', 'energy', 'chemical'];
 const ARMOR_TYPES = ['composite', 'reflective', 'ceramic'];
 const KINDS = ['ranged', 'melee', 'shield', 'tank', 'armor', 'utility', 'module'];
 const MOUNTS = ['hand', 'mounted', 'integrated', 'housed'];
-const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle', 'turret'];
+const TAGS = ['quickDraw', 'secondary', 'volatile', 'overflow', 'dazzle', 'turret', 'airburst', 'proximity'];
 const ABILITIES = ['quick_draw', 'ace_move', 'newtype', 'called_shot', 'brawler', 'cyber_newtype', 'ship_killer'];
 const NT_SENSES = ['numb', 'strong', 'sensitive', 'fragile'];
 const CREWS = ['unmanned', 'pilot', 'ship'];

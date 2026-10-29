@@ -182,6 +182,7 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   if (!machine && h.target.mark && !jam) chance += C.MARK_BONUS;
   if (jam && needsMark(h.weapon)) chance -= C.ECM_GUIDED_PENALTY;
   if (locatedMortar && !h.target.mark) chance -= C.LOCATED_MORTAR_PENALTY;
+  if (h.weapon.tags?.includes('proximity') && C.rulesAtLeast({ rules: h.rules }, 8)) chance += C.PROXIMITY_HIT_BONUS;
   if (antiRadiation) chance += C.ARM_HIT_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
@@ -327,7 +328,26 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     } else {
       // 反輻射飛彈循著干擾電波打在干擾器上
       const homing = def.fire === 'antiRadiation' ? ecmOf(victim)?.id : undefined;
-      pending.push(top(() => shotBy(ctx, attacker, target, () => damageUnit(ctx, victim, dmg, def.mode ?? 'focused', homing, overflow), opts.from)));
+      const prox = !!def.tags?.includes('proximity') && C.rulesAtLeast(ctx.state, 8);
+      pending.push(
+        top(() =>
+          shotBy(
+            ctx,
+            attacker,
+            target,
+            () => {
+              const prev = ctx.proximity;
+              ctx.proximity = prox;
+              try {
+                damageUnit(ctx, victim, dmg, def.mode ?? 'focused', homing, overflow);
+              } finally {
+                ctx.proximity = prev;
+              }
+            },
+            opts.from,
+          ),
+        ),
+      );
     }
   }
   ctx.events.push({ type: 'shot', attacker: attacker.id, target: target.id, weapon: def.id, band: h.band, shots, hits, blocked, chance: h.chance, ...(crits ? { crits } : {}), ...(strays ? { strays } : {}), ...(opts.pursuit ? { pursuit: true } : {}), ...(opts.pod ? { pod: opts.pod, from: { ...opts.from! } } : {}), ...(opts.landing ? { inbound: opts.landing } : {}) });
@@ -363,9 +383,64 @@ function strayVictim(ctx: Ctx, attacker: UnitState, def: EquipDef, target: UnitS
 
 /** 迫擊砲的砲彈落在 at：落點附近的機體都受破片傷害 */
 function mortarBlast(ctx: Ctx, attacker: UnitState, at: Vec): void {
-  const hit = ctx.state.units.filter((u) => u.status === 'active' && dist(u.pos, at) - radiusOf(u) <= C.MORTAR_SPLASH_RADIUS);
-  ctx.events.push({ type: 'blast', by: attacker.id, at: { ...at }, units: hit.map((u) => u.id) });
-  for (const u of hit) dealtBy(ctx, attacker, () => typed(ctx, 'chemical', () => damageUnit(ctx, u, C.MORTAR_SPLASH_DAMAGE, 'focused')));
+  blast(ctx, attacker, at, C.MORTAR_SPLASH_RADIUS, C.MORTAR_SPLASH_DAMAGE);
+}
+
+/**
+ * 爆風：落點 radius 內（底板邊緣）的機體都受 damage 的化學能傷害。
+ * 第 8 版起傷害大多打在腳上（BLAST_LEGS_SHARE），落在隕石群裡會削掉隕石群的耐久
+ */
+export function blast(ctx: Ctx, attacker: UnitState, at: Vec, radius: number, damage: number, kind?: 'barrage' | 'airburst'): void {
+  const hit = ctx.state.units.filter((u) => u.status === 'active' && dist(u.pos, at) - radiusOf(u) <= radius);
+  ctx.events.push({ type: 'blast', by: attacker.id, at: { ...at }, units: hit.map((u) => u.id), ...(kind ? { kind } : {}) });
+  const v8 = C.rulesAtLeast(ctx.state, 8);
+  for (const u of hit)
+    dealtBy(ctx, attacker, () =>
+      typed(ctx, 'chemical', () => {
+        const legs = v8 ? Object.values(u.parts).find((p) => p.role === 'legs' && !p.destroyed) : undefined;
+        if (!legs) return damageUnit(ctx, u, damage, 'focused');
+        const toLegs = Math.round(damage * C.BLAST_LEGS_SHARE);
+        const prev = ctx.undirected;
+        ctx.undirected = true;
+        try {
+          damageUnit(ctx, u, toLegs, 'focused', legs.id);
+          damageUnit(ctx, u, damage - toLegs, 'focused');
+        } finally {
+          ctx.undirected = prev;
+        }
+      }),
+    );
+  if (v8) erodeField(ctx, at);
+}
+
+/** 化學能爆風落在隕石群裡：隕石群的耐久下降，扣光就變成稀薄碎石（第 8 版起） */
+export function erodeField(ctx: Ctx, at: Vec): void {
+  if (!C.rulesAtLeast(ctx.state, 8)) return;
+  const f = ctx.state.obstacles.find((o) => o.kind === 'field' && !o.thin && dist(at, o) <= o.r);
+  if (!f) return;
+  f.hp = (f.hp ?? C.FIELD_HP) - C.FIELD_BLAST_DAMAGE;
+  if (f.hp > 0) return;
+  f.thin = true;
+  delete f.hp;
+  ctx.events.push({ type: 'fieldThin', obstacle: f.id });
+}
+
+/** 從 u 到地點 at 的距離帶（底板邊緣到點） */
+export function pointBand(u: { pos: Vec; chassisId?: string }, at: Vec): RangeBand | null {
+  const d = dist(u.pos, at) - radiusOf(u);
+  if (d <= C.RANGE_LIMITS.r0) return 0;
+  if (d <= C.RANGE_LIMITS.r1) return 1;
+  if (d <= C.RANGE_LIMITS.r2) return 2;
+  if (d <= C.RANGE_LIMITS.r3) return 3;
+  if (d <= C.RANGE_LIMITS.r4) return 4;
+  return null;
+}
+
+/** 落點隨機偏移 min–max 格 */
+export function scatterPoint(ctx: Ctx, at: Vec, min: number, max: number): Vec {
+  const ang = ctx.rng.next() * Math.PI * 2;
+  const off = min + ctx.rng.next() * (max - min);
+  return { x: at.x + Math.cos(ang) * off, y: at.y + Math.sin(ang) * off };
 }
 
 export type AngleClass = 'front' | 'side' | 'back';
@@ -398,6 +473,13 @@ export function landInbound(ctx: Ctx, turn: TurnInfo): void {
   if (!due.length) return;
   state.inbound = (state.inbound ?? []).filter((x) => x.turn >= state.turn);
   for (const inb of due) {
+    // 區域砲擊：砲彈散落在瞄準的地點附近
+    if (inb.at) {
+      const attacker = state.units.find((u) => u.id === inb.attacker);
+      if (!attacker) continue;
+      for (let i = 0; i < inb.shots; i++) blast(ctx, attacker, scatterPoint(ctx, inb.at, C.BARRAGE_SCATTER_MIN, C.BARRAGE_SCATTER_MAX), C.BARRAGE_RADIUS, C.BARRAGE_DAMAGE, 'barrage');
+      continue;
+    }
     const lost = (reason: string) => ctx.events.push({ type: 'inboundLost', id: inb.id, attacker: inb.attacker, target: inb.target, weapon: inb.defId, reason });
     const target = state.units.find((u) => u.id === inb.target);
     const attacker = state.units.find((u) => u.id === inb.attacker);
@@ -443,5 +525,6 @@ export function landInbound(ctx: Ctx, turn: TurnInfo): void {
       velocity = { ...turn.velocity, [attacker.id]: { x: 0, y: 0 } };
     }
     if (!shoot(ctx, { ...turn, velocity }, shooter, weapon, target, { landing: inb.id, shots: inb.shots })) lost(landingMiss(def, shooter, target));
+    else if (def.damageType === 'chemical' && indirectFire(def)) erodeField(ctx, target.pos);
   }
 }

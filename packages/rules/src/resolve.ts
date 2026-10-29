@@ -3,7 +3,7 @@ import { barricadeSpotOk, barricadeWall, chaffed, jammed, mineSpotOk } from './e
 import { buildingHitChance, collapseVictims, damageBuilding } from './demolition';
 import * as C from './config';
 import { inMarkCone, sensorRange } from './vision';
-import { landInbound, needsMark, shoot, hitChance, spendRounds, type TurnInfo , indirectFire } from './combat';
+import { landInbound, needsMark, shoot, hitChance, spendRounds, type TurnInfo, indirectFire, blast, pointBand, scatterPoint } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, typed, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { lungeCheck, meleeClash } from './melee';
@@ -11,7 +11,7 @@ import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
 import { CHASSIS, EQUIPMENT } from './data';
 import { lineOfFire, wallPenetration, insideField } from './terrain';
-import { updateSight } from './visibility';
+import { stealthy, updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, EquipState, GameEvent, Mine, Obstacle, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState, Vec } from './types';
 import { anyPursuit, runPursuits } from './pursuit';
@@ -430,7 +430,8 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
   // 第 5 版起：在隕石群裡開火的，暴露到下一回合結束
   if (C.rulesAtLeast(state, 5)) for (const id of revealed) {
     const u = state.units.find((x) => x.id === id);
-    if (u && insideField(state.obstacles, u.pos)) u.exposedUntil = state.turn + 1;
+    // 第 8 版起：有匿蹤塗層的開火也一樣
+    if (u && (insideField(state.obstacles, u.pos) || stealthy(state, u))) u.exposedUntil = state.turn + 1;
   }
   updateSight(state, revealed);
   // 回合結束：煙霧散掉（散了以後氣球就藏不住了）
@@ -836,7 +837,8 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
   // 在煙霧裡、隔著煙霧的也標定不到（金屬粉）
   // 第 4 版起干擾不再擋標定（改成導引武器命中下降）
   const ecmBlocks = !C.rulesAtLeast(state, 4);
-  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !(ecmBlocks && jammed(state.units, t)) && !chaffed(state.obstacles, u.pos, t.pos) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
+  // 匿蹤塗層：STEALTH_MARK_RANGE 外標定不到
+  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !(stealthy(state, t) && dist(u.pos, t.pos) - radiusOf(u) - radiusOf(t) > C.STEALTH_MARK_RANGE) && !(ecmBlocks && jammed(state.units, t)) && !chaffed(state.obstacles, u.pos, t.pos) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
   if (!pool.length) return fail(`正面 ±${C.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內沒有可以標定的敵機`);
   for (let n = def.markCount ?? C.MARK_COUNT; n > 0 && pool.length; n--) {
     const t = pool.splice(Math.floor(ctx.rng.next() * pool.length), 1)[0];
@@ -847,12 +849,43 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
   return false;
 }
 
+/**
+ * 朝地點開火（第 8 版起）：迫擊砲區域砲擊（下回合砲彈散落）、火箭砲定時引信（當下在那裡引爆）。
+ * 不用目標、不用標定；定時引信要射擊線通到那個地點
+ */
+function fireAtPoint(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { type: 'barrage' | 'airburst' }>, benched: Set<string>): boolean {
+  const { state } = ctx;
+  const fail = (reason: string) => (ctx.events.push({ type: 'actionFail', unit: u.id, reason }), false);
+  if (!C.rulesAtLeast(state, 8)) return fail('這個規則版本沒有這種射擊');
+  const w = readyRanged(u).find((e) => e.id === action.weapon);
+  const def = w && EQUIPMENT[w.defId];
+  if (!w || !def) return fail('武器已經損壞或拿不到');
+  if (benched.has(w.id)) return fail(`${def.name}：這一側在換武器，不能開火`);
+  if (action.type === 'barrage' ? def.fire !== 'mortar' : !def.tags?.includes('airburst')) return fail(`${def.name}：不能這樣射擊`);
+  if (w.ammo !== undefined && w.ammo <= 0) return fail(`${def.name}：彈藥耗盡`);
+  const band = pointBand(u, action.at);
+  if (band === null || def.ranges?.[band as 1 | 2 | 3 | 4] === undefined) return fail(`${def.name}：那裡不在射程內`);
+  if (action.type === 'airburst' && lineOfFire(state.obstacles, u.pos, action.at, u.z, 0) === 'blocked') return fail(`${def.name}：射擊線被擋住`);
+  const shots = spendRounds(w, def.shots ?? 1);
+  if (!shots) return fail(`${def.name}：彈藥耗盡`);
+  if (action.type === 'barrage') {
+    const id = `in${state.turn}-${u.id}-${(state.inbound ?? []).length}`;
+    (state.inbound ??= []).push({ id, owner: u.owner, attacker: u.id, weapon: w.id, defId: def.id, target: '', shots, from: { ...u.pos }, ...(u.z ? { z: u.z } : {}), turn: state.turn, at: { ...action.at } });
+    ctx.events.push({ type: 'launch', id, attacker: u.id, target: '', weapon: def.id, shots });
+    return true;
+  }
+  const dmg = Math.round((def.damage ?? C.DAMAGE_SCALE) * C.AIRBURST_DAMAGE_SHARE);
+  for (let i = 0; i < shots; i++) blast(ctx, u, scatterPoint(ctx, action.at, 0, C.AIRBURST_SCATTER_MAX), C.AIRBURST_RADIUS, dmg, 'airburst');
+  return true;
+}
+
 /** 回傳 true 表示有開火或鎖定（會暴露位置） */
 function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benched: Set<string> = new Set()): boolean {
   const action = plan.action;
   if (action.type === 'none') return false;
   if (action.type === 'smoke' || action.type === 'decoy') return useUtility(ctx, u, action);
   if (action.type === 'mine') return layMine(ctx, u, action);
+  if (action.type === 'barrage' || action.type === 'airburst') return fireAtPoint(ctx, u, action, benched);
   if (action.type === 'barricade') return placeBarricade(ctx, u, action);
   if (action.type === 'mark') return doMark(ctx, u, action);
   if (action.type === 'lunge') return doLunge(ctx, u, action, benched);
@@ -930,6 +963,10 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
     }
     if (chaffed(ctx.state.obstacles, u.pos, target.pos)) {
       ctx.events.push({ type: 'actionFail', unit: u.id, reason: '隔著煙霧（金屬粉），鎖定不了' });
+      return false;
+    }
+    if (stealthy(ctx.state, target) && dist(u.pos, target.pos) - radiusOf(u) - radiusOf(target) > C.STEALTH_MARK_RANGE) {
+      ctx.events.push({ type: 'actionFail', unit: u.id, reason: `目標有匿蹤塗層，${C.STEALTH_MARK_RANGE} 格內才能鎖定` });
       return false;
     }
     const band = hitChance({ attacker: u, attackerSkill: 0, weapon: { id: '', name: '', kind: 'ranged', weight: 0, durability: 0, ranges: { 1: 0, 2: 0, 3: 0 } }, target, targetSkill: null, relSpeed: null, shooterMelee: false });

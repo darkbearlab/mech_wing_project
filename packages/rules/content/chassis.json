@@ -570,5 +570,90 @@
     ],
     "cost": 9,
     "armorType": "composite"
+  },
+  "X-09": {
+    "id": "X-09",
+    "name": "X-09 匿蹤型",
+    "weightClass": 1,
+    "load": 7,
+    "heavyMounts": 0,
+    "propellant": 16,
+    "baseThrust": 2,
+    "maxAccel": 3,
+    "power": 1,
+    "aim": 4,
+    "evasion": 18,
+    "parts": {
+      "torso": {
+        "name": "軀幹",
+        "role": "core",
+        "weight": 3,
+        "durability": 70
+      },
+      "rarm": {
+        "name": "右臂",
+        "role": "rightHand",
+        "weight": 2,
+        "durability": 30
+      },
+      "larm": {
+        "name": "左臂",
+        "role": "leftHand",
+        "weight": 2,
+        "durability": 30
+      },
+      "pack": {
+        "name": "推進背包",
+        "role": "propulsion",
+        "weight": 3,
+        "durability": 30
+      },
+      "legs": {
+        "name": "腿部",
+        "role": "legs",
+        "weight": 2,
+        "durability": 30
+      },
+      "head": {
+        "name": "感測頭部",
+        "role": "sensor",
+        "weight": 1,
+        "durability": 30
+      }
+    },
+    "dial": [
+      "hover-S-0",
+      "straight-S-1",
+      "straight-S-2",
+      "straight-S-3",
+      "straight-S-4",
+      "straight-S-5",
+      "bank-L-1",
+      "bank-R-1",
+      "bank-L-2",
+      "bank-R-2",
+      "bank-L-3",
+      "bank-R-3",
+      "turn-L-1",
+      "turn-R-1",
+      "turn-L-2",
+      "turn-R-2",
+      "turn-L-3",
+      "turn-R-3",
+      "arc-L-4",
+      "arc-R-4",
+      "arc-L-5",
+      "arc-R-5",
+      "kturn-S-2",
+      "kturn-S-3",
+      "kturn-S-4",
+      "reverse-S-1",
+      "reverse-S-2",
+      "rbank-L-1",
+      "rbank-R-1"
+    ],
+    "cost": 9,
+    "sensorRange": 10,
+    "armorType": "ceramic"
   }
 }

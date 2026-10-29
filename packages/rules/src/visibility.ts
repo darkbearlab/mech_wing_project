@@ -133,6 +133,12 @@ export function viewUnit(u: UnitState, viewer: PlayerId): UnitView {
   return { ...base, pilotId: u.pilotId, cost: u.cost, stress: u.stress, maxStress: u.maxStress, propellant: u.propellant, maxPropellant: u.maxPropellant, lockOn: u.lockOn, blackout: u.blackout };
 }
 
+/** 這台身上有還在運作的匿蹤塗層（規則第 8 版起） */
+export function stealthy(state: { rules?: number }, u: { status?: string; equipment?: EquipState[]; parts: Record<string, PartState> }): boolean {
+  if (!C.rulesAtLeast(state, 8) || (u.status && u.status !== 'active')) return false;
+  return (u.equipment ?? []).some((e) => EQUIPMENT[e.defId]?.stealth && !u.parts[e.id]?.destroyed);
+}
+
 /** 依目前位置重算雙方看得到哪些敵機，並更新最後目擊紀錄。revealed：這一步開火或鎖定而暴露位置的機體 */
 export function updateSight(state: GameState, revealed: Set<string> = new Set()): void {
   checkMarks(state);
@@ -151,7 +157,7 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
           !!e.mark ||
           (C.rulesAtLeast(state, 4) && !!ecmOf(e) && eyes.some((o) => dist(o.pos, e.pos) <= C.ECM_REVEAL_RANGE)) ||
           ((e.exposedUntil ?? -1) >= state.turn && eyes.some((o) => dist(o.pos, e.pos) <= C.FIELD_FIRE_EXPOSE_RANGE)) ||
-          eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))),
+          eyes.some((o) => canSee(state.obstacles, o.pos, stealthy(state, e) ? Math.min(sensorRange(o), C.STEALTH_SPOT_RANGE) : sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))),
     );
     state.visible[p] = seen.map((e) => e.id);
     // 第 7 版起：只靠干擾電波看到的（其他方式都看不到）另外記下來
@@ -186,7 +192,7 @@ export function checkMarks(state: GameState): void {
       // 進入自己這一方的電子干擾範圍，或被煙霧裡的金屬粉隔開，標定就失效
       (C.rulesAtLeast(state, 4) || !jammed(state.units, t)) &&
       !chaffed(state.obstacles, by.pos, t.pos) &&
-      dist(by.pos, t.pos) - radiusOf(by) - radiusOf(t) <= sensorRange(by);
+      dist(by.pos, t.pos) - radiusOf(by) - radiusOf(t) <= (stealthy(state, t) ? Math.min(sensorRange(by), C.STEALTH_MARK_RANGE) : sensorRange(by));
     if (!ok) delete t.mark;
   }
   // 鎖定也一樣：目標在煙霧裡或隔著煙霧就失效

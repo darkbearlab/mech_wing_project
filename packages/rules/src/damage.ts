@@ -26,6 +26,8 @@ export interface Ctx {
   from?: Vec;
   /** 沒有方向的傷害（樓塌下來）：部位不看攻擊方向 */
   undirected?: boolean;
+  /** 近炸：在旁邊炸開，核心（軀幹）很難被打到 */
+  proximity?: boolean;
 }
 
 /** 以 by 的名義造成傷害（擊墜歸屬），結束後還原 */
@@ -158,6 +160,10 @@ export function damageUnit(ctx: Ctx, u: UnitState, amount: number, mode: DamageM
       // 正面裝甲最厚：從正面打過來的傷害打折
       if (attackSide(u, from) === 'front') amount = Math.max(1, Math.round(amount * C.FRONT_DAMAGE_MULT));
     }
+  }
+  if (ctx.proximity) {
+    const base = mult;
+    mult = (p) => (base ? base(p) : 1) * (p.role === 'core' ? C.PROXIMITY_CORE_WEIGHT : 1);
   }
   // 外裝甲先吸收（盾牌擋下的照樣打盾）；打掉就自動脫落
   if (forcePart === undefined) {

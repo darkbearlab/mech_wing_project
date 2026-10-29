@@ -66,7 +66,10 @@
     },
     "cost": 3,
     "damageType": "chemical",
-    "ammo": 6
+    "ammo": 6,
+    "tags": [
+      "airburst"
+    ]
   },
   "beam_saber": {
     "id": "beam_saber",
@@ -498,5 +501,38 @@
     "durability": 20,
     "jumpJet": true,
     "cost": 2
+  },
+  "stealth_coat": {
+    "id": "stealth_coat",
+    "name": "匿蹤塗層",
+    "kind": "module",
+    "mount": "mounted",
+    "chassisOnly": [
+      "X-09"
+    ],
+    "stealth": true,
+    "weight": 2,
+    "durability": 20,
+    "cost": 3
+  },
+  "flak_gun": {
+    "id": "flak_gun",
+    "name": "近炸機砲",
+    "kind": "ranged",
+    "weight": 2,
+    "durability": 40,
+    "damage": 10,
+    "shots": 4,
+    "mode": "scattered",
+    "ranges": {
+      "1": 10,
+      "2": 0
+    },
+    "cost": 2,
+    "damageType": "kinetic",
+    "ammo": 48,
+    "tags": [
+      "proximity"
+    ]
   }
 }

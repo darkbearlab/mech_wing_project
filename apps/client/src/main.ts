@@ -656,8 +656,8 @@ resizeCanvas();
 const pr = (x: number, y: number, z = 0) => cam.project(x, y, z);
 
 /** 要在地圖上點位置的道具：煙霧彈、氣球、地雷、路障 */
-type PlacedKind = 'smoke' | 'decoy' | 'mine' | 'barricade';
-const PLACED: string[] = ['smoke', 'decoy', 'mine', 'barricade'];
+type PlacedKind = 'smoke' | 'decoy' | 'mine' | 'barricade' | 'barrage' | 'airburst';
+const PLACED: string[] = ['smoke', 'decoy', 'mine', 'barricade', 'barrage', 'airburst'];
 const placed = (a: ActionPlan['action'] | undefined): a is Extract<ActionPlan['action'], { type: PlacedKind }> => !!a && PLACED.includes(a.type);
 
 /** 依世界座標畫折線（看不到的點會斷開） */
@@ -1357,7 +1357,7 @@ function drawBalloons() {
 
 /** 煙霧彈、氣球、地雷、路障的預覽：可放的範圍與位置 */
 function drawUtilityPreview(u: UnitView, kind: PlacedKind, at: Vec) {
-  const reach = { smoke: config.SMOKE_THROW_RANGE, decoy: config.DECOY_PLACE_RANGE, mine: config.MINE_LAY_RANGE, barricade: config.BARRICADE_RANGE }[kind] + radiusOf(u);
+  const reach = { smoke: config.SMOKE_THROW_RANGE, decoy: config.DECOY_PLACE_RANGE, mine: config.MINE_LAY_RANGE, barricade: config.BARRICADE_RANGE, barrage: config.RANGE_LIMITS.r4, airburst: config.RANGE_LIMITS.r2 }[kind] + radiusOf(u);
   g.strokeStyle = 'rgba(255,207,74,0.45)';
   g.setLineDash([3, 5]);
   ringWorld(u.pos.x, u.pos.y, reach, 0, 0, Math.PI * 2, 64);
@@ -1376,7 +1376,7 @@ function drawUtilityPreview(u: UnitView, kind: PlacedKind, at: Vec) {
       [w.x - w.hx, w.y + w.hy, 0],
       [w.x - w.hx, w.y - w.hy, 0],
     ]);
-  } else ringWorld(at.x, at.y, kind === 'smoke' ? config.SMOKE_RADIUS : kind === 'mine' ? config.MINE_RADIUS : 0.5, 0, 0, Math.PI * 2, 40);
+  } else ringWorld(at.x, at.y, kind === 'smoke' ? config.SMOKE_RADIUS : kind === 'mine' ? config.MINE_RADIUS : kind === 'barrage' ? config.BARRAGE_RADIUS + config.BARRAGE_SCATTER_MAX : kind === 'airburst' ? config.AIRBURST_RADIUS + config.AIRBURST_SCATTER_MAX : 0.5, 0, 0, Math.PI * 2, 40);
   g.stroke();
   g.lineWidth = 1;
 }
@@ -2529,6 +2529,8 @@ function defaultTipFor(u: UnitView): string {
   if (a.type === 'smoke') return Number.isFinite(a.at.x) ? `煙霧彈丟到選好的位置：半徑 ${config.SMOKE_RADIUS}，射擊穿過或打裡面的目標 −${config.SMOKE_SHOT_PENALTY}，裡面的機體敵方認不出是什麼。` : `點地圖選煙霧彈的落點（${config.SMOKE_THROW_RANGE} 格內）。`;
   if (a.type === 'decoy') return Number.isFinite(a.at.x) ? '欺敵氣球放在選好的位置：在煙霧裡敵方分不出真假，出了煙霧就是一顆氣球。' : `點地圖選氣球的位置（${config.DECOY_PLACE_RANGE} 格內，放在煙霧裡才騙得到人）。`;
   if (a.type === 'mine') return Number.isFinite(a.at.x) ? MINE_TEXT : `點地圖選埋雷的位置（${config.MINE_LAY_RANGE} 格內的地上）。`;
+  if (a.type === 'barrage') return Number.isFinite(a.at.x) ? `區域砲擊：下回合砲彈散落在這附近（偏移 ${config.BARRAGE_SCATTER_MIN}–${config.BARRAGE_SCATTER_MAX} 格），半徑 ${config.BARRAGE_RADIUS} 內每台 ${config.BARRAGE_DAMAGE} 點、大多打腳。` : '點地圖選砲擊的區域（迫擊砲射程內，不用標定、不用視線）。';
+  if (a.type === 'airburst') return Number.isFinite(a.at.x) ? `定時引信：到那裡引爆，半徑 ${config.AIRBURST_RADIUS} 內每台受直擊的 ${config.AIRBURST_DAMAGE_SHARE * 100}%、大多打腳。` : '點地圖選引爆的位置（射程內、射擊線要通）。';
   if (a.type === 'barricade') return Number.isFinite(a.at.x) ? BARRICADE_TEXT : `點地圖選路障的位置（${config.BARRICADE_RANGE} 格內；會橫擋在你往那裡的方向上）。`;
   if (a.type === 'mark') return markText(u);
   if (a.type === 'deploy') return DEPLOY_TEXT;
@@ -3113,6 +3115,14 @@ function otherOptions(u: UnitView): EquipOption[] {
     const verb = { smoke: '丟出', decoy: '放置', mine: '埋設', barricade: '架設' }[def.utility];
     out.push({ key: `${def.utility}:${e.id}`, label: `${def.name}・${verb}（剩 ${e.ammo ?? '∞'}）`, kind: def.utility, equip: e.id });
   }
+  // 第 8 版起：迫擊砲區域砲擊、火箭砲定時引信（點地圖選位置）
+  if (config.rulesAtLeast(view!.state as never, 8))
+    for (const e of readyRanged(u as unknown as UnitState)) {
+      const def = EQUIPMENT[e.defId];
+      if (e.ammo !== undefined && e.ammo <= 0) continue;
+      if (def.fire === 'mortar') out.push({ key: `barrage:${e.id}`, label: `${def.name}・區域砲擊`, kind: 'barrage', equip: e.id });
+      if (def.tags?.includes('airburst')) out.push({ key: `airburst:${e.id}`, label: `${def.name}・定時引信`, kind: 'airburst', equip: e.id });
+    }
   for (const e of u.equipment) {
     const def = EQUIPMENT[e.defId];
     if (def.deployable && equipAlive(u, e) && (e.location === 'right' || e.location === 'left')) out.push({ key: `deploy:${e.id}`, label: `${def.name}・${e.deployed ? '收起' : '展開'}`, kind: 'deploy', equip: e.id });
@@ -3750,10 +3760,12 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} ${e.hand === 'right' ? '右手' : '左手'}換成 ${equipName(unitView(e.unit), e.equip)}`;
     case 'lock':
       return `${L(e.unit)} 鎖定 ${L(e.target)}`;
+    case 'fieldThin':
+      return `隕石群被炸散，成了稀薄碎石`;
     case 'stray':
       return `${L(e.attacker)} 打 ${L(e.target)} 的流彈打到旁邊的 ${L(e.unit)}`;
     case 'blast':
-      return `${L(e.by)} 的迫擊砲沒打中，砲彈落地爆炸${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
+      return `${L(e.by)} 的${e.kind === 'barrage' ? '區域砲擊落下' : e.kind === 'airburst' ? '定時引信彈引爆' : '迫擊砲沒打中，砲彈落地爆炸'}${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
     case 'deploy':
       return `${L(e.unit)} ${e.up ? '展開' : '收起'}${equipName(unitView(e.unit), e.equip)}`;
     case 'lunge':

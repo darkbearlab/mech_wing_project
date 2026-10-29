@@ -337,7 +337,7 @@ function render(v: PlayerView): string {
       move: `{"t":"moves","moves":{"<id>":{"maneuver":"straight-S-2","stance"?:"shoot|melee","facingOffset"?:0（懸停時 −180～180 的整數度，正的是右轉）,"limiter"?:false,"climb"?:true（攀升：速度 ${config.CLIMB_MAX_SPEED} 以下，撞到 ${config.CLIMB_LEVELS} 層以內的牆就爬上樓頂）,"jump"?:{"to":{"x":..,"y":..},"facing":角度}（垂直噴射器：不照機動盤，滑完動能後跳到 to、面向 facing）,"smoke"?:"煙幕彈發射器id"（速度 ${config.SCREEN_MAX_SPEED} 以下；移動開始時在原地放煙幕，留到回合結束）,"defer"?:true,"purge"?:true,"pods"?:{"<裝備id>":{"to":{"x":..,"y":..}}|{"recall":true}}}}}（省略的欄位用預設值）`,
       ace: `{"t":"moves","moves":{"<王牌 id>":{...同上}}}  要下指令的：${(v.aceUnits ?? []).join(', ')}`,
       pursuit: `{"t":"pursuits","pursuits":{"<id>":{"weapon":"..","target":".."}|null}}`,
-      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"deploy","weapon":"展開盾id"}（展開成正面寬 2 格的盾牆，再一次收起；展開中速度 1 以下，快了自動收起）|{"type":"lunge","target":".."}（突進：近戰姿態、手上有近戰武器，正面 ±60°、1.5 格內同高度的敵機；目標比自己低就是跳劈，2 格內、傷害 +落差、對方不能反擊）|{"type":"mark","weapon":"標定器id"}（掃描正面 ±60°、感測距離內的敵機，不用視線，隨機標定 markCount 台；我方看得到它們、命中 +10，持續到超出這台的感測距離；重標會先解除原本的；不暴露位置）|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}}|{"type":"resupply"}（停在自己的補給點上補滿彈藥與推進劑）|{"type":"mine","weapon":"佈雷器id","at":{"x":..,"y":..}}（底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上；對手看不到）|{"type":"barricade","weapon":"路障組id","at":{"x":..,"y":..}}（${config.BARRICADE_RANGE} 格內；1 層高的矮牆，橫擋在自己往 at 的方向上）,"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
+      action: `{"t":"actions","actions":{"<id>":{"action":{"type":"none"}|{"type":"shoot","weapon":"..","target":"..","also"?:["其他武器id"]（一起開火，全部打同一個目標）}|{"type":"lock","target":".."}|{"type":"deploy","weapon":"展開盾id"}（展開成正面寬 2 格的盾牆，再一次收起；展開中速度 1 以下，快了自動收起）|{"type":"lunge","target":".."}（突進：近戰姿態、手上有近戰武器，正面 ±60°、1.5 格內同高度的敵機；目標比自己低就是跳劈，2 格內、傷害 +落差、對方不能反擊）|{"type":"mark","weapon":"標定器id"}（掃描正面 ±60°、感測距離內的敵機，不用視線，隨機標定 markCount 台；我方看得到它們、命中 +10，持續到超出這台的感測距離；重標會先解除原本的；不暴露位置）|{"type":"smoke"|"decoy","weapon":"..","at":{"x":..,"y":..}}|{"type":"resupply"}（停在自己的補給點上補滿彈藥與推進劑）|{"type":"mine","weapon":"佈雷器id","at":{"x":..,"y":..}}（底板邊緣 ${config.MINE_LAY_RANGE} 格內的地上；對手看不到）|{"type":"barricade","weapon":"路障組id","at":{"x":..,"y":..}}（${config.BARRICADE_RANGE} 格內；1 層高的矮牆，橫擋在自己往 at 的方向上）|{"type":"barrage","weapon":"迫擊砲id","at":{"x":..,"y":..}}（區域砲擊：不用目標、標定、視線；下回合散落 ${config.BARRAGE_SCATTER_MIN}–${config.BARRAGE_SCATTER_MAX} 格，半徑 ${config.BARRAGE_RADIUS} 內每台 ${config.BARRAGE_DAMAGE} 點、大多打腳）|{"type":"airburst","weapon":"火箭砲id","at":{"x":..,"y":..}}（定時引信：射擊線要通到那裡，當下引爆、偏移 0–${config.AIRBURST_SCATTER_MAX} 格，半徑 ${config.AIRBURST_RADIUS} 內每台受直擊的 ${config.AIRBURST_DAMAGE_SHARE * 100}%、大多打腳）,"swaps"?:{"right"?:"裝備id|null","left"?:".."}（和同側武器架交換，那一側這回合不能開火）,"grapple"?:"cleave|thrust|entangle|disengage","pods"?:{"<裝備id>":["目標id"]},"salvo"?:{"<砲塔id>":"目標id"}（戰艦：每座砲塔各自開火）}}}`,
       over: '對戰結束',
     }[v.phase as string] ?? '',
   );
@@ -358,10 +358,12 @@ function eventText(e: GameEvent): string {
       return '';
     case 'actionFail':
       return `${L(e.unit)} 落空：${e.reason}`;
+    case 'fieldThin':
+      return `隕石群 ${e.obstacle} 被炸散，成了稀薄碎石`;
     case 'stray':
       return `${L(e.attacker)} 打 ${L(e.target)} 的流彈打到旁邊的 ${L(e.unit)}`;
     case 'blast':
-      return `${L(e.by)} 的迫擊砲散布，落在 ${pt(e.at)}${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
+      return `${L(e.by)} 的${e.kind === 'barrage' ? '區域砲擊' : e.kind === 'airburst' ? '定時引信彈' : '迫擊砲散布'}，落在 ${pt(e.at)}${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
     case 'deploy':
       return `${L(e.unit)} ${e.up ? '展開' : '收起'}盾牆`;
     case 'jump':
@@ -481,6 +483,7 @@ function writeCatalog() {
   out.push('', '== 駕駛（id 名稱 技能 費用 能力）==');
   for (const p of Object.values(PILOTS)) out.push(`${p.id} ${p.name} 技能${p.skill} 壓力上限${p.maxStress} 恢復${p.recovery} ${p.cost ?? 0}${p.unique ? ' unique' : ''} [${p.abilities.join(',')}]`);
   out.push('', `命中率 = ${config.HIT_BASE} + 機型瞄準 + 自己技能×${config.HIT_PER_SKILL_V4} + 距離修正 − 目標迴避 − 目標駕駛技能×${config.EVADE_PER_SKILL_V4}（技能差超過 ${config.SKILL_GAP_FREE} 每點再 −${config.SKILL_GAP_PENALTY_V4}）＋相對速度修正 ＋鎖定 +${config.LOCK_BONUS} −正面射界外 ${config.OFF_FRONT_PENALTY} −掩體（遮蔽類：煙霧 ${config.SMOKE_SHOT_PENALTY}、隕石群／瓦礫 ${config.FIELD_SHOT_PENALTY}，只取最重的一種；硬掩護類：建築或路障半掩護、盾牆 ${config.BUILDING_COVER_PENALTY}；兩類相加）＋比目標高（不論幾層）+${config.HIGH_GROUND_HIT}（沒有傷害加成）−目標比自己高 ${config.HIGH_TARGET_COVER_FROM} 層以上 ${config.BUILDING_COVER_PENALTY}（半掩護）＋被標定 +${config.MARK_BONUS} −自己是近戰姿態 ${config.MELEE_STANCE_SHOT_PENALTY} −黑視中 ${config.BLACKOUT_SHOT_PENALTY}；全部加起來超過 ${config.HIT_SOFT_CAP} 的部分只算一半；超過 100 的部分是爆擊`);
+  out.push(`爆風（第 8 版）：迫擊砲散布、區域砲擊、定時引信的爆風 ${config.BLAST_LEGS_SHARE * 100}% 打在腳上；化學能爆風落在隕石群裡，隕石群耐久 ${config.FIELD_HP} 扣 ${config.FIELD_BLAST_DAMAGE}，扣光變成稀薄碎石（${config.THIN_FIELD_SPOT_RANGE} 格外看不到、穿過 −${config.THIN_FIELD_PENALTY}）。近炸武器（proximity）命中 +${config.PROXIMITY_HIT_BONUS}，但打中時軀幹很難被打到（權重 ×${config.PROXIMITY_CORE_WEIGHT}）。匿蹤塗層（X-09 專用）：${config.STEALTH_SPOT_RANGE} 格外看不到、${config.STEALTH_MARK_RANGE} 格外標定與鎖定不了，開火後暴露到下一回合結束。隕石群裡速度超過 ${config.DEBRIS_SAFE_SPEED}，每多 1 撞碎石機率 +${config.DEBRIS_CHANCE_PER_SPEED_V8}%。`);
   out.push(`流彈：散射武器（直射、一次 3 發以上，例如機槍、臂部機砲）沒打中的每一發，目標 ${config.STRAY_RANGE} 格內（底板邊緣）有另一台它那一方的機體時，有 ${config.STRAY_CHANCE}% 機率打到最近的那台，傷害 ${config.STRAY_DAMAGE_SHARE * 100}%、不會爆擊；在隕石群裡的、隔著建築的不會被流彈打到。`);
   out.push(`隕石群：群裡的機體 ${config.FIELD_SPOT_RANGE} 格外看不到；從群裡往外也只看得到 ${config.FIELD_LOOK_OUT_RANGE} 格（底板邊緣距離）。在群裡開火的機體，到下一回合結束前，中心距離 ${config.FIELD_FIRE_EXPOSE_RANGE} 格內的敵機不用視線就看得到它。被標定的機體在群裡也一直看得到。`);
   out.push(

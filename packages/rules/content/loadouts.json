@@ -607,5 +607,29 @@
         "pack"
       ]
     ]
+  ],
+  "X-09": [
+    [
+      [
+        "flak_gun",
+        "right"
+      ],
+      [
+        "stealth_coat",
+        "mount",
+        "pack"
+      ]
+    ],
+    [
+      [
+        "sniper",
+        "right"
+      ],
+      [
+        "stealth_coat",
+        "mount",
+        "pack"
+      ]
+    ]
   ]
 }
