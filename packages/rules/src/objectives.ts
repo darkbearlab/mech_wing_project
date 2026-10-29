@@ -63,6 +63,8 @@ export const SCALES = {
   standard: { name: '標準', budget: 85, maxUnits: 6, killScore: 35 },
   expanded: { name: '擴大', budget: 100, maxUnits: 7, killScore: 42 },
   large: { name: '大規模', budget: 130, maxUnits: 8, killScore: 55 },
+  /** 對決：每方 2 台、不限分數（擊墜分門檻 0 代表不用擊墜分判勝負） */
+  duel: { name: '對決', budget: 999, maxUnits: 2, killScore: 0 },
 } as const;
 export type Scale = keyof typeof SCALES;
 
