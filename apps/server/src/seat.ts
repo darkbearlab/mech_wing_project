@@ -194,7 +194,7 @@ function shotTags(u: UnitView, from: Vec, t: UnitView, cover: CoverInfo, arc: nu
   for (const c of coverParts(cover)) tags.push(`${c.label} −${c.penalty}`);
   if (flight) tags.push(`下回合移動結束後才命中：那回合自己要速度 ${config.ATGM_GUIDE_MAX_SPEED} 以下、目標留在正面射界、看得到（沒隔著煙霧），不然落空`);
   const high = from === u.pos ? heightAdvantage(u, t) : 0;
-  if (high) tags.push(`高打低 +${high * config.HIGH_GROUND_HIT}${high >= config.HIGH_GROUND_DAMAGE_FROM ? `、每發傷害 +${config.HIGH_GROUND_DAMAGE_PCT * 100}%` : ''}`);
+  if (high) tags.push(`高打低 +${config.HIGH_GROUND_HIT}`);
   if (t.mark) tags.push('已標定');
   if (arc === undefined && relativeAngle({ pos: from, facing: u.facing }, t.pos) > (config.OFF_FRONT_DEG * Math.PI) / 180) tags.push(`我方正面射界外 −${config.OFF_FRONT_PENALTY}`);
   return tags.length ? `（${tags.join('・')}）` : '';
