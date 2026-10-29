@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, Match, Rng, aiOrders, createGame, ordersBySquad, pickRosters, replayRecord, submitStep, contentVersion, type BattleRecord, type BattleSettings, type BattleStep, type PlayerId, type PlayerMoves, type TurnPhase } from '../src/index';
+import { DEFAULT_SETTINGS, Match, Rng, aiOrders, createGame, ordersBySquad, pickRosters, replayRecord, submitStep, contentVersion, type BattleRecord, type BattleSettings, type BattleStep, type PlayerId, type PlayerMoves, type TurnPhase, config } from '../src/index';
 
 const strip = (k: string, v: unknown) => (k === 'squad' || k === 'squads' ? undefined : v);
 
@@ -47,7 +47,7 @@ describe('小隊', () => {
 
   it('分小隊的對戰紀錄重播得到一樣的結果', () => {
     const { m, rosters, steps } = play(2004, DEFAULT_SETTINGS, true);
-    const rec: BattleRecord = { format: 1, seed: 2004, contentVersion: contentVersion(), rosters, settings: DEFAULT_SETTINGS, seats: ['ai', 'ai'], startedAt: '', steps, winner: m.state.winner, turns: m.state.turn };
+    const rec: BattleRecord = { format: 1, seed: 2004, contentVersion: contentVersion(), rules: config.RULES_VERSION, rosters, settings: DEFAULT_SETTINGS, seats: ['ai', 'ai'], startedAt: '', steps, winner: m.state.winner, turns: m.state.turn };
     const r = replayRecord(JSON.parse(JSON.stringify(rec)));
     expect(r.errors).toEqual([]);
     expect(JSON.stringify(r.match.state)).toBe(JSON.stringify(m.state));

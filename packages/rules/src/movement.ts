@@ -297,8 +297,11 @@ export function simulateMovement(
     switch (result) {
       case 'bump':
         halt(a, b);
-        bumped.add(a.unit.id);
-        bumped.add(b.unit.id);
+        // 相對速度低的只是停下；夠快才會讓雙方這回合都不能行動（舊規則一律不能行動）
+        if (vc >= C.BUMP_STUN_VC || !C.rulesAtLeast(ctx.state, 3)) {
+          bumped.add(a.unit.id);
+          bumped.add(b.unit.id);
+        }
         break;
       case 'clinch':
         halt(a, b);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ROSTERS, PILOTS, randomRoster, type RosterEntry } from '../src/data';
+import { DEFAULT_ROSTERS, EQUIPMENT, PILOTS, randomRoster, type RosterEntry } from '../src/data';
 import { Match } from '../src/match';
 import { DEFAULT_SETTINGS, entryCost, flagshipOf, goalZone, killScoreOf, lineupProblems, rosterCost, type BattleSettings } from '../src/objectives';
 import { resolveTurn, validateDeploy } from '../src/resolve';
@@ -23,12 +23,34 @@ function park(s: GameState) {
 
 describe('費用與陣容', () => {
   it('自由組裝：裝備要放得進掛點；照配裝選項以外的組合也可以', () => {
-    const ok: RosterEntry = { chassis: 'X-04', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['atgm', 'mount', 'torso'], ['atgm', 'mount', 'torso'], ['vls', 'mount', 'pack'], ['smoke_discharger', 'mount', 'legs']] };
+    const ok: RosterEntry = { chassis: 'X-04', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['atgm', 'mount', 'torso'], ['missile_pod', 'mount', 'torso'], ['vls', 'mount', 'pack'], ['smoke_discharger', 'mount', 'legs']] };
     expect(lineupProblems([ok], 'expanded', { decapitation: false })).toEqual([]);
     const tooMany: RosterEntry = { ...ok, equipment: [...ok.equipment, ['jump_jet', 'mount', 'pack']] };
     expect(lineupProblems([tooMany], 'expanded', { decapitation: false }).join()).toContain('放不進掛點');
     const shieldRack: RosterEntry = { chassis: 'X-00', pilot: 'veteran', equipment: [['shield', 'stowed']] };
     expect(lineupProblems([shieldRack], 'expanded', { decapitation: false }).join()).toContain('放不進掛點');
+  });
+
+  it('載重、重掛點、專用裝備', () => {
+    const check = (e: RosterEntry) => lineupProblems([e], 'expanded', { decapitation: false }).join();
+    // 重型機兩個重掛點，第三件重型外掛裝不下
+    const heavy: RosterEntry = { chassis: 'X-04', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso'], ['shoulder_cannon', 'mount', 'torso'], ['vls', 'mount', 'pack']] };
+    expect(check(heavy)).toContain('重掛點');
+    expect(check({ ...heavy, equipment: heavy.equipment.slice(0, 2) })).toBe('');
+    // 中型機一個重掛點、輕型機沒有
+    expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso'], ['shoulder_cannon', 'mount', 'torso']] })).toContain('重掛點');
+    expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso']] })).toBe('');
+    expect(check({ chassis: 'X-01', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso']] })).toContain('沒有重掛點');
+    // 載重：輕型機 7
+    expect(check({ chassis: 'X-01', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['shield', 'left'], ['machine_gun', 'stowed']] })).toContain('載重 8 超過上限 7');
+    // 專用裝備
+    EQUIPMENT['jump_jet'].chassisOnly = ['X-01'];
+    try {
+      expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['jump_jet', 'mount', 'pack']] })).toContain('不能裝在這個機型上');
+      expect(check({ chassis: 'X-01', pilot: 'veteran', equipment: [['jump_jet', 'mount', 'pack']] })).toBe('');
+    } finally {
+      delete EQUIPMENT['jump_jet'].chassisOnly;
+    }
   });
 
   it('費用＝機型＋駕駛＋帶的裝備；標準裝備不算', () => {

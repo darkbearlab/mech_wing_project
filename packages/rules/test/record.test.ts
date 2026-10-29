@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Match, Rng, aiOrders, checkRecord, contentVersion, createGame, randomRoster, replayRecord, submitStep, type BattleRecord, type PlayerId, type TurnPhase } from '../src/index';
+import { Match, Rng, aiOrders, checkRecord, contentVersion, createGame, randomRoster, replayRecord, submitStep, type BattleRecord, type PlayerId, type TurnPhase, config } from '../src/index';
 
 /** 用 AI 打 maxSteps 次結算，照客戶端的格式記下來 */
 function recordGame(seed: number, maxResolves = 999): { rec: BattleRecord; match: Match } {
@@ -7,7 +7,7 @@ function recordGame(seed: number, maxResolves = 999): { rec: BattleRecord; match
   const r0 = new Rng(seed + 2);
   const rosters: BattleRecord['rosters'] = [randomRoster(() => r0.next(), 3), randomRoster(() => r0.next(), 3)];
   const match = new Match(seed, createGame(seed, rosters));
-  const rec: BattleRecord = { format: 1, seed, contentVersion: contentVersion(), rosters: structuredClone(rosters), seats: ['human', 'ai'], startedAt: '', steps: [], winner: null, turns: 0 };
+  const rec: BattleRecord = { format: 1, seed, contentVersion: contentVersion(), rules: config.RULES_VERSION, rosters: structuredClone(rosters), seats: ['human', 'ai'], startedAt: '', steps: [], winner: null, turns: 0 };
   while (match.phase !== 'over' && maxResolves-- > 0) {
     const before = match.resolvedCount;
     for (const p of [0, 1] as PlayerId[]) {

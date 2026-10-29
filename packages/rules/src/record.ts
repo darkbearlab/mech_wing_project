@@ -4,6 +4,7 @@ import type { ContentPack } from './content';
 import type { RosterEntry } from './data';
 import { Match } from './match';
 import { createGame } from './setup';
+import { RULES_VERSION } from './config';
 import type { PlayerActions, PlayerDeploy, PlayerId, PlayerMoves, PlayerPursuits, TurnPhase } from './types';
 import type { BattleSettings } from './objectives';
 
@@ -33,6 +34,8 @@ export interface BattleRecord {
   seed: number;
   /** 開場用的資料版本 */
   contentVersion: string;
+  /** 規則版本（舊紀錄沒有：重播時從聯賽開打以來的版本裡找對得上的） */
+  rules?: number;
   /** 機庫草稿試玩時沒有固定版本，整份資料包一起附上 */
   pack?: ContentPack;
   /** 出擊準備選的陣容；沒有就是照資料包的隨機規則 */
@@ -80,12 +83,34 @@ export function submitStep(match: Match, s: BattleStep): string[] {
   return match.submitActions(s.seat, s.orders as PlayerActions, s.squad);
 }
 
+/** 沒寫規則版本的舊紀錄：當時可能用過的版本（新的先試） */
+const LEGACY_RULES = [2, 1];
+
+/** 照紀錄的規則版本開場 */
+export function recordStart(rec: BattleRecord, rules = rec.rules ?? RULES_VERSION): Match {
+  return new Match(rec.seed, createGame(rec.seed, rec.rosters, rec.settings, rules));
+}
+
+type OnResolved = (m: Match, phase: TurnPhase, orders: [BattleStep['orders'] | null, BattleStep['orders'] | null]) => void;
+
 /**
  * 照紀錄重播（資料包要先換成紀錄用的版本）。
  * onResolved 在每次結算後呼叫，帶這次結算前各席位送出的指令。
+ * 沒寫規則版本的舊紀錄依序試當時的幾個版本，用第一個對得上的（都對不上就用最新的那個的結果）。
  */
-export function replayRecord(rec: BattleRecord, onResolved?: (m: Match, phase: TurnPhase, orders: [BattleStep['orders'] | null, BattleStep['orders'] | null]) => void): { match: Match; errors: string[] } {
-  const match = new Match(rec.seed, createGame(rec.seed, rec.rosters, rec.settings));
+export function replayRecord(rec: BattleRecord, onResolved?: OnResolved): { match: Match; errors: string[]; rules: number } {
+  if (rec.rules !== undefined) return { ...replayWith(rec, rec.rules, onResolved), rules: rec.rules };
+  let first: { match: Match; errors: string[]; rules: number } | null = null;
+  for (const rules of LEGACY_RULES) {
+    const out = { ...replayWith(rec, rules), rules };
+    first ??= out;
+    if (!out.errors.length) return onResolved ? { ...replayWith(rec, rules, onResolved), rules } : out;
+  }
+  return onResolved ? { ...replayWith(rec, first!.rules, onResolved), rules: first!.rules } : first!;
+}
+
+function replayWith(rec: BattleRecord, rules: number, onResolved?: OnResolved): { match: Match; errors: string[] } {
+  const match = recordStart(rec, rules);
   const errors: string[] = [];
   let pending: [BattleStep['orders'] | null, BattleStep['orders'] | null] = [null, null];
   for (const [i, s] of rec.steps.entries()) {

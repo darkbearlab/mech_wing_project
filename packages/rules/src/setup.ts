@@ -1,4 +1,4 @@
-import { FLIGHT_LEVEL, MAP_SIZE, ROSTER_MODE, SMOKE_RADIUS, SMOKE_TURNS_GRAVITY, SMOKE_TURNS_SPACE, START_MOMENTUM, UNSUITED_SPEED_CUT } from './config';
+import { FLIGHT_LEVEL, MAP_SIZE, ROSTER_MODE, SMOKE_RADIUS, SMOKE_TURNS_GRAVITY, SMOKE_TURNS_SPACE, START_MOMENTUM, UNSUITED_SPEED_CUT, RULES_VERSION } from './config';
 import { contentVersion } from './content';
 import { Rng } from './rng';
 import { generateObstacles } from './terrain';
@@ -61,7 +61,7 @@ export function pickRosters(seed: number): [RosterEntry[], RosterEntry[]] {
   return [a, ROSTER_MODE === 'mirror' ? structuredClone(a) : randomRoster(() => rng.next())];
 }
 
-export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]] = pickRosters(seed), settings: BattleSettings = DEFAULT_SETTINGS): GameState {
+export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]] = pickRosters(seed), settings: BattleSettings = DEFAULT_SETTINGS, rules: number = RULES_VERSION): GameState {
   const units: UnitState[] = [];
   rosters.forEach((roster, owner) => {
     const y = owner === 0 ? 2 : MAP_SIZE - 2;
@@ -105,7 +105,7 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
     // 宇宙裡腳斷了還飄得動；重力圈、水中就站不起來了
     if (env !== 'space') u.grounded = true;
   }
-  const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), winner: null, settings: structuredClone(settings), objectives: newObjectives(), decoys, reserves };
+  const state: GameState = { turn: 1, phase: free ? 'deploy' : 'move', turnInfo: null, obstacles, visible: [[], []], lastSeen: [{}, {}], units, grapples: [], rngState: seed >>> 0, contentVersion: contentVersion(), rules, winner: null, settings: structuredClone(settings), objectives: newObjectives(), decoys, reserves };
   // 事先布置的煙霧
   const smokeTurns = (settings.environment ?? 'space') === 'space' ? SMOKE_TURNS_SPACE : SMOKE_TURNS_GRAVITY;
   (settings.prepared?.smokes ?? []).forEach((p, k) => state.obstacles.push({ id: `smoke0-${k}`, kind: 'smoke', x: p.x, y: p.y, r: SMOKE_RADIUS, until: smokeTurns }));

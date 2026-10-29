@@ -509,6 +509,22 @@ describe('回合分兩步', () => {
     m.submitMoves(1, { [st.units[1].id]: plan({ maneuver: 'hover-S-0' }) });
     expect(m.viewFor(1).state.bumped).toContain(st.units[0].id);
   });
+
+  it('相對速度不到 3 的擦撞只會停下、還能行動；舊規則（第 2 版）照樣不能行動', () => {
+    for (const rules of [C.RULES_VERSION, 2]) {
+      const st = makeState([
+        { entry: rifleX00, owner: 0, x: 5, y: 10, facingDeg: 0 },
+        { entry: rifleX00, owner: 1, x: 7.5, y: 10, facingDeg: 180 },
+      ]);
+      st.rules = rules;
+      const m = new Match(1, st);
+      m.submitMoves(0, { [st.units[0].id]: plan({ maneuver: 'straight-S-2' }) });
+      m.submitMoves(1, { [st.units[1].id]: plan({ maneuver: 'hover-S-0' }) });
+      const c = m.eventsFor(0).find((e) => e.type === 'contact' && e.result === 'bump');
+      expect(c && c.type === 'contact' ? c.vc : 0).toBe(2);
+      expect(m.viewFor(1).state.bumped.includes(st.units[0].id)).toBe(rules === 2);
+    }
+  });
 });
 
 describe('整場模擬', () => {

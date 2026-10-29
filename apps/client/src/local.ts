@@ -1,6 +1,6 @@
 // 本機模式：Match 直接跑在瀏覽器裡，給 GitHub Pages 這類沒有伺服器的環境用。
 // 回傳的訊息格式和 WebSocket 伺服器相同，main.ts 不需要分辨來源。
-import { DEFAULT_SETTINGS, Match, Rng, aiOrders, scriptedOrders, type Scenario, contentVersion, createGame, submitStep, type BattleRecord, type BattleSettings, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
+import { DEFAULT_SETTINGS, config, Match, Rng, aiOrders, scriptedOrders, type Scenario, contentVersion, createGame, submitStep, type BattleRecord, type BattleSettings, type BattleStep, type ClientMessage, type GameEvent, type PlayerId, type PlayerView, type RosterEntry, type ServerMessage } from '@mech/rules';
 import { draftPack } from './content';
 import { uploadBattle } from './record';
 
@@ -45,6 +45,7 @@ export class LocalGame {
       format: 1,
       seed,
       contentVersion: version,
+      rules: config.RULES_VERSION,
       pack: version === 'draft' ? (draftPack ?? undefined) : undefined,
       rosters: this.rosters && structuredClone(this.rosters),
       settings: structuredClone(this.settings),

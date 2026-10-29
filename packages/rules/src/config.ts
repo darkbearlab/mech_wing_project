@@ -5,6 +5,14 @@ export const BASE_RADIUS = 0.5;
 export const MOVE_STEPS = 40;
 export const TURN_LIMIT = 25;
 
+/**
+ * 規則版本：改到結算結果的規則都要加一版，舊的寫法用 rulesAtLeast 留著，舊紀錄才能照當時的規則重播。
+ * 1：聯賽開打時（補給會補滿煙幕彈）；2：補給不補煙幕彈；3：低速擦撞只停下、不會不能行動
+ */
+export const RULES_VERSION = 3;
+/** 這一場用的規則是不是第 v 版以後（沒寫版本的是現在的規則） */
+export const rulesAtLeast = (s: { rules?: number }, v: number): boolean => (s.rules ?? RULES_VERSION) >= v;
+
 // 地形（以地圖中心點對稱產生）
 export const ROCK_PAIRS = 1;
 export const FIELD_PAIRS = 1;
@@ -76,6 +84,8 @@ export const ACE_SKILL = 5;
 // 接觸
 /** 近戰姿態的接觸：相對接近速度 ≤ 這個值就咬住（纏鬥），以上是一擊脫離（沒拿近戰武器則是撞擊） */
 export const CLINCH_MAX_VC = 2;
+/** 擦撞：相對速度到這個值，雙方這回合都不能行動；低於這個只會停下（規則第 3 版起） */
+export const BUMP_STUN_VC = 3;
 /** 自己這回合的速度 ≤ 這個值算慢速：近戰姿態慢速時不主動出刀，被高速衝進來就承受衝擊 */
 export const SLOW_MAX_SPEED = 2;
 /** 機動盤上單一機動的速度上限（資料檢查用；VOB 之類的高速裝備之後再談） */

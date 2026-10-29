@@ -185,7 +185,8 @@ export function resolveMovement(input: GameState, movesByPlayer: [PlayerMoves, P
 
   // 第一步裡被碰撞（擦撞、撞擊、近戰、咬住）的王牌就失去這次王牌移動：敵人已經在眼前，看穿也來不及反應
   exposeDecoys(ctx);
-  const hit = new Set([...bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.a, e.b] : []))]);
+  // 低速擦撞（停下但還能行動）不算被碰撞
+  const hit = new Set([...bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' && e.result !== 'bump' ? [e.a, e.b] : []))]);
   for (const id of deferred) if (hit.has(id) && unitById(ctx, id).status === 'active') ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
   const waiting = [...deferred].filter((id) => unitById(ctx, id).status === 'active' && !hit.has(id) && !inGrapple(state, id));
   const speed: Record<string, number> = {};
@@ -231,7 +232,7 @@ export function resolveAceMovement(input: GameState, movesByPlayer: [PlayerMoves
   for (const id of aces) velocity[id] = result.velocity[id] ?? { x: 0, y: 0 };
   exposeDecoys(ctx);
   // 還沒動的王牌（技能較高的下一批）；這一批動的時候被碰撞或拖進纏鬥的就失去王牌移動
-  const hit = new Set([...result.bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' ? [e.a, e.b] : []))]);
+  const hit = new Set([...result.bumped, ...ctx.events.flatMap((e) => (e.type === 'contact' && e.result !== 'none' && e.result !== 'bump' ? [e.a, e.b] : []))]);
   const later = (info.deferred ?? []).filter((id) => !aces.has(id) && unitById(ctx, id).status === 'active');
   for (const id of later) if (hit.has(id)) ctx.events.push({ type: 'actionFail', unit: id, reason: '被碰撞，失去王牌移動' });
   const next = later.filter((id) => !hit.has(id) && !inGrapple(state, id));
@@ -694,7 +695,7 @@ function resupply(ctx: Ctx, u: UnitState): boolean {
   // 煙幕彈發射器一場只能用一次，補給不補
   for (const e of u.equipment) {
     const max = EQUIPMENT[e.defId].ammo;
-    if (max !== undefined && equipAlive(u, e) && EQUIPMENT[e.defId].utility !== 'screen') e.ammo = max;
+    if (max !== undefined && equipAlive(u, e) && (EQUIPMENT[e.defId].utility !== 'screen' || !C.rulesAtLeast(ctx.state, 2))) e.ammo = max;
   }
   u.propellant = u.maxPropellant;
   ctx.events.push({ type: 'resupply', unit: u.id });

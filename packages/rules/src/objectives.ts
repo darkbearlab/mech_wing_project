@@ -1,6 +1,6 @@
 // 勝利條件與費用：開戰前選的條件（可複選，先達成者勝），以及機體＋駕駛＋裝備的費用。
 // 一方全滅一定算輸；回合上限到了比擊墜分（有據點時先比據點分）。
-import { gearToSlots } from './loadout';
+import { gearProblems } from './loadout';
 import * as C from './config';
 import { CHASSIS, EQUIPMENT, PILOTS, type RosterEntry } from './data';
 import { dist } from './geometry';
@@ -87,15 +87,14 @@ export function lineupProblems(r: RosterEntry[], scale: Scale, settings: Pick<Ba
   const cost = rosterCost(r);
   if (cost > limit.budget) out.push(`費用 ${cost} 超出${share ? '這一隊分到的' : ''}預算 ${limit.budget}`);
   if (r.length > limit.maxUnits) out.push(share ? `這一隊最多 ${limit.maxUnits} 台` : `${s.name}最多 ${s.maxUnits} 台`);
-  // 配裝：每件裝備都要放得進這個機型的掛點（可以照配裝選項，也可以自己組）
+  // 配裝：每件裝備都要放得進這個機型的掛點、不超過載重與重掛點（可以照配裝選項，也可以自己組）
   for (const [i, e] of r.entries()) {
     if (!CHASSIS[e.chassis]) out.push(`第 ${i + 1} 台：沒有機型 ${e.chassis}`);
     else if (!PILOTS[e.pilot]) out.push(`第 ${i + 1} 台：沒有駕駛 ${e.pilot}`);
     else {
       const bad = e.equipment.filter(([d]) => !EQUIPMENT[d]).map(([d]) => d);
-      const extra = gearToSlots(e.chassis, e.equipment).extra;
       if (bad.length) out.push(`第 ${i + 1} 台：沒有裝備 ${bad.join('、')}`);
-      else if (extra.length) out.push(`第 ${i + 1} 台（${e.chassis}）：${extra.map(([d, loc, host]) => `${EQUIPMENT[d].name}@${loc}${host ? `/${host}` : ''}`).join('、')} 放不進掛點`);
+      else for (const p of gearProblems(e.chassis, e.equipment)) out.push(`第 ${i + 1} 台（${e.chassis}）：${p}`);
     }
   }
   const seen = new Set<string>();
