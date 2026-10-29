@@ -20,6 +20,20 @@ describe('移動預測', () => {
     expect(w.some((x) => x.kind === 'wall' && x.with === 'b1')).toBe(true);
   });
 
+  it('從樓頂走下去：底板離開樓頂就掉到地面，接著撞上對面同高的樓也預測得到', () => {
+    const st = makeState([{ entry: rifleX00, owner: 0, x: 4, y: 10, facingDeg: 0 }]);
+    // 站在 2 層的 a 上，隔一條街是同樣 2 層的 b
+    st.obstacles = [bld('a', 4, 10, 1, 2, 2), bld('b', 8.2, 10, 1, 2, 2)];
+    st.units[0].z = 2;
+    st.units[0].momentum = 3;
+    const u = st.units[0];
+    const p = { [u.id]: plan({ maneuver: 'straight-S-3' }) };
+    const w = forecastMoves(st.units, p, st.obstacles);
+    const r = resolveTurn(st, [p, {}]);
+    expect(r.events.some((e) => e.type === 'obstacle' && e.unit === u.id)).toBe(true);
+    expect(w.some((x) => x.kind === 'wall' && x.with === 'b')).toBe(true);
+  });
+
   it('兩台隊友的路線同時交會：預測擦撞；一開始就貼著或只有一台、錯開時間就不算', () => {
     const st = makeState([
       { entry: rifleX00, owner: 0, x: 8, y: 6, facingDeg: 90 },
