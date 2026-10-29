@@ -1,7 +1,7 @@
 // 檢查建議配置：node 讀 JSON（[{name, scale, roster:[{chassis,pilot,equipment}]}]），列出每隊的費用與問題
 import { readFileSync } from 'node:fs';
 import { lineupProblems, rosterCost, entryCost, SCALES, type Scale } from '../src/objectives';
-import type { RosterEntry } from '../src/types';
+import type { RosterEntry } from '../src/data';
 
 const teams = JSON.parse(readFileSync(process.argv[2], 'utf8')) as { name: string; scale: Scale; roster: RosterEntry[] }[];
 let bad = 0;

@@ -156,7 +156,7 @@ describe('掩體疊加', () => {
       { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 },
       { entry: rifleX00, owner: 1, x: 12, y: 5, facingDeg: 180 },
     ]);
-    return { st, h: (obstacles: Obstacle[]) => hitChance({ attacker: st.units[0], attackerSkill: 3, weapon: EQUIPMENT.beam_rifle, target: st.units[1], targetSkill: null, relSpeed: 0, shooterMelee: false, cover: coverOf(obstacles, st.units[0].pos, st.units[1].pos) })!.chance };
+    return { st, h: (obstacles: Obstacle[]) => hitChance({ attacker: st.units[0], attackerSkill: 3, weapon: EQUIPMENT.beam_rifle, target: st.units[1], targetSkill: null, relSpeed: 0, shooterMelee: false, cover: coverOf(obstacles, st.units[0].pos, st.units[1].pos), rules: 3 })!.chance };
   };
   const smoke: Obstacle = { id: 's', kind: 'smoke', x: 9, y: 5, r: 1 };
   const field: Obstacle = { id: 'f', kind: 'field', x: 8, y: 5, r: 1 };

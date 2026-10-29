@@ -81,7 +81,9 @@ import {
   availableManeuvers,
   immobile,
   forecastMoves,
+  builtinPack,
   contentVersion,
+  useContent,
   jumpJetOf,
   jumpCost,
   coastEnd,
@@ -2536,7 +2538,7 @@ function defaultTipFor(u: UnitView): string {
   if (bt && a.type === 'shoot') return `射擊建築 ${bt.id}：${buildingEstimate(u, a.weapon, bt)}。化學能 ×${BUILDING_TYPE_MULT.chemical}、動能 ×${BUILDING_TYPE_MULT.kinetic}、能量 ×${BUILDING_TYPE_MULT.energy}；打光一層就少一層，而且下面那層有 ${config.COLLAPSE_CHAIN * 100}% 機率跟著塌（可以一路塌下去）；樓頂上的機體跟著掉下來，每掉一層受 ${config.COLLAPSE_DAMAGE} 點（大多打在腳上）；打平變成瓦礫。`;
   const t = unitView(a.target);
   if (a.type === 'lunge') return `${t ? lungeTip(u, t) : `突進 ${labelOf(a.target)}`}`;
-  return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL}）看不到，所以沒算。`;
+  return a.type === 'lock' ? `鎖定 ${labelOf(a.target)}，下次對它射擊命中率 +${config.LOCK_BONUS}%。` : `射擊 ${labelOf(a.target)}${t ? `：${estimate(u, plan, t)}` : ''}。估計值已經算進距離、相對速度、射擊線、射界、鎖定等駕駛以外的因素；對方駕駛的閃避（技能 × ${config.EVADE_PER_SKILL_V4}）看不到，所以沒算。`;
 }
 
 function bindTips() {
@@ -3152,7 +3154,7 @@ function markText(u: UnitView, equip?: string): string {
   const def = EQUIPMENT[u.equipment.find((e) => e.id === id)?.defId ?? ''];
   const n = def?.markCount ?? config.MARK_COUNT;
   const jam = jammed(view!.state.units, u) ? '【注意：這台在我方電子干擾範圍內，現在標定不了；要離開干擾機中心 ' + config.ECM_RADIUS + ' 格以外】' : '';
-  return `${jam}掃描正面 ±${config.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內的敵機（不用視線，建築擋不住；在對方電子干擾範圍內的標定不到），隨機標定 ${n} 台：我方一直看得到它們，射擊命中 +${config.MARK_BONUS}%（自己也算）。持續到超出這台的感測距離、或這台的頭部或標定器被破壞為止，回合和攻擊都不會消耗。已經被標定的不會重複；再標定一次，原本標的會全部解除重挑。不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。標定在行動步驟最先結算，隊友這回合就能用導引武器打。`;
+  return `${jam}掃描正面 ±${config.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內的敵機（不用視線，建築擋不住；在對方電子干擾範圍內的也標定得到，但導引武器打它命中 −${config.ECM_GUIDED_PENALTY}%、標定加成不算），隨機標定 ${n} 台：我方一直看得到它們，射擊命中 +${config.MARK_BONUS}%（自己也算）。持續到超出這台的感測距離、或這台的頭部或標定器被破壞為止，回合和攻擊都不會消耗。已經被標定的不會重複；再標定一次，原本標的會全部解除重挑。不會暴露自己的位置，但對方知道自己被標定了。標定就不能開火。標定在行動步驟最先結算，隊友這回合就能用導引武器打。`;
 }
 
 /** 有目標的動作：射擊、鎖定 */
@@ -3966,8 +3968,12 @@ async function openRecord(id: number) {
   cover.innerHTML = '<div class="recBox"><p>讀取紀錄…</p></div>';
   try {
     const rec = await loadBattle(id);
-    // 紀錄用的資料版本和現在的不一樣：發佈過的版本可以抓回來，內建的舊版就只能照現在的規則重播
-    if (rec.contentVersion !== contentVersion() && !rec.contentVersion.startsWith('builtin')) await loadContent(rec.contentVersion);
+    // 紀錄用的資料版本和現在的不一樣：發佈過的版本抓回來，內建的舊版從 history.json 往回推
+    if (rec.contentVersion !== contentVersion()) {
+      const old = builtinPack(rec.contentVersion);
+      if (old) useContent(old);
+      else await loadContent(rec.contentVersion);
+    }
     player = new RecordPlayer(rec, onMessage);
     cover.hidden = true;
     player.begin();

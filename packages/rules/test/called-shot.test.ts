@@ -44,7 +44,7 @@ it('估計命中率（不知道對方駕駛）和實際只差對方駕駛的閃�
     { entry: rifleX00, owner: 1, x: 9, y: 5, facingDeg: 180 },
   ]);
   const [a, t] = st.units;
-  const base = { attacker: a, attackerSkill: 5, weapon: EQUIPMENT['beam_rifle'], target: t, relSpeed: 2, shooterMelee: false } as const;
+  const base = { attacker: a, attackerSkill: 5, weapon: EQUIPMENT['beam_rifle'], target: t, relSpeed: 2, shooterMelee: false, rules: 3 } as const;
   const est = hitChance({ ...base, targetSkill: null })!.chance;
   const real = hitChance({ ...base, targetSkill: 3 })!.chance;
   expect(est - real).toBe(3 * C.EVADE_PER_SKILL);

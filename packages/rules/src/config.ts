@@ -7,9 +7,10 @@ export const TURN_LIMIT = 25;
 
 /**
  * 規則版本：改到結算結果的規則都要加一版，舊的寫法用 rulesAtLeast 留著，舊紀錄才能照當時的規則重播。
- * 1：聯賽開打時（補給會補滿煙幕彈）；2：補給不補煙幕彈；3：低速擦撞只停下、不會不能行動
+ * 1：聯賽開打時（補給會補滿煙幕彈）；2：補給不補煙幕彈；3：低速擦撞只停下、不會不能行動；
+ * 4：技能差縮小、命中 80 以上減半、電子干擾改成導引減值（不再擋標定）、開著的干擾機會暴露、反輻射飛彈不用射擊線
  */
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 /** 這一場用的規則是不是第 v 版以後（沒寫版本的是現在的規則） */
 export const rulesAtLeast = (s: { rules?: number }, v: number): boolean => (s.rules ?? RULES_VERSION) >= v;
 
@@ -149,6 +150,12 @@ export const SKILL_CAP_CLOSE = 5;
 export const SKILL_GAP_FREE = 3;
 /** 技能差距超過 SKILL_GAP_FREE 的每一級，命中再 −這麼多（只有身手相當的人才打得到傳奇駕駛） */
 export const SKILL_GAP_PENALTY = 6;
+/** 規則第 4 版起的技能修正：每級命中、每級迴避、技能差每級（王牌的優勢縮小） */
+export const HIT_PER_SKILL_V4 = 4;
+export const EVADE_PER_SKILL_V4 = 2;
+export const SKILL_GAP_PENALTY_V4 = 3;
+/** 規則第 4 版起：命中率超過這個值的部分只算一半（停住、高打低、王牌疊起來不會遠超過 100） */
+export const HIT_SOFT_CAP = 80;
 /** 爆擊傷害倍率 */
 export const CRIT_MULTIPLIER = 2;
 /** 瞄準要害（called_shot）：命中時抽部位，核心部位的權重加這麼多 */
@@ -208,6 +215,10 @@ export const SUPPLY_RADIUS = 1.5;
 export const ECM_RADIUS = 4;
 /** 反輻射飛彈：打開著干擾器的機體，命中 +這麼多 */
 export const ARM_HIT_BONUS = 40;
+/** 規則第 4 版起：目標在它那一方的干擾範圍內，導引武器（要標定的）命中 −這麼多，標定的命中加成也不算 */
+export const ECM_GUIDED_PENALTY = 30;
+/** 規則第 4 版起：開著的干擾器會暴露位置，敵機在這個距離內（中心距離）不用視線就看得到它 */
+export const ECM_REVEAL_RANGE = 12;
 /** 埋地雷的最遠距離（底板邊緣距離） */
 export const MINE_LAY_RANGE = 2;
 /** 地雷的觸發半徑：機體底板碰到這個範圍就引爆 */

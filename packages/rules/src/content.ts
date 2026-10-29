@@ -4,6 +4,7 @@ import { PART_ROLES, chassisParts } from './body';
 import { BUILTIN_CONTENT, replaceTables, type RosterEntry } from './data';
 import { DAMAGE_SCALE, MAX_DIAL_SPEED } from './config';
 import { parseManeuver } from './maneuvers';
+import historyJson from '../content/history.json';
 import type { ChassisDef, EquipDef, PilotDef } from './types';
 
 export interface ContentPack {
@@ -37,8 +38,38 @@ export function scaleContent(pack: ContentPack): ContentPack {
   return p;
 }
 
-export const BUILTIN_VERSION = 'builtin-17';
+export const BUILTIN_VERSION = 'builtin-18';
 export const DEFAULT_CONTENT: ContentPack = { version: BUILTIN_VERSION, damageScale: DAMAGE_SCALE, ammoRounds: true, ...BUILTIN_CONTENT };
+
+/**
+ * 內建資料的舊版本：history.json 的每一筆是「從下一版改回這一版」要改的欄位（null 是刪掉這個欄位），
+ * 從現在的版本一路往回套，舊紀錄才能用當時的數值重播
+ */
+const HISTORY = historyJson as Record<string, Partial<Record<'chassis' | 'equipment' | 'pilots', Record<string, Record<string, unknown>>>>>;
+const builtinNumber = (v: string): number => Number(/^builtin-(\d+)$/.exec(v)?.[1] ?? NaN);
+
+/** 內建資料第 version 版（現在的版本，或 history.json 往回推得到的舊版）；不是內建版本就回傳 null */
+export function builtinPack(version: string): ContentPack | null {
+  const n = builtinNumber(version);
+  if (!Number.isFinite(n)) return null;
+  if (version === BUILTIN_VERSION) return DEFAULT_CONTENT;
+  const pack = structuredClone(DEFAULT_CONTENT);
+  // 新的先套：builtin-17 的修補是把 18 改回 17，再往前是 16……（比記錄更舊的版本就套到最舊為止）
+  const steps = Object.keys(HISTORY).filter((k) => builtinNumber(k) >= n && builtinNumber(k) < builtinNumber(BUILTIN_VERSION)).sort((a, b) => builtinNumber(b) - builtinNumber(a));
+  for (const k of steps) {
+    for (const table of ['chassis', 'equipment', 'pilots'] as const) {
+      for (const [id, fields] of Object.entries(HISTORY[k][table] ?? {})) {
+        const row = pack[table][id] as unknown as Record<string, unknown> | undefined;
+        if (!row) continue;
+        for (const [f, v] of Object.entries(fields)) {
+          if (v === null) delete row[f];
+          else row[f] = structuredClone(v);
+        }
+      }
+    }
+  }
+  return { ...pack, version };
+}
 
 let active = BUILTIN_VERSION;
 export const contentVersion = (): string => active;

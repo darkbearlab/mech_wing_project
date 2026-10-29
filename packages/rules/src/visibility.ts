@@ -7,7 +7,7 @@ import { equipAlive } from './unit';
 import { canSee, sensorRange } from './vision';
 import { podSeen } from './psycommu';
 import { EQUIPMENT } from './data';
-import { chaffed, jammed, knownMines } from './ecm';
+import { chaffed, ecmOf, jammed, knownMines } from './ecm';
 
 /** 看得到的敵方炮群 */
 export interface EnemyPod {
@@ -137,7 +137,8 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
     const eyes = state.units.filter((u) => u.owner === p && u.status === 'active');
     const seen = state.units.filter(
       // 被標定的敵機不用視線也看得到
-      (e) => e.owner !== p && (revealed.has(e.id) || !!e.mark || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
+      // 開著的干擾器會暴露位置（第 4 版起）：ECM_REVEAL_RANGE 內不用視線也看得到
+      (e) => e.owner !== p && (revealed.has(e.id) || !!e.mark || (C.rulesAtLeast(state, 4) && !!ecmOf(e) && eyes.some((o) => dist(o.pos, e.pos) <= C.ECM_REVEAL_RANGE)) || eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z))),
     );
     state.visible[p] = seen.map((e) => e.id);
     for (const e of seen) state.lastSeen[p][e.id] = sighting(e, state.turn);
@@ -159,7 +160,7 @@ export function checkMarks(state: GameState): void {
       !roleLost(by, 'sensor') &&
       by.equipment.some((e) => EQUIPMENT[e.defId].utility === 'mark' && equipAlive(by, e)) &&
       // 進入自己這一方的電子干擾範圍，或被煙霧裡的金屬粉隔開，標定就失效
-      !jammed(state.units, t) &&
+      (C.rulesAtLeast(state, 4) || !jammed(state.units, t)) &&
       !chaffed(state.obstacles, by.pos, t.pos) &&
       dist(by.pos, t.pos) - radiusOf(by) - radiusOf(t) <= sensorRange(by);
     if (!ok) delete t.mark;
