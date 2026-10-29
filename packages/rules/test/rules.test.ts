@@ -1013,3 +1013,11 @@ describe('隕石彈開與隊友接觸', () => {
     expect(r.events.some((e) => e.type === 'clash' || e.type === 'grapple')).toBe(false);
   });
 });
+
+it('8 台的開場位置都在地圖裡；7 台以下照舊間隔 4 格', () => {
+  const eight = Array.from({ length: 8 }, () => rifleX00);
+  const st = createGame(1, [eight, eight]);
+  for (const u of st.units) expect(u.pos.x).toBeGreaterThanOrEqual(1 - 1e-9), expect(u.pos.x).toBeLessThanOrEqual(23 + 1e-9);
+  const seven = createGame(1, [eight.slice(0, 7), eight.slice(0, 7)]);
+  expect(seven.units.filter((u) => u.owner === 0).map((u) => u.pos.x)).toEqual([0, 4, 8, 12, 16, 20, 24]);
+});
