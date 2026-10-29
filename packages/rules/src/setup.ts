@@ -68,7 +68,9 @@ export function createGame(seed: number, rosters: [RosterEntry[], RosterEntry[]]
     const facing = owner === 0 ? Math.PI / 2 : -Math.PI / 2;
     roster.forEach((entry, i) => {
       // 和地形一樣以地圖中心點對稱：B 方從右排到左，B1 正好在 A1 的對稱位置
-      const x = MAP_SIZE / 2 + (owner === 0 ? 1 : -1) * (i - (roster.length - 1) / 2) * 4;
+      // 間隔 4 格；排不下的（8 台以上會超出地圖）縮小間隔，兩端離邊緣 1 格（7 台以下照舊，舊紀錄不受影響）
+      const gap = (roster.length - 1) * 4 <= MAP_SIZE ? 4 : (MAP_SIZE - 2) / (roster.length - 1);
+      const x = MAP_SIZE / 2 + (owner === 0 ? 1 : -1) * (i - (roster.length - 1) / 2) * gap;
       units.push(createUnit(entry, owner as PlayerId, i, { x, y }, facing));
     });
   });
