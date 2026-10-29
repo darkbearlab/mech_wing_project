@@ -33,13 +33,38 @@ function turn(m: Match, actions: [Record<string, unknown>, Record<string, unknow
 
 describe('電子干擾', () => {
   /** A0 偵察機朝 +x；B0 干擾機、B1 在它旁邊、B2 在干擾範圍外 */
-  const setup = (): GameState =>
-    makeState([
+  const setup = (rules = 3): GameState => ({
+    ...makeState([
       { entry: scout, owner: 0, x: 5, y: 10, facingDeg: 0 },
       { entry: jammer, owner: 1, x: 12, y: 10, facingDeg: 180 },
       { entry: rifleX00, owner: 1, x: 12, y: 12, facingDeg: 180 },
       { entry: rifleX00, owner: 1, x: 12, y: 10 - C.ECM_RADIUS - 1.5, facingDeg: 180 },
-    ]);
+    ]),
+    rules,
+  });
+
+  it('第 4 版起：干擾範圍內的也標定得到，但導引武器打它命中 −ECM_GUIDED_PENALTY、標定加成不算；標定不會因為走進干擾範圍失效', () => {
+    const m = new Match(1, setup(4));
+    const [a, , near] = m.state.units;
+    turn(m, [{ [a.id]: { action: { type: 'mark', weapon: gear(a, 'designator') } } }, {}]);
+    expect(m.state.units.filter((u) => u.mark).length).toBe(2);
+    const t = { ...near, mark: { by: a.id } };
+    const vls = (jammed: boolean) => hitChance({ attacker: a, attackerSkill: 0, weapon: EQUIPMENT.vls, target: t, targetSkill: null, relSpeed: 0, shooterMelee: false, jammed, rules: 4 })!.chance;
+    expect(vls(false) - vls(true)).toBe(C.ECM_GUIDED_PENALTY);
+    const rifle = (jammed: boolean) => hitChance({ attacker: a, attackerSkill: 0, weapon: EQUIPMENT.beam_rifle, target: t, targetSkill: null, relSpeed: 3, shooterMelee: false, jammed, rules: 4 })!.chance;
+    expect(rifle(false) - rifle(true)).toBe(C.MARK_BONUS);
+  });
+
+  it('第 4 版起：開著的干擾機在 ECM_REVEAL_RANGE 內不用視線就看得到', () => {
+    const st = setup(4);
+    st.obstacles = [{ id: 'w', kind: 'building', x: 8.5, y: 10, r: 1.5, hx: 0.5, hy: 6, levels: 9 }];
+    updateSight(st);
+    expect(st.visible[0]).toContain(st.units[1].id);
+    expect(st.visible[0]).not.toContain(st.units[2].id);
+    st.rules = 3;
+    updateSight(st);
+    expect(st.visible[0]).not.toContain(st.units[1].id);
+  });
 
   it('干擾範圍內的機體（含干擾機自己）標定不到；範圍外的照樣標定', () => {
     const m = new Match(1, setup());
@@ -85,19 +110,21 @@ describe('反輻射飛彈', () => {
       { entry: rifleX00, owner: 1, x: 12, y: 13, facingDeg: 180 },
     ]);
   const chance = (st: GameState, t: number) =>
-    hitChance({ attacker: st.units[0], attackerSkill: 0, weapon: EQUIPMENT.arm_missile, target: st.units[t], targetSkill: null, relSpeed: 3, shooterMelee: false })?.chance ?? null;
+    hitChance({ attacker: st.units[0], attackerSkill: 0, weapon: EQUIPMENT.arm_missile, target: st.units[t], targetSkill: null, relSpeed: 3, shooterMelee: false, rules: 3 })?.chance ?? null;
 
   it('只打開著干擾的機體，不用標定、命中極高；干擾器壞了就打不了', () => {
     const st = setup();
     expect(chance(st, 2)).toBeNull();
     const c = chance(st, 1)!;
-    const rifle = hitChance({ attacker: st.units[0], attackerSkill: 0, weapon: EQUIPMENT.beam_rifle, target: st.units[1], targetSkill: null, relSpeed: 3, shooterMelee: false })!.chance;
+    const rifle = hitChance({ attacker: st.units[0], attackerSkill: 0, weapon: EQUIPMENT.beam_rifle, target: st.units[1], targetSkill: null, relSpeed: 3, shooterMelee: false, rules: 3 })!.chance;
     expect(c).toBeGreaterThan(rifle + C.ARM_HIT_BONUS / 2);
     st.units[1].parts[gear(st.units[1], 'ecm_pod')].destroyed = true;
     expect(chance(st, 1)).toBeNull();
-    // 看不到的目標一樣打不了：射擊線被擋住
+    // 第 3 版以前射擊線被擋住就打不了；第 4 版起追干擾電波，不用射擊線
     st.units[1].parts[gear(st.units[1], 'ecm_pod')].destroyed = false;
-    expect(hitChance({ attacker: st.units[0], attackerSkill: 0, weapon: EQUIPMENT.arm_missile, target: st.units[1], targetSkill: null, relSpeed: 3, shooterMelee: false, cover: 'blocked' })).toBeNull();
+    const blocked = (rules: number) => hitChance({ attacker: st.units[0], attackerSkill: 0, weapon: EQUIPMENT.arm_missile, target: st.units[1], targetSkill: null, relSpeed: 3, shooterMelee: false, cover: 'blocked', rules });
+    expect(blocked(3)).toBeNull();
+    expect(blocked(4)).not.toBeNull();
   });
 
   it('打中就打在干擾器上', () => {

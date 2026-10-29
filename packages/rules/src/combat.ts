@@ -7,7 +7,7 @@ import type { EquipDef, EquipState, PartState, RangeBand, Stance, UnitState, Vec
 import { radiusOf, roleLost } from './body';
 import { activeShields, chassisOf, equipDef, pilotOf, armorOf } from './unit';
 import { barragePenalty, bridgeLost, isShip } from './ship';
-import { ecmOf } from './ecm';
+import { ecmOf, jammed } from './ecm';
 import { EQUIPMENT } from './data';
 
 export interface Positioned {
@@ -68,7 +68,22 @@ export interface HitInput {
   targetEvasion?: number;
   /** 目標在生效中的防禦彈幕裡：命中下降這麼多 */
   barrage?: number;
+  /** 目標在它那一方的電子干擾範圍內 */
+  jammed?: boolean;
+  /** 這場的規則版本（沒寫是現在的規則） */
+  rules?: number;
 }
+
+/** 這個規則版本的技能修正：每級命中、每級迴避、技能差每級 */
+export function skillMods(rules?: number): { hit: number; evade: number; gap: number } {
+  return C.rulesAtLeast({ rules }, 4)
+    ? { hit: C.HIT_PER_SKILL_V4, evade: C.EVADE_PER_SKILL_V4, gap: C.SKILL_GAP_PENALTY_V4 }
+    : { hit: C.HIT_PER_SKILL, evade: C.EVADE_PER_SKILL, gap: C.SKILL_GAP_PENALTY };
+}
+
+/** 命中率超過 HIT_SOFT_CAP 的部分只算一半（規則第 4 版起） */
+export const softCap = (chance: number, rules?: number): number =>
+  C.rulesAtLeast({ rules }, 4) && chance > C.HIT_SOFT_CAP ? Math.round(C.HIT_SOFT_CAP + (chance - C.HIT_SOFT_CAP) / 2) : chance;
 
 /** 扣掉這次要打的發數，回傳實際打得出去的發數（沒有彈數的武器不扣） */
 export function spendRounds(weapon: EquipState, want: number): number {
@@ -132,19 +147,22 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   const evasion = h.targetEvasion ?? chassisOf(h.target).evasion;
   // 穿著外裝甲：迴避下降
   // 導引武器只看機器：射手駕駛的技能不算
-  let chance = C.HIT_BASE + atk.aim + (machine ? 0 : h.attackerSkill * C.HIT_PER_SKILL) + rangeMod - evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
+  const sk = skillMods(h.rules);
+  const v4 = C.rulesAtLeast({ rules: h.rules }, 4);
+  let chance = C.HIT_BASE + atk.aim + (machine ? 0 : h.attackerSkill * sk.hit) + rangeMod - evasion + (armorOf(h.target)?.evasionPenalty ?? 0);
   if (h.targetSkill !== null) {
-    chance -= h.targetSkill * C.EVADE_PER_SKILL;
+    chance -= h.targetSkill * sk.evade;
     // 技能差距太大：只有身手相當的人才打得到
     const gap = machine ? 0 : h.targetSkill - h.attackerSkill - C.SKILL_GAP_FREE;
-    if (gap > 0) chance -= gap * C.SKILL_GAP_PENALTY;
+    if (gap > 0) chance -= gap * sk.gap;
   }
   if (h.relSpeed !== null) chance += guidedFire(h.weapon) ? Math.max(0, relativeSpeedMod(h.relSpeed)) : relativeSpeedMod(h.relSpeed);
   if (h.shooterMelee) chance -= C.MELEE_STANCE_SHOT_PENALTY;
   if (!machine && h.attacker.blackout) chance -= C.BLACKOUT_SHOT_PENALTY;
   if (h.dazzled) chance -= C.DAZZLE_PENALTY;
   if (!machine && h.landing) chance -= C.JUMP_LANDING_PENALTY;
-  if (!indirect) {
+  // 反輻射飛彈追干擾電波：第 4 版起不用射擊線、不吃掩護
+  if (!indirect && !(antiRadiation && v4)) {
     const cover = asCoverInfo(h.cover);
     if (cover.blocked) return null;
     chance -= coverPenalty(cover);
@@ -153,12 +171,15 @@ export function hitChance(h: HitInput): { band: RangeBand; chance: number; high:
   chance += high * C.HIGH_GROUND_HIT;
   if (!indirect && h.weapon.arc === undefined && band > 0 && rel > C.OFF_FRONT_DEG * DEG) chance -= C.OFF_FRONT_PENALTY;
   if (!indirect && h.attacker.lockOn === h.target.id) chance += C.LOCK_BONUS;
-  if (!machine && h.target.mark) chance += C.MARK_BONUS;
+  // 目標在它那一方的干擾範圍內（第 4 版起）：導引武器命中下降，標定的加成也不算
+  const jam = v4 && !!h.jammed;
+  if (!machine && h.target.mark && !jam) chance += C.MARK_BONUS;
+  if (jam && needsMark(h.weapon)) chance -= C.ECM_GUIDED_PENALTY;
   if (antiRadiation) chance += C.ARM_HIT_BONUS;
   if (band >= 3 && roleLost(h.attacker, 'sensor')) chance -= C.HEAD_LONG_PENALTY;
   if (bridgeLost(h.attacker)) chance -= C.SHIP_NO_BRIDGE_PENALTY;
   if (h.barrage) chance -= h.barrage;
-  return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, chance)), high };
+  return { band, chance: Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, softCap(chance, h.rules))), high };
 }
 
 /** 每面盾牌的防護範圍（弧度）：手持盾預設在持盾那側，固定盾照資料的角度 */
@@ -221,6 +242,8 @@ export function shoot(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: Equ
     landing: turn.jumped?.has(attacker.id),
     // 戰艦自己的射擊不受彈幕影響
     barrage: isShip(attacker) ? 0 : barragePenalty(ctx.state.units, target),
+    jammed: jammed(ctx.state.units, target),
+    rules: ctx.state.rules,
   });
   if (!h) return false;
   // 彈藥以發計：打出幾發扣幾發，剩的不夠一輪就只打剩下的（落下的飛行彈藥發射時已經扣過）

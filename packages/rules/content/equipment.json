@@ -400,9 +400,12 @@
     "kind": "utility",
     "utility": "ecm",
     "mount": "mounted",
-    "weight": 1,
+    "chassisOnly": [
+      "X-07"
+    ],
+    "weight": 3,
     "durability": 20,
-    "cost": 2
+    "cost": 4
   },
   "arm_missile": {
     "id": "arm_missile",

@@ -85,7 +85,7 @@ describe('高打低', () => {
       { entry: rifleX00, owner: 1, x: 10, y: 5, facingDeg: 180 },
     ]);
     const [a, b] = st.units;
-    const at = (za: number, zb: number) => hitChance({ attacker: { ...a, z: za }, attackerSkill: 3, weapon: EQUIPMENT.beam_rifle, target: { ...b, z: zb }, targetSkill: null, relSpeed: null, shooterMelee: false })!;
+    const at = (za: number, zb: number) => hitChance({ attacker: { ...a, z: za }, attackerSkill: 3, weapon: EQUIPMENT.beam_rifle, target: { ...b, z: zb }, targetSkill: null, relSpeed: null, shooterMelee: false, rules: 3 })!;
     expect(at(2, 0).chance - at(0, 0).chance).toBe(2 * C.HIGH_GROUND_HIT);
     expect(at(4, 0).high).toBe(C.HIGH_GROUND_MAX_LEVELS);
     expect(at(0, 2).chance).toBe(at(0, 0).chance);

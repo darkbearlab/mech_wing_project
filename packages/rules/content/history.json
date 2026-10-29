@@ -1,0 +1,20 @@
+{
+  "builtin-17": {
+    "chassis": {
+      "X-00": {
+        "heavyMounts": 1
+      },
+      "X-04": {
+        "evasion": 0
+      }
+    },
+    "equipment": {
+      "ecm_pod": {
+        "cost": 2,
+        "weight": 1,
+        "chassisOnly": null
+      }
+    }
+  },
+  "builtin-16": {}
+}

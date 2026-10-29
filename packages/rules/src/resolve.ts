@@ -796,7 +796,9 @@ function doMark(ctx: Ctx, u: UnitState, action: Extract<ActionPlan['action'], { 
   for (const x of state.units) if (x.mark?.by === u.id) delete x.mark;
   // 在對方電子干擾範圍內的敵機標定不到
   // 在煙霧裡、隔著煙霧的也標定不到（金屬粉）
-  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !jammed(state.units, t) && !chaffed(state.obstacles, u.pos, t.pos) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
+  // 第 4 版起干擾不再擋標定（改成導引武器命中下降）
+  const ecmBlocks = !C.rulesAtLeast(state, 4);
+  const pool = state.units.filter((t) => t.owner !== u.owner && t.status === 'active' && !t.mark && !(ecmBlocks && jammed(state.units, t)) && !chaffed(state.obstacles, u.pos, t.pos) && inMarkCone(u, t.pos, radiusOf(u) + radiusOf(t)));
   if (!pool.length) return fail(`正面 ±${C.MARK_ARC_DEG}°、感測距離 ${sensorRange(u)} 格內沒有可以標定的敵機`);
   for (let n = def.markCount ?? C.MARK_COUNT; n > 0 && pool.length; n--) {
     const t = pool.splice(Math.floor(ctx.rng.next() * pool.length), 1)[0];

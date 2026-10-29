@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as C from '../src/config';
 import { DEFAULT_CONTENT, useContent, type ContentPack } from '../src/content';
 import { DEFAULT_SETTINGS } from '../src/objectives';
 import { resolveTurn } from '../src/resolve';
@@ -84,12 +85,20 @@ describe('瞄準要害', () => {
 describe('技能差距與爆擊', () => {
   const s = makeState([{ entry: rifleX00, owner: 0, x: 10, y: 10, facingDeg: 90 }, { entry: rifleX00, owner: 1, x: 10, y: 15, facingDeg: -90 }]);
   const [a, t] = s.units;
-  const chance = (atk: number, tgt: number) => hitChance({ attacker: a, attackerSkill: atk, weapon: EQUIPMENT['beam_rifle'], target: t, targetSkill: tgt, relSpeed: null, shooterMelee: false })!.chance;
+  const chance = (atk: number, tgt: number) => hitChance({ attacker: a, attackerSkill: atk, weapon: EQUIPMENT['beam_rifle'], target: t, targetSkill: tgt, relSpeed: null, shooterMelee: false, rules: 3 })!.chance;
   it('目標技能比射擊方高 3 級以上，每多一級命中再 −6；最低 0%', () => {
     expect(chance(1, 4) - chance(1, 5)).toBe(3 + 6);
     expect(chance(4, 5) - chance(4, 6)).toBe(3);
     expect(chance(0, 30)).toBe(0);
   });
+  it('第 4 版起：技能每級命中 +HIT_PER_SKILL_V4、迴避 +EVADE_PER_SKILL_V4，超過 HIT_SOFT_CAP 的部分減半', () => {
+    const v4 = (atk: number, tgt: number) => hitChance({ attacker: a, attackerSkill: atk, weapon: EQUIPMENT['beam_rifle'], target: t, targetSkill: tgt, relSpeed: null, shooterMelee: false, rules: 4 })!.chance;
+    expect(v4(1, 1) - v4(1, 2)).toBe(C.EVADE_PER_SKILL_V4);
+    expect(v4(1, 4) - v4(1, 5)).toBe(C.EVADE_PER_SKILL_V4 + C.SKILL_GAP_PENALTY_V4);
+    expect(chance(10, 0)).toBeGreaterThan(C.HIT_SOFT_CAP + 10);
+    expect(v4(10, 0)).toBe(Math.round(C.HIT_SOFT_CAP + (chance(10, 0) - 10 * (C.HIT_PER_SKILL - C.HIT_PER_SKILL_V4) - C.HIT_SOFT_CAP) / 2));
+  });
+
   it('命中可以超過 100（超過的部分是爆擊率），最多 200', () => {
     expect(chance(30, 0)).toBeGreaterThan(100);
     expect(chance(60, 0)).toBe(200);

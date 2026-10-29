@@ -188,6 +188,7 @@ export function shootPod(ctx: Ctx, turn: TurnInfo, attacker: UnitState, weapon: 
     cover: coverOf(ctx.state.obstacles, attacker.pos, e.pod!.pos),
     dazzled: turn.dazzled?.has(attacker.id),
     targetEvasion: ps.evasion ?? 0,
+    rules: ctx.state.rules,
   });
   if (!h) return false;
   const shots = spendRounds(weapon, def.shots ?? 1);

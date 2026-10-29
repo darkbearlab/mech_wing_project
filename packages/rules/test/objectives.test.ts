@@ -37,9 +37,13 @@ describe('費用與陣容', () => {
     const heavy: RosterEntry = { chassis: 'X-04', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso'], ['shoulder_cannon', 'mount', 'torso'], ['vls', 'mount', 'pack']] };
     expect(check(heavy)).toContain('重掛點');
     expect(check({ ...heavy, equipment: heavy.equipment.slice(0, 2) })).toBe('');
-    // 中型機一個重掛點、輕型機沒有
-    expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso'], ['shoulder_cannon', 'mount', 'torso']] })).toContain('重掛點');
-    expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso']] })).toBe('');
+    // X-05 一個重掛點；X-00、輕型機沒有
+    expect(check({ chassis: 'X-05', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso'], ['shoulder_cannon', 'mount', 'torso']] })).toContain('重掛點');
+    expect(check({ chassis: 'X-05', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso']] })).toBe('');
+    expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso']] })).toContain('沒有重掛點');
+    // 電子干擾器只有 X-07 能裝
+    expect(check({ chassis: 'X-00', pilot: 'veteran', equipment: [['ecm_pod', 'mount', 'pack']] })).toContain('不能裝在這個機型上');
+    expect(check({ chassis: 'X-07', pilot: 'veteran', equipment: [['ecm_pod', 'mount', 'pack']] })).toBe('');
     expect(check({ chassis: 'X-01', pilot: 'veteran', equipment: [['shoulder_cannon', 'mount', 'torso']] })).toContain('沒有重掛點');
     // 載重：輕型機 7
     expect(check({ chassis: 'X-01', pilot: 'veteran', equipment: [['beam_rifle', 'right'], ['shield', 'left'], ['machine_gun', 'stowed']] })).toContain('載重 8 超過上限 7');
