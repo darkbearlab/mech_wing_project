@@ -10,7 +10,7 @@ import { lungeCheck, meleeClash } from './melee';
 import { parseManeuver } from './maneuvers';
 import { simulateMovement } from './movement';
 import { CHASSIS, EQUIPMENT } from './data';
-import { lineOfFire, wallPenetration } from './terrain';
+import { lineOfFire, wallPenetration, insideField } from './terrain';
 import { updateSight } from './visibility';
 import { Rng } from './rng';
 import type { ActionPlan, EquipState, GameEvent, Mine, Obstacle, GameState, MovePlan, PlayerActions, PlayerId, PlayerMoves, PlayerPursuits, PursuitPlan, Stance, UnitState, Vec } from './types';
@@ -427,6 +427,11 @@ export function resolveActions(input: GameState, actionsByPlayer: [PlayerActions
 
   state.phase = 'move';
   state.turnInfo = null;
+  // 第 5 版起：在隕石群裡開火的，暴露到下一回合結束
+  if (C.rulesAtLeast(state, 5)) for (const id of revealed) {
+    const u = state.units.find((x) => x.id === id);
+    if (u && insideField(state.obstacles, u.pos)) u.exposedUntil = state.turn + 1;
+  }
   updateSight(state, revealed);
   // 回合結束：煙霧散掉（散了以後氣球就藏不住了）
   state.obstacles = state.obstacles.filter((o) => o.kind !== 'smoke' || (o.until ?? 0) > state.turn);
@@ -664,7 +669,9 @@ function shootBuilding(ctx: Ctx, turn: TurnInfo, u: UnitState, weapons: EquipSta
     let hits = 0;
     for (let i = 0; i < shots; i++) if (ctx.rng.d100() <= h.chance) hits++;
     const before = new Map(state.units.map((x) => [x.id, x.z ?? 0]));
-    const r = hits ? damageBuilding(state.obstacles, o, hits * (def.damage ?? C.DAMAGE_SCALE), def.damageType ?? 'kinetic', () => ctx.rng.next()) : { amount: 0, lost: 0, chain: 0, collapsed: false };
+    // 第 5 版起：化學能直射武器與迫擊砲拆樓倍率提高
+    const chem = def.damageType === 'chemical' && C.rulesAtLeast(state, 5) ? C.CHEMICAL_BUILDING_MULT_V5 : undefined;
+    const r = hits ? damageBuilding(state.obstacles, o, hits * (def.damage ?? C.DAMAGE_SCALE), def.damageType ?? 'kinetic', () => ctx.rng.next(), chem) : { amount: 0, lost: 0, chain: 0, collapsed: false };
     ctx.events.push({ type: 'buildingShot', attacker: u.id, obstacle: o.id, weapon: def.id, shots, hits, chance: h.chance, amount: r.amount, levels: o.levels ?? 0, collapsed: r.collapsed, ...(r.chain ? { chain: r.chain } : {}) });
     if (!r.lost) continue;
     settleHeights(state, ctx.events);

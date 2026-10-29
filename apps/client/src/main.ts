@@ -3748,6 +3748,8 @@ function describe(e: GameEvent): string | null {
       return `${L(e.unit)} ${e.hand === 'right' ? '右手' : '左手'}換成 ${equipName(unitView(e.unit), e.equip)}`;
     case 'lock':
       return `${L(e.unit)} 鎖定 ${L(e.target)}`;
+    case 'stray':
+      return `${L(e.attacker)} 打 ${L(e.target)} 的流彈打到旁邊的 ${L(e.unit)}`;
     case 'blast':
       return `${L(e.by)} 的迫擊砲沒打中，砲彈落地爆炸${e.units.length ? `，炸到 ${e.units.map(L).join('、')}` : ''}`;
     case 'deploy':

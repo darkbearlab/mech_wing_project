@@ -92,11 +92,12 @@ describe('高打低', () => {
   });
 
   it('高出 HIGH_GROUND_DAMAGE_FROM 層以上命中：每發傷害 +HIGH_GROUND_DAMAGE_PCT', () => {
-    const run = (z: number) => {
+    const run = (z: number, rules = 3) => {
       const st = makeState([
         { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 },
         { entry: rifleX00, owner: 1, x: 9, y: 5, facingDeg: 180 },
       ], 3);
+      st.rules = rules;
       st.units[0].z = z;
       if (z) st.obstacles = [bld('r', 5, 5, 1, 1, z)];
       const { events } = fire(st, { action: { type: 'shoot', weapon: st.units[0].equipment[0].id, target: st.units[1].id } });
@@ -108,6 +109,21 @@ describe('高打低', () => {
     expect(run(C.HIGH_GROUND_DAMAGE_FROM - 1)).toBe(low);
     expect(low).toBeGreaterThan(0);
     expect(high).toBe(Math.round(low * (1 + C.HIGH_GROUND_DAMAGE_PCT)));
+    // 第 5 版起沒有傷害加成
+    expect(run(C.HIGH_GROUND_DAMAGE_FROM, 5)).toBe(run(0, 5));
+  });
+
+  it('第 5 版起：高打低只有固定 +HIGH_GROUND_HIT；目標高 HIGH_TARGET_COVER_FROM 層以上算半掩護', () => {
+    const st = makeState([
+      { entry: rifleX00, owner: 0, x: 5, y: 5, facingDeg: 0 },
+      { entry: rifleX00, owner: 1, x: 10, y: 5, facingDeg: 180 },
+    ]);
+    const [a, b] = st.units;
+    const at = (za: number, zb: number) => hitChance({ attacker: { ...a, z: za }, attackerSkill: 0, weapon: EQUIPMENT.beam_rifle, target: { ...b, z: zb }, targetSkill: null, relSpeed: 3, shooterMelee: false, rules: 5 })!.chance;
+    expect(at(1, 0) - at(0, 0)).toBe(C.HIGH_GROUND_HIT);
+    expect(at(3, 0)).toBe(at(1, 0));
+    expect(at(0, 1)).toBe(at(0, 0));
+    expect(at(0, 0) - at(0, 2)).toBe(C.BUILDING_COVER_PENALTY);
   });
 });
 

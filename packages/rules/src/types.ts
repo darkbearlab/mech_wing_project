@@ -282,6 +282,8 @@ export interface UnitState {
   lockOn: string | null;
   status: UnitStatus;
   blackout: boolean;
+  /** 規則第 5 版起：在隕石群裡開火，到第幾回合結束前都暴露給附近的敵機 */
+  exposedUntil?: number;
   /** 高度（層）：站在幾層樓高的樓頂；沒寫是地面 0 */
   z?: number;
   /** 被敵方標定：by 是標定的機體。敵方看得到它（不用視線）、射擊命中 +MARK_BONUS；超出標定機的感測距離就解除 */
@@ -574,6 +576,8 @@ export type GameEvent =
   | { type: 'lock'; unit: string; target: string }
   /** 迫擊砲沒打中：砲彈落在 at，炸到附近的 units */
   | { type: 'blast'; by: string; at: Vec; units: string[] }
+  /** 散射武器沒打中的一發打到目標旁邊的敵機 */
+  | { type: 'stray'; attacker: string; target: string; unit: string }
   /** 展開盾展開（up）或收起 */
   | { type: 'deploy'; unit: string; equip: string; up: boolean }
   /** 突進／跳劈：from 是出發位置；jump 是跳劈的落差（層），一般突進是 0 */
