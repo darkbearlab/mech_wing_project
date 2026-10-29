@@ -157,6 +157,7 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
           !!e.mark ||
           (C.rulesAtLeast(state, 4) && !!ecmOf(e) && eyes.some((o) => dist(o.pos, e.pos) <= C.ECM_REVEAL_RANGE)) ||
           ((e.exposedUntil ?? -1) >= state.turn && eyes.some((o) => dist(o.pos, e.pos) <= C.FIELD_FIRE_EXPOSE_RANGE)) ||
+          (C.rulesAtLeast(state, 9) && (e.markExposedUntil ?? -1) >= state.turn && eyes.length > 0) ||
           eyes.some((o) => canSee(state.obstacles, o.pos, stealthy(state, e) ? Math.min(sensorRange(o), C.STEALTH_SPOT_RANGE) : sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))),
     );
     state.visible[p] = seen.map((e) => e.id);
@@ -166,6 +167,7 @@ export function updateSight(state: GameState, revealed: Set<string> = new Set())
         if (
           !revealed.has(e.id) &&
           !e.mark &&
+          !(C.rulesAtLeast(state, 9) && (e.markExposedUntil ?? -1) >= state.turn) &&
           !((e.exposedUntil ?? -1) >= state.turn && eyes.some((o) => dist(o.pos, e.pos) <= C.FIELD_FIRE_EXPOSE_RANGE)) &&
           !eyes.some((o) => canSee(state.obstacles, o.pos, sensorRange(o), e.pos, radiusOf(o) + radiusOf(e), o.z, e.z, lookOut))
         )

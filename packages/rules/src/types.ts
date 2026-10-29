@@ -286,6 +286,8 @@ export interface UnitState {
   blackout: boolean;
   /** 規則第 5 版起：在隕石群裡開火，到第幾回合結束前都暴露給附近的敵機 */
   exposedUntil?: number;
+  /** 規則第 9 版起：標定成功後，到第幾回合結束前敵方都看得到它（不限距離） */
+  markExposedUntil?: number;
   /** 高度（層）：站在幾層樓高的樓頂；沒寫是地面 0 */
   z?: number;
   /** 被敵方標定：by 是標定的機體。敵方看得到它（不用視線）、射擊命中 +MARK_BONUS；超出標定機的感測距離就解除 */

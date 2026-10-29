@@ -104,3 +104,27 @@ describe('近炸武器與匿蹤塗層（第 8 版）', () => {
     expect(st.visible[0]).toContain(st.units[1].id);
   });
 });
+
+describe('標定會暴露自己（第 9 版）', () => {
+  const scout: RosterEntry = { chassis: 'X-07', pilot: 'veteran', equipment: [['machine_gun', 'right'], ['designator', 'mount', 'head']] };
+  const run = (rules: number) => {
+    // 標定機在 14 格外、隔著一棟高樓：平常敵方看不到它
+    const st = state([
+      { entry: scout, owner: 0, x: 3, y: 10 },
+      { entry: rifleX00, owner: 1, x: 16, y: 10 },
+    ], rules);
+    st.obstacles = [{ id: 'w', kind: 'building', x: 9, y: 13, r: 1.5, hx: 0.5, hy: 1, levels: 9 }];
+    updateSight(st);
+    const m = new Match(1, st);
+    turn(m, [{ [st.units[0].id]: { action: { type: 'mark', weapon: gear(st, 0, 'designator') } } }, {}]);
+    return m.state;
+  };
+  it('標定成功：到下一回合結束前敵方看得到標定機', () => {
+    const s9 = run(9);
+    expect(s9.units[1].mark).toBeDefined();
+    expect(s9.units[0].markExposedUntil).toBe(2);
+    expect(s9.visible[1]).toContain(s9.units[0].id);
+    const s8 = run(8);
+    expect(s8.visible[1]).not.toContain(s8.units[0].id);
+  });
+});
