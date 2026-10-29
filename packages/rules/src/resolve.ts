@@ -3,7 +3,7 @@ import { barricadeSpotOk, barricadeWall, chaffed, jammed, mineSpotOk } from './e
 import { buildingHitChance, collapseVictims, damageBuilding } from './demolition';
 import * as C from './config';
 import { inMarkCone, sensorRange } from './vision';
-import { landInbound, needsMark, shoot, hitChance, spendRounds, type TurnInfo } from './combat';
+import { landInbound, needsMark, shoot, hitChance, spendRounds, type TurnInfo , indirectFire } from './combat';
 import { addStress, damageUnit, dealtBy, spendPropellant, typed, unitById, type Ctx } from './damage';
 import { resolveGrapple } from './grapple';
 import { lungeCheck, meleeClash } from './melee';
@@ -946,7 +946,7 @@ function doAction(ctx: Ctx, turn: TurnInfo, u: UnitState, plan: ActionPlan, benc
   for (const w of weapons) {
     if (target.status !== 'active') break;
     if (shoot(ctx, turn, u, w, target)) fired = true;
-    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${needsMark(EQUIPMENT[w.defId]) && !target.mark ? '飛彈、迫擊砲只能打被標定的目標' : lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
+    else ctx.events.push({ type: 'actionFail', unit: u.id, reason: `${EQUIPMENT[w.defId].name}：${needsMark(EQUIPMENT[w.defId]) && !target.mark ? '飛彈、迫擊砲只能打被標定的目標' : !indirectFire(EQUIPMENT[w.defId]) && lineOfFire(ctx.state.obstacles, u.pos, target.pos, u.z, target.z) === 'blocked' ? '射擊線被擋住' : '目標不在射程或射界內'}` });
   }
   return fired;
 }

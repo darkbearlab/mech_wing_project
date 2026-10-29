@@ -95,7 +95,7 @@ describe('干擾器只暴露位置（第 7 版）', () => {
     if (m.phase === 'pursuit') m.submitPursuits(0, {}), m.submitPursuits(1, {});
     const gun = a.equipment.find((e) => e.defId === 'machine_gun')!.id;
     const mortar = a.equipment.find((e) => e.defId === 'mortar')!.id;
-    m.submitActions(0, { [a.id]: plan({ action: { type: 'shoot', weapon: gun, also: [mortar], target: j.id } }) } as never);
+    m.submitActions(0, { [a.id]: plan({ maneuver: 'hover-S-0', action: { type: 'shoot', weapon: gun, also: [mortar], target: j.id } }) } as never);
     m.submitActions(1, {});
     const ev = m.turnResolvedEvents;
     expect(ev.some((e) => e.type === 'actionFail' && e.reason.includes('只知道位置'))).toBe(true);
